@@ -28,10 +28,35 @@ local function addLines(tooltip, itemID)
   local realm = FI:Realm()
   local it = realm and realm.items[itemID]
   local vendor = vendorPrice(itemID)
+  local de, deComplete, deParts = FI.Disenchant:Value(itemID)
+
+  -- Disenchant line (plus, holding Shift, what it breaks into)
+  local function addDisenchant(mkt, count)
+    if not de then return end
+    local soft = FI.colors.soft
+    local better = mkt and de > mkt * 0.95
+    local r, g, b = soft[1], soft[2], soft[3]
+    if better or not mkt then r, g, b = FI.colors.up[1], FI.colors.up[2], FI.colors.up[3] end
+    local label = better and "Disenchant (better than AH)" or "Disenchant"
+    tooltip:AddDoubleLine(label, "~" .. FI.Money(de * count) .. (deComplete and "" or " ?"), r, g, b, 1, 1, 1)
+    if IsShiftKeyDown() and deParts then
+      for _, p in ipairs(deParts) do
+        local qty = p.qty % 1 == 0 and tostring(p.qty) or ("%.1f"):format(p.qty)
+        tooltip:AddDoubleLine(("   %d%%  %s x%s"):format(math.floor(p.chance * 100 + 0.5), FI:ItemName(p.id), qty),
+          p.price and FI.Money(p.price * p.qty) or "no price", soft[1], soft[2], soft[3], soft[1], soft[2], soft[3])
+      end
+      tooltip:AddLine("|cff8b95a3Estimate from Classic disenchant tables.|r")
+    end
+  end
+
   if not it or not it.mkt then
-    if vendor and IsShiftKeyDown() then
+    -- never seen on the AH: gear can still show what it disenchants for
+    if de then
       tooltip:AddLine(" ")
       tooltip:AddDoubleLine("|cffe8b84aGoonberg|r", "|cff8b95a3not seen on the AH|r")
+      addDisenchant(nil, stackCount(tooltip))
+      tooltip.fiLastItem, tooltip.fiLastAdded = itemID, GetTime()
+      tooltip:Show()
     end
     return
   end
@@ -60,6 +85,7 @@ local function addLines(tooltip, itemID)
     if better then r, g, b = FI.colors.up[1], FI.colors.up[2], FI.colors.up[3] end
     tooltip:AddDoubleLine(better and "Vendor (better than AH)" or "Vendor", FI.Money(vendor * count), r, g, b, 1, 1, 1)
   end
+  addDisenchant(it.mkt, count)
   if it.imported and (not it.seen or it.imported > it.seen) then
     tooltip:AddLine(("|cff8b95a3From Auctionator, %s|r"):format(FI.Ago(it.imported)))
   else

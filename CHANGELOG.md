@@ -1,5 +1,11 @@
 # Goonberg Terminal
 
+## 0.10.0
+
+- **Disenchant value.** Uncommon, rare and epic armor and weapons show "Disenchant ~X" in their tooltip: the expected value of what they break into, priced at your AH prices. When disenchanting beats selling on the AH, the line turns green and says so. It shows even for gear that's never been on the AH. Hold Shift to see each possible material, its chance and its value.
+- `/goon de <item>` prints the breakdown; `/goon de watch` adds every disenchant material to your watchlist so they stay priced.
+- Estimates use the Classic disenchant tables (item level, quality, armor vs. weapon); Forever's custom gear may differ.
+
 ## 0.9.0
 
 - **Cleaner look.**

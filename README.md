@@ -18,7 +18,7 @@ Goonberg Terminal turns your AH scans into a trading screen: candlestick price c
 - **Market depth**: how many are listed at each price, and where the "wall" is (the big stack everyone has to buy through).
 - **Price alerts**: set "notify me below 3g50s" or "above 5g". When a scan crosses it you get a toast, a sound and a chat message.
 - **Market overview** (`/goon` anywhere): the Goonberg Index, est. gold traded, top gainer and loser, and every item sortable by price, 24h %, 7d %, listings and est. sold. Filter by Herbs, Ore & Bars, Cloth and more.
-- **Tooltips everywhere**: market price, stack value, lowest buyout, 7-day change, est. sold per day and vendor price, on every item you hover.
+- **Tooltips everywhere**: market price, stack value, lowest buyout, 7-day change, est. sold per day, vendor price and disenchant value, on every item you hover, with a green hint when vendoring or disenchanting beats the AH.
 - **Crafting profit** (`/goon2`): for every recipe you know, the cost of reagents vs. what the item sells for after the AH cut, so you see at a glance what's worth crafting today. Its overview tracks how all your recipes perform over time: margins over 14 days, each profession, and which recipes are getting better or worse.
 - **P&L card** (`/goon pnl`): your AH profit for today, 7 days, 30 days or all time, with a goblin sitting on his gold. Share it in guild chat or screenshot it.
 - **Share a price**: `/goon post Arcanite Bar` puts a one-line summary in guild chat.
@@ -52,6 +52,7 @@ Blizzard allows one full AH scan every 15 minutes per account. The Scan button s
 | `/goon watch <item>` / `/goon unwatch <item>` | Add or remove from your watchlist |
 | `/goon alert <item> below 3g50s` | Price alert (also `above`, or `clear`) |
 | `/goon post <item> [guild\|party\|raid\|say]` | Share a price in chat |
+| `/goon de <item>` | What it disenchants into and is worth (`/goon de watch` follows all materials) |
 | `/goon sync` | Guild sync status (`on`, `off`, `history`) |
 | `/goon import` | Pull price history from Auctionator now (`/goon import off` stops the login import) |
 | `/goon scale 0.9` / `/goon scale reset` | Shrink or grow the window (or drag its corner) |

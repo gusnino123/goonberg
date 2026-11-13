@@ -326,6 +326,7 @@ local help = {
   "/goon post <item> [guild|party|raid|say]  - share a price",
   "/goon autoscan|dock|sound|tooltip on|off",
   "/goon minimap on|off|reset  - the button under the minimap",
+  "/goon de <item>  - what it disenchants into and is worth  |  /goon de watch",
   "/goon sync  - guild sync status  |  /goon sync on|off|history|catchup",
   "/goon import  - pull price history from Auctionator (also automatic at login; /goon import off)",
   "/goon scale 0.9  |  /goon scale reset  - window size (or drag its corner)",
@@ -385,6 +386,19 @@ SlashCmdList.GOONBERG = function(msg)
     if not v or v < 0.5 or v > 1.5 then return FI:Print("Usage: /goon scale 0.5 to 1.5 (now %.2f), or /goon scale reset", FI.db.scale or 1) end
     FI.UI:SetScale(v)
     FI:Print("Window scale set to %.2f.", v)
+  elseif cmd == "de" or cmd == "disenchant" then
+    if rest:lower() == "watch" then
+      for _, id in ipairs(FI.Disenchant:Materials()) do FI.Alerts:Watch(id) end
+      return FI:Print("Watching every disenchant material.")
+    end
+    local id = FI:FindItem(rest)
+    if not id then return FI:Print("Usage: /goon de <item>  (or /goon de watch)") end
+    local v, complete, parts = FI.Disenchant:Value(id)
+    if not parts then return FI:Print("%s can't be disenchanted.", FI:ItemName(id)) end
+    FI:Print("%s disenchants for about %s%s:", FI:ItemLink(id) or FI:ItemName(id), FI.Money(v or 0), complete and "" or " (some materials not priced yet)")
+    for _, p in ipairs(parts) do
+      DEFAULT_CHAT_FRAME:AddMessage(("   %d%%  %s x%s  %s"):format(math.floor(p.chance * 100 + 0.5), FI:ItemName(p.id), p.qty, p.price and FI.Money(p.price * p.qty) or "no price"))
+    end
   elseif cmd == "sync" then
     local arg = rest:lower()
     if arg == "on" or arg == "off" then
