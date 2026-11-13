@@ -1,5 +1,14 @@
 # Goonberg Terminal
 
+## 0.9.0
+
+- **Cleaner look.**
+  - Header tabs are plain text with a gold underline on the open tab, like a trading terminal.
+  - Toggle groups (timeframes, views, sorting) sit in one dark track instead of loose buttons.
+  - Tables have a header band and faint alternating row stripes, with a little more space per row.
+  - A soft shadow lifts the window off the game world.
+  - Crafting: the side panel is gone. Recipes expand in place, so the table uses the full width and names no longer get cut short.
+
 ## 0.8.1
 
 - **Crafting: click a crafted item to expand it.** Right under it you see every reagent with how many you need, the price each, whether that price is from the AH or a vendor, and the cost of that line, then a total line with cost to craft, what it sells for, profit and margin. Click again to collapse. Click a reagent to open its chart; hover for its tooltip.

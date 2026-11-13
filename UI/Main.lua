@@ -67,6 +67,7 @@ function UI:Build()
   f:SetMovable(true)
   f:EnableMouse(true)
   f:Hide()
+  W.Shadow(f)
   _G.GoonbergTerminalFrame = f
   tinsert(UISpecialFrames, "GoonbergTerminalFrame") -- Escape closes it
 
@@ -92,8 +93,17 @@ function UI:Build()
 
   local keys = { Overview = "overview", Chart = "chart", Crafting = "craft", ["P&L"] = "pnl" }
   self.tabLabels = { overview = "Overview", chart = "Chart", craft = "Crafting", pnl = "P&L" }
-  local tabs = W.Choice(head, { "Overview", "Chart", "Crafting", "P&L" }, "seg", function(v) UI:Show(keys[v]) end, 30)
-  tabs:SetPoint("LEFT", mark, "RIGHT", 120, 0)
+  local tabs = W.Choice(head, { "Overview", "Chart", "Crafting", "P&L" }, "tab", function(v) UI:Show(keys[v]) end, self.HEADER - 1)
+  tabs:SetPoint("BOTTOMLEFT", head, "BOTTOMLEFT", 170, 1)
+  for _, b in pairs(tabs.buttons) do b:SetWidth(b:GetWidth() + 12) end
+  -- re-space after widening
+  local x = 0
+  for _, name in ipairs({ "Overview", "Chart", "Crafting", "P&L" }) do
+    local b = tabs.buttons[name]
+    b:ClearAllPoints(); b:SetPoint("LEFT", tabs, "LEFT", x, 0)
+    x = x + b:GetWidth()
+  end
+  tabs:SetWidth(x)
   self.tabBar = tabs
 
   local close = CreateFrame("Button", nil, head, "UIPanelCloseButton")

@@ -6,7 +6,7 @@ local W = FI.Widgets
 local C = FI.colors
 local H
 
-local ROWS, ROW_H = 40, 26
+local ROWS, ROW_H = 40, 28
 local SPARK_W, SPARK_H, SPARK_N = 104, 18, 24
 
 -- Column layout. Rank and item hang off the left edge; the numbers hang off the
@@ -214,16 +214,11 @@ function O:Build(parent)
   tbl:SetPoint("TOPLEFT", 16, -172)
   tbl:SetPoint("BOTTOMRIGHT", -16, 16)
 
-  local head = CreateFrame("Frame", nil, tbl)
-  head:SetPoint("TOPLEFT", 1, -1)
-  head:SetPoint("TOPRIGHT", -1, -1)
-  head:SetHeight(28)
-  local hl = W.Tex(head, C.border)
-  hl:SetPoint("BOTTOMLEFT"); hl:SetPoint("BOTTOMRIGHT"); hl:SetHeight(1)
+  local head = W.TableHeader(tbl, 30)
   self.headers = {}
   for _, col in ipairs(COLS) do
     local b = CreateFrame("Button", nil, head)
-    b:SetHeight(28)
+    b:SetHeight(30)
     b.text = W.Heading(b, col.label)
     if col.left then
       b:SetPoint("LEFT", head, "LEFT", col.x, 0)

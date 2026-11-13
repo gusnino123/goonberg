@@ -6,6 +6,7 @@ local W = FI.Widgets
 local C = FI.colors
 
 local ROWS, ROW_H = 30, 30
+-- (the old side panel is kept hidden; the list expands in place instead)
 local DETAIL_W = 320
 local TOP = 90 -- the table starts below two rows of controls
 -- numbers hang off the table's right edge (r = right side of the column)
@@ -357,14 +358,9 @@ function K:Build(parent)
 
   local tbl = W.Box(tab, C.panel, C.border)
   tbl:SetPoint("TOPLEFT", 16, -TOP)
-  tbl:SetPoint("BOTTOMRIGHT", -(16 + DETAIL_W + 12), 16)
+  tbl:SetPoint("BOTTOMRIGHT", -16, 16)
 
-  local head = CreateFrame("Frame", nil, tbl)
-  head:SetPoint("TOPLEFT", 1, -1)
-  head:SetPoint("TOPRIGHT", -1, -1)
-  head:SetHeight(28)
-  local hl = W.Tex(head, C.border)
-  hl:SetPoint("BOTTOMLEFT"); hl:SetPoint("BOTTOMRIGHT"); hl:SetHeight(1)
+  local head = W.TableHeader(tbl, 30)
   local it = W.Heading(head, "CRAFTED ITEM")
   it:SetPoint("LEFT", 12, 0)
   for _, col in ipairs(COLS) do
@@ -391,7 +387,8 @@ function K:Build(parent)
 
   buildDetail(tab)
   self:ShowDetail(nil)
-  self.recipeParts = { self.profBar, sortBy, only, search, tbl, self.detail }
+  self.recipeParts = { self.profBar, sortBy, only, search, tbl }
+  self.detail:Hide() -- details now open in place under each recipe
   self.overview = self:BuildOverview(tab)
   tab.Refresh = function() K:Refresh() end
   return tab

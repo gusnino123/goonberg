@@ -40,8 +40,16 @@ function W.Button(parent, label, width, height, style)
   b:SetSize(width or 80, height or 26)
   b:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
   b.style = style or "ghost"
-  b.label = W.Text(b, 12, C.soft)
+  b.label = W.Text(b, (style == "tab") and 13 or 12, C.soft)
   b.label:SetPoint("CENTER")
+  if style == "tab" then
+    -- header tab: plain text with a gold underline when active
+    b.line = b:CreateTexture(nil, "ARTWORK")
+    b.line:SetColorTexture(C.gold[1], C.gold[2], C.gold[3], 1)
+    b.line:SetPoint("BOTTOMLEFT", 6, 0)
+    b.line:SetPoint("BOTTOMRIGHT", -6, 0)
+    b.line:SetHeight(2)
+  end
   b.label:SetJustifyH("CENTER")
   b.label:SetText(label or "")
   if not width then b:SetWidth(math.max(40, b.label:GetStringWidth() + 22)) end
@@ -62,6 +70,10 @@ function W.Button(parent, label, width, height, style)
     elseif s == "pill" then
       if on then bg, bd, tx, ba = C.gold, C.gold, { 0.08, 0.07, 0.04 }, 1
       else bg, bd, tx, ba = C.raised, hover and C.muted or C.border, C.soft, hover and 1 or 0 end
+    elseif s == "tab" then
+      bg, bd, ba = C.side, C.side, 0
+      tx = on and C.text or (hover and C.soft or C.muted)
+      self.line:SetShown(on)
     elseif s == "seg" then
       bd = on and C.raised or C.panel
       bg, tx, ba = C.raised, on and C.text or C.muted, on and 1 or (hover and 0.5 or 0)
@@ -70,7 +82,7 @@ function W.Button(parent, label, width, height, style)
       bg, bd, tx, ba = C.raised, hover and C.muted or C.border, hover and C.text or C.soft, hover and 1 or 0
     end
     self:SetBackdropColor(bg[1], bg[2], bg[3], ba)
-    self:SetBackdropBorderColor(bd[1], bd[2], bd[3], (s == "seg") and 0 or 1)
+    self:SetBackdropBorderColor(bd[1], bd[2], bd[3], (s == "seg" or s == "tab") and 0 or 1)
     self.label:SetTextColor(tx[1], tx[2], tx[3])
   end
   b:SetScript("OnEnter", b.Refresh)
@@ -83,17 +95,24 @@ end
 
 -- A group of mutually exclusive buttons. onPick(value)
 function W.Choice(parent, values, style, onPick, height)
-  local g = CreateFrame("Frame", nil, parent)
+  local g = CreateFrame("Frame", nil, parent, "BackdropTemplate")
   g.buttons = {}
   local x = 0
+  local inset = (style == "seg") and 3 or 0
+  if style == "seg" then
+    g:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
+    g:SetBackdropColor(C.bg[1], C.bg[2], C.bg[3], 1)
+    g:SetBackdropBorderColor(C.border[1], C.border[2], C.border[3], 1)
+    x = inset
+  end
   for _, v in ipairs(values) do
-    local b = W.Button(g, v, nil, height or 26, style)
+    local b = W.Button(g, v, nil, (height or 26) - inset * 2, style)
     b:SetPoint("LEFT", g, "LEFT", x, 0)
     b:SetScript("OnClick", function() g:Select(v); onPick(v) end)
-    x = x + b:GetWidth() + 4
+    x = x + b:GetWidth() + ((style == "seg") and 2 or (style == "tab" and 0 or 6))
     g.buttons[v] = b
   end
-  g:SetSize(math.max(1, x - 4), height or 26)
+  g:SetSize(math.max(1, x - ((style == "seg") and 2 or 6) + inset), height or 26)
   function g:Select(value)
     self.value = value
     for v, b in pairs(self.buttons) do b:SetSelected(v == value) end
@@ -167,6 +186,10 @@ function W.List(parent, rowCount, rowHeight, makeRow, update)
   for i = 1, rowCount do
     local r = makeRow(l, i)
     r:SetHeight(rowHeight)
+    -- faint stripe on every other row, under the row's own hover/selection
+    r.zebra = r:CreateTexture(nil, "BACKGROUND", nil, -8)
+    r.zebra:SetAllPoints()
+    r.zebra:SetColorTexture(1, 1, 1, 0.025)
     r:SetPoint("TOPLEFT", l, "TOPLEFT", 0, -(i - 1) * rowHeight)
     r:SetPoint("RIGHT", l, "RIGHT")
     l.rows[i] = r
@@ -186,6 +209,7 @@ function W.List(parent, rowCount, rowHeight, makeRow, update)
       local idx = self.offset + i
       if i <= self.visible and idx <= self.count then
         r:Show()
+        r.zebra:SetShown(idx % 2 == 0)
         update(r, idx)
       else
         r:Hide()
@@ -237,4 +261,31 @@ function W.Goblin(parent, portrait, onFail)
   end
   m.Load = function() if not m.loaded then m.loaded = true; try(1) end end
   return m
+end
+
+-- A soft shadow around a frame (two dark layers just outside its edges)
+function W.Shadow(f)
+  for i, a in ipairs({ 0.35, 0.18 }) do
+    local sh = CreateFrame("Frame", nil, f, "BackdropTemplate")
+    sh:SetPoint("TOPLEFT", -3 * i, 3 * i)
+    sh:SetPoint("BOTTOMRIGHT", 3 * i, -3 * i)
+    sh:SetFrameLevel(math.max(0, f:GetFrameLevel() - 1))
+    sh:SetBackdrop({ edgeFile = WHITE, edgeSize = 3 })
+    sh:SetBackdropBorderColor(0, 0, 0, a)
+  end
+end
+
+-- Header band for tables: slightly darker strip with a hairline under it
+function W.TableHeader(parent, height)
+  local head = CreateFrame("Frame", nil, parent)
+  head:SetPoint("TOPLEFT", 1, -1)
+  head:SetPoint("TOPRIGHT", -1, -1)
+  head:SetHeight(height or 30)
+  local bg = head:CreateTexture(nil, "BACKGROUND")
+  bg:SetAllPoints()
+  bg:SetColorTexture(C.side[1], C.side[2], C.side[3], 1)
+  local line = head:CreateTexture(nil, "BORDER")
+  line:SetColorTexture(C.border[1], C.border[2], C.border[3], 1)
+  line:SetPoint("BOTTOMLEFT"); line:SetPoint("BOTTOMRIGHT"); line:SetHeight(1)
+  return head
 end
