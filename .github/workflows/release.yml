@@ -1,10 +1,12 @@
-# Builds GoonbergTerminal-<version>.zip and publishes a GitHub Release whenever a
-# version tag (e.g. v0.8.0) is pushed. WowUp and similar managers install and update
-# the addon from these releases.
+# Publishes a GitHub Release whenever the version in GoonbergTerminal.toc changes.
+# On every push to main: read "## Version:" from the .toc; if there's no release for
+# that version yet, build GoonbergTerminal-<version>.zip and publish it (this also
+# creates the v<version> tag). WowUp and similar managers update from these releases.
 name: Release
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -12,17 +14,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Package
+      - name: Read version
+        id: v
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          mkdir -p dist/GoonbergTerminal
-          rsync -a --exclude '.git*' --exclude '.github' --exclude 'dist' ./ dist/GoonbergTerminal/
-          cd dist && zip -qr "GoonbergTerminal-${VERSION}.zip" GoonbergTerminal
-      - name: Publish release
+          VERSION=$(sed -n 's/^## Version: *//p' GoonbergTerminal.toc | tr -d '\r')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Check for an existing release
+        id: exists
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          if gh release view "v${{ steps.v.outputs.version }}" >/dev/null 2>&1; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Package
+        if: steps.exists.outputs.found == 'false'
+        run: |
+          mkdir -p dist/GoonbergTerminal
+          rsync -a --exclude '.git*' --exclude '.github' --exclude 'dist' ./ dist/GoonbergTerminal/
+          cd dist && zip -qr "GoonbergTerminal-${{ steps.v.outputs.version }}.zip" GoonbergTerminal
+      - name: Publish release
+        if: steps.exists.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.v.outputs.version }}"
           NOTES=$(awk "/^## ${VERSION}\$/{f=1;next} /^## /{f=0} f" CHANGELOG.md)
-          gh release create "$GITHUB_REF_NAME" "dist/GoonbergTerminal-${VERSION}.zip" \
-            --title "Goonberg Terminal ${VERSION}" --notes "${NOTES:-Goonberg Terminal ${VERSION}}"
+          gh release create "v${VERSION}" "dist/GoonbergTerminal-${VERSION}.zip" \
+            --target "$GITHUB_SHA" --title "Goonberg Terminal ${VERSION}" \
+            --notes "${NOTES:-Goonberg Terminal ${VERSION}}"

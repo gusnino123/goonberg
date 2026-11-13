@@ -6,11 +6,11 @@ Goonberg Terminal turns your AH scans into a trading screen: candlestick price c
 
 ## Install
 
-1. Download the latest `GoonbergTerminal-x.y.z.zip` from this repository's **Releases** page.
+1. Download the latest `GoonbergTerminal-x.y.z.zip` from this repository's **Releases** page (https://github.com/gusnino123/goonberg/releases).
 2. Unzip it so the `GoonbergTerminal` folder sits in your WoW Forever `Interface/AddOns` folder.
 3. Restart the game fully (not just `/reload`).
 
-**Automatic updates:** in [WowUp](https://wowup.io), choose *Get Addons → Install from URL* and paste this repository's link. WowUp then updates Goonberg whenever a new release is published.
+**Automatic updates:** in [WowUp](https://wowup.io), choose *Get Addons → Install from URL* and paste `https://github.com/gusnino123/goonberg`. WowUp then updates Goonberg whenever a new release is published.
 
 ## What you get
 
