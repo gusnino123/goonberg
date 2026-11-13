@@ -1,0 +1,383 @@
+-- Goonberg Terminal: market overview (index, movers, sortable and filterable item table)
+local _, FI = ...
+local O = { cat = "All", move = "All", tf = "24h", sort = "sold", dir = -1, search = "" }
+FI.OverviewTab = O
+local W = FI.Widgets
+local C = FI.colors
+local H
+
+local ROWS, ROW_H = 40, 26
+local SPARK_W, SPARK_H, SPARK_N = 104, 18, 24
+
+-- Column layout. Rank and item hang off the left edge; the numbers hang off the
+-- right edge (r = offset of the column's right side), so the table can be resized.
+local COLS = {
+  { key = "rank",  label = "#",          x = 34 },
+  { key = "name",  label = "ITEM",       x = 44, left = true },
+  { key = "price", label = "PRICE",      r = -520, sort = true },
+  { key = "chg24", label = "24H %",      r = -430, sort = true },
+  { key = "chg7",  label = "7D %",       r = -345, sort = true },
+  { key = "qty",   label = "LISTINGS",   r = -250, sort = true },
+  { key = "sold",  label = "EST. SOLD",  r = -140, sort = true },
+  { key = "trend", label = "7D TREND",   r = -16 },
+}
+local NAME_RIGHT = -620 -- item names stop here, before the price column
+
+local function card(parent, title, accent)
+  local b = W.Box(parent, C.panel, accent and { 0.23, 0.2, 0.16 } or C.border)
+  b:SetHeight(72)
+  b.title = W.Heading(b, title)
+  b.title:SetPoint("TOPLEFT", 14, -12)
+  if accent then b.title:SetTextColor(C.gold[1], C.gold[2], C.gold[3]) end
+  b.value = W.Text(b, 20, C.text, true)
+  b.value:SetPoint("TOPLEFT", 14, -30)
+  b.value:SetPoint("RIGHT", -14, 0)
+  b.extra = W.Text(b, 12, C.up, true)
+  b.extra:SetPoint("LEFT", b.value, "LEFT", 0, 0) -- moved after text is set
+  b.sub = W.Text(b, 10, C.muted)
+  b.sub:SetPoint("BOTTOMLEFT", 14, 10)
+  b.sub:SetPoint("RIGHT", -14, 0)
+  return b
+end
+
+-- A small chevron drawn with two lines (sort direction)
+local function chevron(parent)
+  local f = CreateFrame("Frame", nil, parent)
+  f:SetSize(8, 5)
+  f.a = W.Line(f, C.gold, 1.5)
+  f.b = W.Line(f, C.gold, 1.5)
+  function f:SetDown(down)
+    if not self.a then return end
+    if down then
+      self.a:SetStartPoint("TOPLEFT", self, 0, 0); self.a:SetEndPoint("BOTTOM", self, 0, 0)
+      self.b:SetStartPoint("BOTTOM", self, 0, 0); self.b:SetEndPoint("TOPRIGHT", self, 0, 0)
+    else
+      self.a:SetStartPoint("BOTTOMLEFT", self, 0, 0); self.a:SetEndPoint("TOP", self, 0, 0)
+      self.b:SetStartPoint("TOP", self, 0, 0); self.b:SetEndPoint("BOTTOMRIGHT", self, 0, 0)
+    end
+  end
+  return f
+end
+
+local function makeRow(parent, i)
+  local r = CreateFrame("Button", nil, parent)
+  r:RegisterForClicks("LeftButtonUp")
+  r.bg = W.Tex(r, C.raised, 0, "BACKGROUND")
+  r.bg:SetAllPoints()
+  local line = W.Tex(r, C.border, 0.6, "BORDER")
+  line:SetPoint("BOTTOMLEFT"); line:SetPoint("BOTTOMRIGHT"); line:SetHeight(1)
+
+  r.cells = {}
+  for _, col in ipairs(COLS) do
+    if col.key == "name" then
+      r.icon = r:CreateTexture(nil, "ARTWORK")
+      r.icon:SetSize(18, 18)
+      r.icon:SetPoint("LEFT", col.x, 0)
+      r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+      r.name = W.Text(r, 12, C.text)
+      r.name:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
+      r.name:SetPoint("RIGHT", r, "RIGHT", NAME_RIGHT, 0)
+      r.cat = W.Text(r, 10, C.muted)
+      r.cat:SetPoint("LEFT", r.icon, "RIGHT", 8, 0) -- moved next to the name on update
+    elseif col.key == "trend" then
+      r.spark = CreateFrame("Frame", nil, r)
+      r.spark:SetSize(SPARK_W, SPARK_H)
+      r.spark:SetPoint("RIGHT", r, "RIGHT", col.r, 0)
+      r.sparkLines = {}
+      for k = 1, SPARK_N - 1 do r.sparkLines[k] = W.Line(r.spark, C.up, 1.5) end
+    else
+      local fs = W.Text(r, 12, col.key == "price" and C.gold or C.text, true)
+      if col.r then fs:SetPoint("RIGHT", r, "RIGHT", col.r, 0) else fs:SetPoint("RIGHT", r, "LEFT", col.x, 0) end
+      fs:SetJustifyH("RIGHT")
+      if col.key == "rank" then fs:SetTextColor(C.muted[1], C.muted[2], C.muted[3]) end
+      r.cells[col.key] = fs
+    end
+  end
+
+  r:SetScript("OnEnter", function(self)
+    self.bg:SetAlpha(0.6)
+    GameTooltip:SetOwner(self, "ANCHOR_CURSOR_RIGHT")
+    GameTooltip:SetItemByID(self.itemID)
+    GameTooltip:AddLine("|cff8b95a3Click to open the chart. Shift-click to link.|r")
+    GameTooltip:Show()
+  end)
+  r:SetScript("OnLeave", function(self) self.bg:SetAlpha(0); GameTooltip_Hide() end)
+  r:SetScript("OnClick", function(self)
+    if IsModifiedClick("CHATLINK") then
+      local link = FI:ItemLink(self.itemID)
+      if link then ChatEdit_InsertLink(link) end
+    else
+      FI.UI:ShowItem(self.itemID)
+    end
+  end)
+  return r
+end
+
+local function drawSpark(r, values, color)
+  local lines = r.sparkLines
+  local n = #values
+  local mn, mx = math.huge, -math.huge
+  for _, v in ipairs(values) do
+    if v < mn then mn = v end
+    if v > mx then mx = v end
+  end
+  for k = 1, #lines do
+    local l = lines[k]
+    if l and k < n then
+      local function px(i) return (i - 1) / (n - 1) * SPARK_W end
+      local function py(v) return (mx > mn) and ((v - mn) / (mx - mn) * (SPARK_H - 2) + 1) or SPARK_H / 2 end
+      l:SetColorTexture(color[1], color[2], color[3], 1)
+      l:SetStartPoint("BOTTOMLEFT", r.spark, px(k), py(values[k]))
+      l:SetEndPoint("BOTTOMLEFT", r.spark, px(k + 1), py(values[k + 1]))
+      l:Show()
+    elseif l then
+      l:Hide()
+    end
+  end
+end
+
+local function updateRow(r, i)
+  local row = O.rows[i]
+  r.itemID = row.id
+  r.cells.rank:SetText(i)
+  r.icon:SetTexture(FI:ItemIcon(row.id))
+  r.name:SetText(row.name)
+  r.name:SetTextColor(FI:ItemQualityColor(row.id))
+  r.cat:ClearAllPoints()
+  local room = r.name:GetWidth() or 200
+  r.cat:SetPoint("LEFT", r.name, "LEFT", math.min(r.name:GetStringWidth(), room) + 8, 0)
+  r.cat:SetShown(r.name:GetStringWidth() + 70 < room)
+  r.cat:SetText(row.cat)
+  r.cells.price:SetText(FI.Money(row.price))
+  local c24, c7 = FI.ChangeColor(row.c24), FI.ChangeColor(row.c7)
+  r.cells.chg24:SetText(FI.Percent(row.c24))
+  r.cells.chg24:SetTextColor(c24[1], c24[2], c24[3])
+  r.cells.chg7:SetText(FI.Percent(row.c7))
+  r.cells.chg7:SetTextColor(c7[1], c7[2], c7[3])
+  r.cells.qty:SetText(FI.Number(row.qty))
+  r.cells.sold:SetText(FI.Number(O.tf == "24h" and row.sold24 or row.sold7))
+  local spark = row.spark
+  if not spark then
+    spark = H.Spark(FI:Realm().items[row.id], time(), 7 * 86400, SPARK_N)
+    row.spark = spark
+  end
+  if #spark >= 2 then drawSpark(r, spark, c7) else drawSpark(r, {}, c7) end
+end
+
+function O:Build(parent)
+  H = FI.History
+  local tab = CreateFrame("Frame", nil, parent)
+  tab:SetAllPoints()
+  self.frame = tab
+  self.rows = {}
+
+  -- Summary cards
+  local cards = {
+    card(tab, "GOONBERG INDEX", true),
+    card(tab, "EST. GOLD TRADED"),
+    card(tab, "LISTINGS ON AH"),
+    card(tab, "TOP GAINER"),
+    card(tab, "TOP LOSER"),
+  }
+  self.cards = cards
+  cards[1]:SetPoint("TOPLEFT", 16, -16)
+  for i = 2, 5 do cards[i]:SetPoint("TOPLEFT", cards[i - 1], "TOPRIGHT", 12, 0) end
+  tab:SetScript("OnSizeChanged", function(_, w)
+    local each = (w - 32 - 48) / 5
+    for i = 1, 5 do cards[i]:SetWidth(each) end
+  end)
+
+  -- Category filter
+  local cats = W.Choice(tab, FI.categories, "pill", function(v) O.cat = v; O:Refresh() end, 26)
+  cats:SetPoint("TOPLEFT", 16, -102)
+  cats:Select(self.cat)
+
+  -- Search, movers, timeframe
+  local search = W.EditBox(tab, 240, "Search items")
+  search:SetPoint("TOPLEFT", 16, -136)
+  search:SetScript("OnTextChanged", function(self)
+    if self.ph then self.ph:SetShown(self:GetText() == "") end
+    O.search = self:GetText():lower()
+    FI:Debounce("ovsearch", 0.2, function() O:Refresh() end)
+  end)
+  search:SetScript("OnEnterPressed", search.ClearFocus)
+
+  local tfs = W.Choice(tab, { "24h", "7d" }, "seg", function(v) O.tf = v; O:Refresh() end, 26)
+  tfs:SetPoint("TOPRIGHT", -16, -136)
+  tfs:Select(self.tf)
+  local moves = W.Choice(tab, { "All", "Gainers", "Losers" }, "seg", function(v) O.move = v; O:Refresh() end, 26)
+  moves:SetPoint("RIGHT", tfs, "LEFT", -12, 0)
+  moves:Select(self.move)
+
+  -- Table
+  local tbl = W.Box(tab, C.panel, C.border)
+  tbl:SetPoint("TOPLEFT", 16, -172)
+  tbl:SetPoint("BOTTOMRIGHT", -16, 16)
+
+  local head = CreateFrame("Frame", nil, tbl)
+  head:SetPoint("TOPLEFT", 1, -1)
+  head:SetPoint("TOPRIGHT", -1, -1)
+  head:SetHeight(28)
+  local hl = W.Tex(head, C.border)
+  hl:SetPoint("BOTTOMLEFT"); hl:SetPoint("BOTTOMRIGHT"); hl:SetHeight(1)
+  self.headers = {}
+  for _, col in ipairs(COLS) do
+    local b = CreateFrame("Button", nil, head)
+    b:SetHeight(28)
+    b.text = W.Heading(b, col.label)
+    if col.left then
+      b:SetPoint("LEFT", head, "LEFT", col.x, 0)
+      b.text:SetPoint("LEFT")
+    else
+      if col.r then b:SetPoint("RIGHT", head, "RIGHT", col.r, 0) else b:SetPoint("RIGHT", head, "LEFT", col.x, 0) end
+      b.text:SetPoint("RIGHT")
+      b.text:SetJustifyH("RIGHT")
+    end
+    b:SetWidth(b.text:GetStringWidth() + 2)
+    if col.sort then
+      b.arrow = chevron(b)
+      b.arrow:SetPoint("RIGHT", b.text, "LEFT", -5, 0)
+      b:SetScript("OnClick", function()
+        if O.sort == col.key then O.dir = -O.dir else O.sort, O.dir = col.key, -1 end
+        O:Refresh()
+      end)
+      b:SetScript("OnEnter", function(self) self.text:SetTextColor(C.text[1], C.text[2], C.text[3]) end)
+      b:SetScript("OnLeave", function() O:UpdateHeaders() end)
+    end
+    b.col = col
+    self.headers[#self.headers + 1] = b
+  end
+
+  local holder = CreateFrame("Frame", nil, tbl)
+  holder:SetPoint("TOPLEFT", head, "BOTTOMLEFT", 0, 0)
+  holder:SetPoint("BOTTOMRIGHT", tbl, "BOTTOMRIGHT", -1, 26)
+  self.list = W.List(holder, ROWS, ROW_H, makeRow, updateRow)
+  self.list:SetAllPoints(holder)
+
+  self.empty = W.Text(tbl, 13, C.muted)
+  self.empty:SetPoint("CENTER", holder, "CENTER")
+  self.empty:SetJustifyH("CENTER")
+
+  self.footer = W.Text(tbl, 10, C.muted)
+  self.footer:SetPoint("BOTTOMLEFT", 14, 8)
+  local note = W.Text(tbl, 10, C.muted)
+  note:SetPoint("BOTTOMRIGHT", -14, 8)
+  note:SetJustifyH("RIGHT")
+  note:SetText("Est. sold = units that left the AH between scans (sold, cancelled or expired)")
+
+  tab.Refresh = function() O:Refresh() end
+  return tab
+end
+
+function O:UpdateHeaders()
+  for _, b in ipairs(self.headers) do
+    local on = b.col.key == self.sort
+    local c = on and C.gold or C.muted
+    b.text:SetTextColor(c[1], c[2], c[3])
+    if b.arrow then
+      b.arrow:SetShown(on)
+      if on then b.arrow:SetDown(self.dir < 0) end
+    end
+    if b.col.key == "sold" then
+      b.text:SetText(self.tf == "24h" and "EST. SOLD 24H" or "EST. SOLD 7D")
+      b:SetWidth(b.text:GetStringWidth() + 2)
+    end
+  end
+end
+
+local function setCard(c, value, extra, extraValue, sub)
+  c.value:SetText(value or "-")
+  c.extra:ClearAllPoints()
+  c.extra:SetPoint("LEFT", c.value, "LEFT", c.value:GetStringWidth() + 8, -1)
+  c.extra:SetText(extra or "")
+  local col = FI.ChangeColor(extraValue)
+  c.extra:SetTextColor(col[1], col[2], col[3])
+  c.sub:SetText(sub or "")
+end
+
+function O:Refresh()
+  if not self.frame then return end
+  local realm = FI:Realm()
+  local now = time()
+  local data = H.Overview(realm, now)
+  local is24 = self.tf == "24h"
+
+  -- Cards
+  local level = H.IndexLevel(realm)
+  local ich = H.IndexChange(realm, now, is24 and 86400 or 7 * 86400)
+  setCard(self.cards[1], level and ("%.1f"):format(level) or "-", ich and FI.Percent(ich) or "", ich,
+    ("Top %d items, weighted by gold traded"):format(H.INDEX_SIZE))
+  setCard(self.cards[2], FI.Money(is24 and data.gold24 or data.gold7), nil, nil,
+    is24 and "past 24 hours, estimated" or "past 7 days, estimated")
+  setCard(self.cards[3], FI.Number(data.listed), nil, nil, ("%s items tracked"):format(FI.Number(#data.rows)))
+
+  local key = is24 and "c24" or "c7"
+  local up, down
+  for _, s in ipairs(data.rows) do
+    -- ignore thin markets so one odd listing can't top the list
+    if s[key] and (s.qty >= 5 or s.sold7 >= 5) then
+      if not up or s[key] > up[key] then up = s end
+      if not down or s[key] < down[key] then down = s end
+    end
+  end
+  setCard(self.cards[4], up and FI:ItemName(up.id) or "-", nil, nil, up and FI.Percent(up[key]) or "")
+  setCard(self.cards[5], down and FI:ItemName(down.id) or "-", nil, nil, down and FI.Percent(down[key]) or "")
+  self.cards[4].value:SetFont(W.FONT, 14, ""); self.cards[5].value:SetFont(W.FONT, 14, "")
+  self.cards[4].sub:SetTextColor(C.up[1], C.up[2], C.up[3])
+  self.cards[5].sub:SetTextColor(C.down[1], C.down[2], C.down[3])
+
+  -- Rows
+  local rows = {}
+  for _, s in ipairs(data.rows) do
+    local ok = self.cat == "All" or s.cat == self.cat
+    if ok and self.move ~= "All" then
+      local v = s[key]
+      ok = v and ((self.move == "Gainers" and v > 0) or (self.move == "Losers" and v < 0))
+    end
+    if ok then
+      s.name = FI:ItemName(s.id)
+      if self.search ~= "" and not s.name:lower():find(self.search, 1, true) then ok = false end
+    end
+    if ok then rows[#rows + 1] = s end
+  end
+  local sk, dir = self.sort, self.dir
+  local function val(s)
+    if sk == "price" then return s.price
+    elseif sk == "chg24" then return s.c24
+    elseif sk == "chg7" then return s.c7
+    elseif sk == "qty" then return s.qty
+    else return is24 and s.sold24 or s.sold7 end
+  end
+  table.sort(rows, function(a, b)
+    local va, vb = val(a), val(b)
+    if va == nil and vb == nil then return a.name < b.name end
+    if va == nil then return false end -- missing values always last
+    if vb == nil then return true end
+    if va == vb then return a.name < b.name end
+    if dir < 0 then return va > vb else return va < vb end
+  end)
+  self.rows = rows
+  if self.lastFilter ~= (self.cat .. self.move .. self.tf .. self.sort .. self.dir .. self.search) then
+    self.list.offset = 0
+    self.lastFilter = self.cat .. self.move .. self.tf .. self.sort .. self.dir .. self.search
+  end
+  self.list:SetCount(#rows)
+  self:UpdateHeaders()
+
+  if #data.rows == 0 then
+    self.empty:SetText("No market data yet.\nOpen the Auction House: Goonberg Terminal scans it automatically.")
+    self.empty:Show()
+  elseif #rows == 0 then
+    self.empty:SetText("No items match these filters.")
+    self.empty:Show()
+  else
+    self.empty:Hide()
+  end
+  self.footer:SetText(("Showing %s of %s items  -  scroll for more, shift-scroll pages"):format(FI.Number(#rows), FI.Number(#data.rows)))
+end
+
+FI:On("FI_ITEM_LOADED", function()
+  FI:Debounce("overview", 0.5, function()
+    if O.frame and O.frame:IsShown() then O.list:Refresh() end
+  end)
+end)

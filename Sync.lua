@@ -1,0 +1,448 @@
+-- Goonberg Terminal: guild sync
+-- Your scans go to guildmates running Goonberg, and theirs come to you, through the
+-- game's addon messages (guild channel). Only your own scans are sent; prices you
+-- received are never passed on, so nothing loops. Newcomers with little history ask
+-- once at login and one guildmate whispers them up to 21 days of daily prices.
+local _, FI = ...
+local Y = { peers = {}, sessions = {} }
+FI.Sync = Y
+local PREFIX = "GoonbergSync"
+local PROTO = "1"
+local MAX_ITEMS = 2000         -- per broadcast scan, busiest first
+local HISTORY_ITEMS = 400      -- items sent to a newcomer
+local HISTORY_DAYS = 21
+local MSG_MAX = 250
+local H
+
+local CI = C_ChatInfo
+local function canSync()
+  return Y.ready and CI and CI.SendAddonMessage and FI.settings and FI.settings.guildSync ~= false and IsInGuild()
+end
+
+-- ---------------------------------------------------------------------------
+-- Compact numbers: base 36 keeps messages short
+-- ---------------------------------------------------------------------------
+local DIGITS = "0123456789abcdefghijklmnopqrstuvwxyz"
+local function b36(n)
+  n = math.floor(n or 0)
+  if n <= 0 then return "0" end
+  local s = ""
+  while n > 0 do
+    local r = n % 36
+    s = DIGITS:sub(r + 1, r + 1) .. s
+    n = math.floor(n / 36)
+  end
+  return s
+end
+local function n36(s) return s and tonumber(s, 36) end
+Y.b36, Y.n36 = b36, n36
+
+-- ---------------------------------------------------------------------------
+-- Sending: a queue drained gently (the game throttles addon messages)
+-- ---------------------------------------------------------------------------
+local queue, tokens = {}, 8
+local sender = CreateFrame("Frame")
+sender:Hide()
+sender.acc = 0
+sender:SetScript("OnUpdate", function(self, e)
+  self.acc = self.acc + e
+  if self.acc >= 1 then
+    tokens = math.min(8, tokens + math.floor(self.acc))
+    self.acc = self.acc % 1
+  end
+  while tokens >= 1 and queue[1] do
+    local m = table.remove(queue, 1)
+    tokens = tokens - 1
+    CI.SendAddonMessage(PREFIX, m[1], m[2], m[3])
+  end
+  if not queue[1] then self:Hide() end
+end)
+
+local function send(msg, channel, target, tag)
+  queue[#queue + 1] = { msg, channel or "GUILD", target, tag }
+  sender:Show()
+end
+
+function Y:QueueLength() return #queue end
+
+-- Packs "entry;entry;..." into messages under the size limit
+local function packed(head, entries, channel, target, tag)
+  local cur = head
+  for _, e in ipairs(entries) do
+    if #cur + #e + 1 > MSG_MAX then
+      send(cur, channel, target, tag)
+      cur = head
+    end
+    cur = (cur == head) and (cur .. e) or (cur .. ";" .. e)
+  end
+  if cur ~= head then send(cur, channel, target, tag) end
+end
+
+-- ---------------------------------------------------------------------------
+-- Broadcasting your scan
+-- ---------------------------------------------------------------------------
+function Y:BroadcastScan(t)
+  if not canSync() then return end
+  local realm = FI:Realm()
+  local list = {}
+  for id, it in pairs(realm.items) do
+    if it.seen == t and it.mkt and (it.qty or 0) > 0 then list[#list + 1] = { id, it } end
+  end
+  table.sort(list, function(a, b) return a[2].mkt * a[2].qty > b[2].mkt * b[2].qty end)
+  local entries = {}
+  for i = 1, math.min(MAX_ITEMS, #list) do
+    local id, it = list[i][1], list[i][2]
+    entries[#entries + 1] = table.concat({ b36(id), b36(it.mkt), b36(it.min or it.mkt), b36(it.qty), b36(it.cnt or 1) }, ",")
+  end
+  if #entries == 0 then return end
+  -- a newer scan replaces one that's still going out
+  for i = #queue, 1, -1 do if queue[i][4] == "scan" then table.remove(queue, i) end end
+  local tt = b36(t)
+  send("S" .. PROTO .. ":" .. tt .. ":" .. b36(#entries), "GUILD", nil, "scan")
+  packed("B" .. tt .. ":", entries, "GUILD", nil, "scan")
+  send("E" .. tt, "GUILD", nil, "scan")
+  self.lastSent = t
+end
+
+-- ---------------------------------------------------------------------------
+-- Receiving
+-- ---------------------------------------------------------------------------
+local function snapshot(realm)
+  local prev = {}
+  for id, it in pairs(realm.items) do
+    if it.mkt and it.seen == realm.lastScan then prev[id] = it.mkt end
+  end
+  return prev
+end
+
+local function onStart(from, rest)
+  local proto, tt = rest:match("^(%d+):(%w+)")
+  if proto ~= PROTO then return end
+  local t = n36(tt)
+  local realm = FI:Realm()
+  -- ignore scans older than what we already have
+  if not t or t <= (realm.lastScan or 0) or t > time() + 300 then return end
+  Y.sessions[from] = { t = t, prev = snapshot(realm), items = 0 }
+end
+
+local function onBatch(from, rest)
+  local tt, body = rest:match("^(%w+):(.*)$")
+  local s = Y.sessions[from]
+  if not s or not tt or n36(tt) ~= s.t then return end
+  local realm = FI:Realm()
+  for entry in body:gmatch("[^;]+") do
+    local a, b, c, d, e = entry:match("^(%w+),(%w+),(%w+),(%w+),(%w+)$")
+    local id, mkt, mn, qty, cnt = n36(a), n36(b), n36(c), n36(d), n36(e)
+    if id and mkt and mkt > 0 and qty then
+      if H.RecordShared(realm, id, s.t, mkt, mn, qty, cnt) then s.items = s.items + 1 end
+    end
+  end
+end
+
+local function onEnd(from, rest)
+  local s = Y.sessions[from]
+  Y.sessions[from] = nil
+  if not s or n36(rest) ~= s.t or s.items == 0 then return end
+  local realm = FI:Realm()
+  if s.t > (realm.lastScan or 0) then
+    realm.lastScan = s.t
+    realm.scans = (realm.scans or 0) + 1
+    realm.lastShared = { from = from, t = s.t, items = s.items }
+    H.UpdateIndex(realm, s.prev, s.t)
+    H.cache = nil
+    FI:Fire("FI_SCAN_DONE", s.t, from)
+  end
+end
+
+-- ---------------------------------------------------------------------------
+-- History for newcomers
+-- ---------------------------------------------------------------------------
+-- How much history we have: number of items with at least 3 days of data
+local function historyDepth()
+  local realm, now, n = FI:Realm(), time(), 0
+  for _, it in pairs(realm.items) do
+    local h = it.h
+    if h and h[1] and now - h[1] > 3 * 86400 then n = n + 1 end
+  end
+  return n
+end
+
+function Y:RequestHistory(manual)
+  if not canSync() then
+    if manual then FI:Print("Guild sync needs a guild (and /goon sync on).") end
+    return
+  end
+  self.wantHistory = true
+  send("Q" .. PROTO)
+  if manual then FI:Print("Asked your guild for price history...") end
+end
+
+-- Daily closes of our busiest items, one message per item
+local function sendHistory(target)
+  local realm, now = FI:Realm(), time()
+  local list = {}
+  for id, it in pairs(realm.items) do
+    if it.mkt and it.h and it.h[1] then list[#list + 1] = { id, it } end
+  end
+  table.sort(list, function(a, b) return a[2].mkt * (a[2].qty or 0) > b[2].mkt * (b[2].qty or 0) end)
+  local sent = 0
+  for i = 1, math.min(HISTORY_ITEMS, #list) do
+    local id, it = list[i][1], list[i][2]
+    local days, h = {}, it.h
+    for k = 1, #h, 4 do
+      if h[k + 1] > 0 and now - h[k] <= HISTORY_DAYS * 86400 then
+        days[math.floor(h[k] / 86400)] = { h[k + 1], h[k + 2] } -- last point of each day wins
+      end
+    end
+    local entries = {}
+    for d, v in pairs(days) do entries[#entries + 1] = b36(d) .. "," .. b36(v[1]) .. "," .. b36(v[2]) end
+    if #entries > 0 then
+      table.sort(entries)
+      packed("H" .. b36(id) .. ":", entries, "WHISPER", target)
+      sent = sent + 1
+    end
+  end
+  send("F" .. b36(sent), "WHISPER", target)
+end
+
+-- One guildmate answers each request: everyone who could waits a moment, the one
+-- whose wait ends first says so ("R"), and the others stand down. Fresher data
+-- means a shorter wait, so the best-informed guildmate usually answers.
+local responding = {}
+local function answer(kind, from, fn)
+  local key = kind .. ":" .. from
+  responding[key] = false
+  local age = time() - (FI:Realm().lastScan or 0)
+  local wait = 1 + math.min(5, age / 3600) + math.random() * 0.5
+  C_Timer.After(wait, function()
+    if responding[key] == false then
+      responding[key] = true
+      send("R" .. key)
+      fn()
+    end
+  end)
+end
+
+local function onRequest(from)
+  if historyDepth() < 5 then return end
+  answer("h", from, function() sendHistory(from) end)
+end
+
+local function onResponding(rest)
+  -- someone else is already answering this request
+  if responding[rest] == false then responding[rest] = nil end
+end
+
+-- ---------------------------------------------------------------------------
+-- Catch-up: everything the guild saw since you logged off
+-- ---------------------------------------------------------------------------
+local CATCHUP_ITEMS, CATCHUP_POINTS = 400, 24
+
+function Y:RequestCatchup(since, manual)
+  if not canSync() then return end
+  self.wantCatchup = true
+  self.catchSince = since
+  send("C" .. PROTO .. ":" .. b36(since))
+  if manual then FI:Print("Asked your guild for prices since %s.", FI.Ago(since)) end
+end
+
+-- Points newer than `since` for our busiest items, at most 24 per item
+local function sendCatchup(target, since)
+  local realm = FI:Realm()
+  local list = {}
+  for id, it in pairs(realm.items) do
+    if it.mkt and it.seen and it.seen > since then list[#list + 1] = { id, it } end
+  end
+  table.sort(list, function(a, b) return a[2].mkt * (a[2].qty or 0) > b[2].mkt * (b[2].qty or 0) end)
+  local sent = 0
+  for i = 1, math.min(CATCHUP_ITEMS, #list) do
+    local id, h = list[i][1], list[i][2].h
+    local pts = {}
+    for k = 1, #h, 4 do
+      if h[k] > since and h[k + 1] > 0 then pts[#pts + 1] = { h[k], h[k + 1], h[k + 2] } end
+    end
+    if #pts > 0 then
+      -- thin to one point per slot so long absences stay a few messages per item
+      local span = pts[#pts][1] - since
+      local width = math.max(3600, span / CATCHUP_POINTS)
+      local keep, lastSlot = {}, nil
+      for _, p in ipairs(pts) do
+        local slot = math.floor((p[1] - since) / width)
+        if slot == lastSlot then keep[#keep] = p else keep[#keep + 1] = p end
+        lastSlot = slot
+      end
+      local entries = {}
+      for _, p in ipairs(keep) do entries[#entries + 1] = b36(p[1]) .. "," .. b36(p[2]) .. "," .. b36(p[3]) end
+      packed("K" .. b36(id) .. ":", entries, "WHISPER", target)
+      sent = sent + 1
+    end
+  end
+  send("G" .. b36(sent), "WHISPER", target)
+end
+
+local function onCatchupRequest(from, rest)
+  local proto, s36 = rest:match("^(%d+):(%w+)$")
+  local since = n36(s36)
+  if proto ~= PROTO or not since then return end
+  -- only answer if we actually saw something after they left
+  if (FI:Realm().lastScan or 0) <= since then return end
+  answer("c", from, function() sendCatchup(from, since) end)
+end
+
+local function onCatchup(from, rest)
+  if not Y.wantCatchup then return end
+  local id36, body = rest:match("^(%w+):(.*)$")
+  local id = n36(id36)
+  if not id then return end
+  local points = {}
+  for entry in body:gmatch("[^;]+") do
+    local t, p, q = entry:match("^(%w+),(%w+),(%w+)$")
+    t, p, q = n36(t), n36(p), n36(q)
+    -- only the gap we asked about, and nothing from the future
+    if t and p and p > 0 and t > (Y.catchSince or 0) and t <= time() + 300 then points[#points + 1] = { t, p, q } end
+  end
+  table.sort(points, function(a, b) return a[1] < b[1] end)
+  local realm = FI:Realm()
+  local added = H.Merge(realm, id, points, { fine = true })
+  if added > 0 then
+    Y.catchItems = (Y.catchItems or 0) + 1
+    Y.catchPoints = (Y.catchPoints or 0) + added
+    local newest = points[#points][1]
+    if newest > (Y.catchNewest or 0) then Y.catchNewest = newest end
+  end
+end
+
+local function onCatchupDone(from)
+  if not Y.wantCatchup then return end
+  Y.wantCatchup = false
+  local realm = FI:Realm()
+  if (Y.catchItems or 0) > 0 then
+    if (Y.catchNewest or 0) > (realm.lastScan or 0) then
+      realm.lastScan = Y.catchNewest
+      realm.lastShared = { from = from, t = Y.catchNewest, items = Y.catchItems }
+    end
+    H.cache = nil
+    FI:Print("Caught up: %s price points for %s items from %s, covering the time you were away.",
+      FI.Number(Y.catchPoints), FI.Number(Y.catchItems), from)
+    FI:Fire("FI_DATA_MERGED", from)
+  end
+  Y.catchItems, Y.catchPoints, Y.catchNewest = 0, 0, 0
+end
+
+local function onHistory(from, rest)
+  if not Y.wantHistory then return end
+  local id36, body = rest:match("^(%w+):(.*)$")
+  local id = n36(id36)
+  if not id then return end
+  local points = {}
+  for entry in body:gmatch("[^;]+") do
+    local d, p, q = entry:match("^(%w+),(%w+),(%w+)$")
+    d, p, q = n36(d), n36(p), n36(q)
+    if d and p and p > 0 then points[#points + 1] = { d * 86400 + 43200, p, q } end
+  end
+  table.sort(points, function(a, b) return a[1] < b[1] end)
+  local added = H.Merge(FI:Realm(), id, points)
+  Y.histItems = (Y.histItems or 0) + (added > 0 and 1 or 0)
+  Y.histPoints = (Y.histPoints or 0) + added
+  Y.histFrom = from
+end
+
+local function onHistoryDone(from)
+  if not Y.wantHistory then return end
+  Y.wantHistory = false
+  H.cache = nil
+  FI:Print("Got %s days of price history for %s items from %s.", FI.Number(Y.histPoints or 0), FI.Number(Y.histItems or 0), from)
+  Y.histPoints, Y.histItems = 0, 0
+  FI:Fire("FI_DATA_MERGED", from)
+end
+
+-- ---------------------------------------------------------------------------
+-- Wiring
+-- ---------------------------------------------------------------------------
+local function me()
+  local name = UnitName("player")
+  return name
+end
+
+local function shortName(full)
+  return (full and full:match("^([^%-]+)")) or full
+end
+
+FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
+  if prefix ~= PREFIX or not text or FI.settings.guildSync == false then return end
+  local who = shortName(from)
+  if who == me() then return end
+  if channel ~= "GUILD" and channel ~= "WHISPER" then return end
+  H = H or FI.History
+  local kind, rest = text:sub(1, 1), text:sub(2)
+  Y.peers[who] = time()
+  if channel == "GUILD" then
+    if kind == "S" then onStart(who, rest)
+    elseif kind == "B" then onBatch(who, rest)
+    elseif kind == "E" then onEnd(who, rest)
+    elseif kind == "Q" then if rest == PROTO then onRequest(who) end
+    elseif kind == "C" then onCatchupRequest(who, rest)
+    elseif kind == "R" then onResponding(rest)
+    elseif kind == "V" then -- hello
+    end
+  else
+    if kind == "H" then onHistory(who, rest)
+    elseif kind == "F" then onHistoryDone(who)
+    elseif kind == "K" then onCatchup(who, rest)
+    elseif kind == "G" then onCatchupDone(who) end
+  end
+end)
+
+FI:On("FI_SCAN_DONE", function(_, t, from)
+  -- only our own scans are broadcast (shared ones carry a sender)
+  if from == nil and FI.Scanner and FI.Scanner.lastFinished == t then Y:BroadcastScan(t) end
+end)
+
+-- When we were last online (to know what to ask for at the next login)
+local clock = CreateFrame("Frame")
+clock.acc = 0
+clock:SetScript("OnUpdate", function(self, e)
+  self.acc = self.acc + e
+  if self.acc >= 60 and FI.db then
+    self.acc = 0
+    FI:Realm().lastOnline = time()
+  end
+end)
+FI:On("PLAYER_LOGOUT", function() if FI.db then FI:Realm().lastOnline = time() end end)
+
+FI:On("PLAYER_LOGIN", function()
+  H = FI.History
+  if FI.settings.guildSync == nil then FI.settings.guildSync = true end
+  if CI and CI.RegisterAddonMessagePrefix then CI.RegisterAddonMessagePrefix(PREFIX) end
+  Y.ready = true
+  local realm = FI:Realm()
+  local offlineSince = realm.lastOnline
+  realm.lastOnline = time()
+  C_Timer.After(15, function()
+    if not canSync() then return end
+    send("V" .. (FI.version or ""))
+    if historyDepth() < 200 then
+      Y:RequestHistory(false)
+    elseif offlineSince and time() - offlineSince > 20 * 60 then
+      Y:RequestCatchup(offlineSince, false)
+    end
+  end)
+end)
+
+-- Status for /goon sync
+function Y:Status()
+  local now, n = time(), 0
+  local names = {}
+  for who, t in pairs(self.peers) do
+    if now - t < 86400 then n = n + 1; names[#names + 1] = who end
+  end
+  table.sort(names)
+  local realm = FI:Realm()
+  FI:Print("Guild sync is %s. %d guildmate%s with Goonberg seen today%s.",
+    FI.settings.guildSync == false and "off" or "on", n, n == 1 and "" or "s",
+    n > 0 and (": " .. table.concat(names, ", ", 1, math.min(#names, 10))) or "")
+  if realm.lastShared then
+    FI:Print("Last guild scan: %s items from %s, %s.", FI.Number(realm.lastShared.items), realm.lastShared.from, FI.Ago(realm.lastShared.t))
+  end
+  if #queue > 0 then FI:Print("Sending your last scan: %d messages to go.", #queue) end
+end

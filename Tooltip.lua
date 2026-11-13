@@ -1,0 +1,92 @@
+-- Goonberg Terminal: Auction House value on every item tooltip (bags, bank, mail, links...)
+local _, FI = ...
+
+local function vendorPrice(itemID)
+  local sell = select(11, FI.GetItemInfo(itemID))
+  return sell and sell > 0 and sell or nil
+end
+
+-- How many are in the hovered stack, when the tooltip is for a bag slot
+local function stackCount(tooltip)
+  local owner = tooltip.GetOwner and tooltip:GetOwner()
+  if not owner then return 1 end
+  local count
+  if owner.count then count = owner.count end
+  if not count and owner.GetBagID and owner.GetID and C_Container and C_Container.GetContainerItemInfo then
+    local ok, info = pcall(C_Container.GetContainerItemInfo, owner:GetBagID(), owner:GetID())
+    if ok and info then count = info.stackCount end
+  end
+  if not count and owner.Count and owner.Count.GetText then
+    count = tonumber(owner.Count:GetText() or "")
+  end
+  return (count and count > 1) and count or 1
+end
+
+local function addLines(tooltip, itemID)
+  if not FI.db or not FI.settings.tooltip or not itemID then return end
+  if tooltip.fiLastItem == itemID and tooltip.fiLastAdded == GetTime() then return end
+  local realm = FI:Realm()
+  local it = realm and realm.items[itemID]
+  local vendor = vendorPrice(itemID)
+  if not it or not it.mkt then
+    if vendor and IsShiftKeyDown() then
+      tooltip:AddLine(" ")
+      tooltip:AddDoubleLine("|cffe8b84aGoonberg|r", "|cff8b95a3not seen on the AH|r")
+    end
+    return
+  end
+
+  local s = FI.History.Stats(it, time())
+  local gold, muted = FI.colors.gold, FI.colors.soft
+  local count = stackCount(tooltip)
+
+  tooltip:AddLine(" ")
+  tooltip:AddDoubleLine("|cffe8b84aGoonberg|r", ("7d %s"):format(FI.ColoredPercent(s.c7)))
+  tooltip:AddDoubleLine("Market", FI.Money(it.mkt), muted[1], muted[2], muted[3], gold[1], gold[2], gold[3])
+  if count > 1 then
+    tooltip:AddDoubleLine(("Stack of %d"):format(count), FI.Money(it.mkt * count), muted[1], muted[2], muted[3], gold[1], gold[2], gold[3])
+  end
+  if s.min then
+    tooltip:AddDoubleLine("Lowest now", FI.Money(s.min), muted[1], muted[2], muted[3], gold[1], gold[2], gold[3])
+  elseif it.seen and it.seen == realm.lastScan then
+    tooltip:AddDoubleLine("Lowest now", "none listed", muted[1], muted[2], muted[3], muted[1], muted[2], muted[3])
+  end
+  if s.soldPerDay then
+    tooltip:AddDoubleLine("Est. sold / day", FI.Number(s.soldPerDay), muted[1], muted[2], muted[3], 1, 1, 1)
+  end
+  if vendor then
+    local better = vendor * 1.0 >= it.mkt * 0.95 -- AH takes a 5% cut
+    local r, g, b = muted[1], muted[2], muted[3]
+    if better then r, g, b = FI.colors.up[1], FI.colors.up[2], FI.colors.up[3] end
+    tooltip:AddDoubleLine(better and "Vendor (better than AH)" or "Vendor", FI.Money(vendor * count), r, g, b, 1, 1, 1)
+  end
+  if it.imported and (not it.seen or it.imported > it.seen) then
+    tooltip:AddLine(("|cff8b95a3From Auctionator, %s|r"):format(FI.Ago(it.imported)))
+  else
+    tooltip:AddLine(("|cff8b95a3Scanned %s|r"):format(FI.Ago(it.seen or realm.lastScan)))
+  end
+  tooltip.fiLastItem, tooltip.fiLastAdded = itemID, GetTime()
+  tooltip:Show()
+end
+
+local function itemFromTooltip(tooltip, data)
+  if data and data.id then return data.id end
+  if tooltip.GetItem then
+    local _, link = tooltip:GetItem()
+    return FI:ItemIDFromLink(link)
+  end
+end
+
+FI:On("PLAYER_LOGIN", function()
+  if TooltipDataProcessor and TooltipDataProcessor.AddTooltipPostCall and Enum and Enum.TooltipDataType then
+    TooltipDataProcessor.AddTooltipPostCall(Enum.TooltipDataType.Item, function(tooltip, data)
+      if tooltip == GameTooltip or tooltip == ItemRefTooltip or tooltip == ShoppingTooltip1 then
+        addLines(tooltip, itemFromTooltip(tooltip, data))
+      end
+    end)
+  else
+    for _, tip in ipairs({ GameTooltip, ItemRefTooltip }) do
+      tip:HookScript("OnTooltipSetItem", function(self) addLines(self, itemFromTooltip(self)) end)
+    end
+  end
+end)

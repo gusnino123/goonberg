@@ -1,0 +1,28 @@
+# Builds GoonbergTerminal-<version>.zip and publishes a GitHub Release whenever a
+# version tag (e.g. v0.8.0) is pushed. WowUp and similar managers install and update
+# the addon from these releases.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/GoonbergTerminal
+          rsync -a --exclude '.git*' --exclude '.github' --exclude 'dist' ./ dist/GoonbergTerminal/
+          cd dist && zip -qr "GoonbergTerminal-${VERSION}.zip" GoonbergTerminal
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          NOTES=$(awk "/^## ${VERSION}\$/{f=1;next} /^## /{f=0} f" CHANGELOG.md)
+          gh release create "$GITHUB_REF_NAME" "dist/GoonbergTerminal-${VERSION}.zip" \
+            --title "Goonberg Terminal ${VERSION}" --notes "${NOTES:-Goonberg Terminal ${VERSION}}"

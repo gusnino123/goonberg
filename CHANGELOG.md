@@ -1,0 +1,71 @@
+# Goonberg Terminal
+
+## 0.8.0
+
+- **Catch-up at login.** If you were away for more than 20 minutes, Goonberg asks your guild for everything they scanned while you were gone. The guildmate with the freshest data whispers it (up to 24 points per item for the 400 busiest items), and your charts fill in with no gap. Est. sold is worked out across the filled-in time too. `/goon sync catchup` asks on demand.
+- **Auto-rescan.** While the Auction House stays open, Goonberg scans again every 15 minutes (Blizzard's limit), so long AH sessions keep feeding you and your guild.
+- Price alerts only fire on live scans (yours or a guildmate's), never on catch-up, history or Auctionator data, which can be out of date.
+
+## 0.7.0
+
+- **Guild sync.** When you scan, your prices go to guildmates running Goonberg; when they scan, theirs come to you, wherever you are. Charts, tooltips, the overview, crafting margins and price alerts all update from guild scans.
+  - Busiest items go first (up to 2,000 per scan). Sending runs in the background at the game's message limits, so a full scan takes a few minutes to go out.
+  - Only your own scans are sent; nothing is relayed, and the same scan is never counted twice.
+  - The header shows "Last scan 3 min ago by Name (guild)".
+- **History for newcomers.** A new install with little history asks the guild at login, and one guildmate whispers up to 21 days of daily prices for the 400 most-traded items.
+- `/goon sync` shows who in your guild runs Goonberg; `/goon sync on|off`; `/goon sync history` asks again.
+
+## 0.6.0
+
+- **Imports Auctionator's price history.** If you use Auctionator, every day of prices it remembers is added to Goonberg's charts at login, so history starts weeks deep. Days Goonberg scanned itself are kept as they are and nothing is counted twice. `/goon import` runs it on demand; `/goon import off` stops the login import.
+- **Reads Auctionator's Full Scans** (or any other addon's). Blizzard allows one full scan per 15 minutes per account, so when another addon takes it, Goonberg reads the same results instead of missing out.
+- Tooltips and charts say "From Auctionator" when a price came from there.
+
+## 0.5.1
+
+- **Resizable window**: drag the bottom-right corner. Size and position are remembered. Never opens bigger than your screen.
+- Every screen adapts: tables keep their columns aligned to the right edge, taller windows show more rows, the chart grows to fill the space.
+- `/goon scale 0.9` (0.5 to 1.5) shrinks or grows everything; `/goon scale reset` puts size, scale and position back.
+- Crafting: column headers no longer run into each other; profession buttons have their own row; costs with unpriced reagents show "?" instead of "0c?".
+
+## 0.5.0
+
+- **Crafting overview** (Crafting tab, Overview): how all your recipes are doing.
+  - Cards: recipes known, profitable now, median margin (and your best recipe), daily profit pool, and what crafted items actually earned you on the AH in the last 7 days.
+  - Median margin of your recipes for each of the last 14 days, rebuilt from price history.
+  - By profession: recipes, profitable, median margin, profit pool and best recipe. Click one to see its recipes.
+  - Recipes getting more and less profitable compared with 7 days ago. Click one to open it.
+
+## 0.4.0
+
+- **Crafting tab** (`/goon2` or `/goon craft`): every recipe you know, with cost to craft, what it sells for after the 5% AH cut, profit, margin and how fast it sells. Filter by profession, show profitable only, sort by profit, margin or sold/day.
+- Click a recipe to see each reagent and where its price came from (AH or vendor). "Watch reagents" adds them and the crafted item to your watchlist.
+- Recipes are learned when you open each profession window. Vendor prices are learned when you open any vendor, so vials and thread are priced at the NPC's price.
+
+## 0.3.1
+
+- **Minimap button**: the goblin sits in a round button under the minimap. Click to open the terminal, right-click for your P&L, drag to move it. Hover for the Goonberg Index and when you last scanned.
+- `/goon minimap on|off|reset`.
+
+## 0.3.0
+
+- **New name: Goonberg Terminal** (was Forever Index). The command is now `/goon` (also `/goonberg`).
+- The market number is now the **Goonberg Index**.
+- The goblin now sits in the header as the logo.
+- Saved data starts fresh under the new name; delete the old ForeverIndex folder from your AddOns.
+
+## 0.2.0
+
+- **P&L tab** (`/goon pnl`): a shareable profit card for Today, 7 days, 30 days or all time: net profit, ROI (when you flip), sold, bought, AH cut, best item and what your bags are worth at market. Features a goblin and his gold.
+- Trades come from your AH mail invoices. Open the mailbox to update.
+- "Share in chat" posts your P&L line to guild; "Screenshot" saves the screen.
+
+## 0.1.0 (first test build)
+
+- Full Auction House scans (one every 15 minutes, Blizzard's limit), automatic when the AH opens.
+- Price history with candlestick charts (1D, 1W, 1M, All) and est. sales bars.
+- Market depth with wall detection.
+- Watchlist and price alerts (toast, sound, screen flash, chat).
+- Market overview: the Goonberg Index, gold traded, top movers, sortable and filterable item table with 7-day trend lines.
+- Item tooltips: market price, stack value, lowest buyout, 7-day change, est. sold per day, vendor price.
+- `/goon post` to share a price in chat.
