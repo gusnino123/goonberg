@@ -12,6 +12,7 @@ local AXIS_W = 70
 local PLOT_H, VOL_H = 250, 48
 
 local TF = {
+  ["15M"] = { span = 900, n = 3, label = "past 15 minutes", start = "15m ago", chg = "c15", sold = "sold15" },
   ["1H"] = { span = 3600, n = 12, label = "past hour", start = "1h ago", chg = "c1", sold = "sold1" },
   ["6H"] = { span = 6 * 3600, n = 24, label = "past 6 hours", start = "6h ago", chg = "c6", sold = "sold6" },
   ["12H"] = { span = 12 * 3600, n = 24, label = "past 12 hours", start = "12h ago", chg = "c12", sold = "sold12" },
@@ -175,7 +176,7 @@ local function buildCenter(tab)
   end)
   tab.watchBtn = watchBtn
 
-  local tfs = W.Choice(center, { "1H", "6H", "12H", "1D", "1W", "1M", "All" }, "seg", function(v) T.tf = v; T:Refresh() end, 26)
+  local tfs = W.Choice(center, { "15M", "1H", "6H", "12H", "1D", "1W", "1M", "All" }, "seg", function(v) T.tf = v; T:Refresh() end, 26)
   -- timeframes sit on the title row, left of the watch button; the item name
   -- stops before them so nothing overlaps on narrow windows
   tfs:SetPoint("RIGHT", watchBtn, "LEFT", -10, 0)

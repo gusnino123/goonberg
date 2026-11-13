@@ -3,13 +3,14 @@ local _, FI = ...
 local O = { cat = "All", move = "All", tf = "24h", sort = "sold", dir = -1, search = "" }
 -- Timeframes: which change and sales figures each one uses
 local TF = {
+  ["15m"] = { chg = "c15", sold = "sold15", win = 900, label = "15M", long = "past 15 minutes" },
   ["1h"] = { chg = "c1", sold = "sold1", win = 3600, label = "1H", long = "past hour" },
   ["6h"] = { chg = "c6", sold = "sold6", win = 6 * 3600, label = "6H", long = "past 6 hours" },
   ["12h"] = { chg = "c12", sold = "sold12", win = 12 * 3600, label = "12H", long = "past 12 hours" },
   ["24h"] = { chg = "c24", sold = "sold24", win = 86400, label = "24H", long = "past 24 hours" },
   ["7d"] = { chg = "c7", sold = "sold7", win = 7 * 86400, label = "7D", long = "past 7 days" },
 }
-local TF_ORDER = { "1h", "6h", "12h", "24h", "7d" }
+local TF_ORDER = { "15m", "1h", "6h", "12h", "24h", "7d" }
 O.TF = TF
 FI.OverviewTab = O
 local W = FI.Widgets

@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.11.1
+
+- **15-minute timeframe** on the overview (15m) and charts (15M): what moved since the previous scan. Needs a scan from at least 15 minutes ago (yours or your guild's).
+
 ## 0.11.0
 
 - **More timeframes.**
