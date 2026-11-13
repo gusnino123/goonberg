@@ -27,15 +27,47 @@ local function costText(row)
   return FI.Money(row.cost)
 end
 
+-- The list shows recipes; a clicked recipe expands in place to show its reagents
+-- (quantity, price each, where the price comes from, line total) and a total line.
+-- K.display holds what's on screen: { kind = "recipe"|"reagent"|"total", ... }
+local PLUS = "Interface\\Buttons\\UI-PlusButton-Up"
+local MINUS = "Interface\\Buttons\\UI-MinusButton-Up"
+
+function K:BuildDisplay()
+  local d = {}
+  for _, row in ipairs(self.rows) do
+    d[#d + 1] = { kind = "recipe", row = row }
+    if row.recipeID == self.expanded then
+      for _, g in ipairs(row.reagents) do d[#d + 1] = { kind = "reagent", g = g, row = row } end
+      d[#d + 1] = { kind = "total", row = row }
+    end
+  end
+  self.display = d
+end
+
+function K:Toggle(row)
+  self.expanded = (self.expanded ~= row.recipeID) and row.recipeID or nil
+  self.selected = row.recipeID
+  self:ShowDetail(row)
+  self:BuildDisplay()
+  self.list:SetCount(#self.display)
+end
+
+local function setColor(fs, c) fs:SetTextColor(c[1], c[2], c[3]) end
+
 local function makeRow(parent)
   local r = CreateFrame("Button", nil, parent)
   r.bg = W.Tex(r, C.raised, 0, "BACKGROUND")
   r.bg:SetAllPoints()
+  r.sub = W.Tex(r, C.bg, 0, "BACKGROUND")
+  r.sub:SetAllPoints()
   local line = W.Tex(r, C.border, 0.6, "BORDER")
   line:SetPoint("BOTTOMLEFT"); line:SetPoint("BOTTOMRIGHT"); line:SetHeight(1)
+  r.toggle = r:CreateTexture(nil, "ARTWORK")
+  r.toggle:SetSize(14, 14)
+  r.toggle:SetPoint("LEFT", 10, 0)
   r.icon = r:CreateTexture(nil, "ARTWORK")
   r.icon:SetSize(20, 20)
-  r.icon:SetPoint("LEFT", 12, 0)
   r.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
   r.name = W.Text(r, 12, C.text)
   r.name:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
@@ -47,26 +79,51 @@ local function makeRow(parent)
     fs:SetJustifyH("RIGHT")
     r.cells[col.key] = fs
   end
-  r:SetScript("OnEnter", function(self) if not self.on then self.bg:SetAlpha(0.5) end end)
-  r:SetScript("OnLeave", function(self) if not self.on then self.bg:SetAlpha(0) end end)
+  r:SetScript("OnEnter", function(self)
+    if not self.on then self.bg:SetAlpha(0.5) end
+    local id = self.e and (self.e.kind == "reagent" and self.e.g.id or (self.e.kind == "recipe" and self.e.row.rec.o))
+    if id then
+      GameTooltip:SetOwner(self, "ANCHOR_CURSOR_RIGHT")
+      GameTooltip:SetItemByID(id)
+      GameTooltip:AddLine(self.e.kind == "recipe" and "|cff8b95a3Click to show what it takes to craft.|r" or "|cff8b95a3Click to open its chart.|r")
+      GameTooltip:Show()
+    end
+  end)
+  r:SetScript("OnLeave", function(self)
+    if not self.on then self.bg:SetAlpha(0) end
+    GameTooltip_Hide()
+  end)
   r:SetScript("OnClick", function(self)
+    local e = self.e
+    if not e then return end
+    local id = e.kind == "reagent" and e.g.id or e.row.rec.o
     if IsModifiedClick("CHATLINK") then
-      local link = FI:ItemLink(self.row.rec.o)
+      local link = FI:ItemLink(id)
       if link then ChatEdit_InsertLink(link) end
+    elseif e.kind == "recipe" then
+      K:Toggle(e.row)
+    elseif e.kind == "reagent" then
+      FI.UI:ShowItem(id)
     else
-      K.selected = self.row.recipeID
-      K:ShowDetail(self.row)
-      K.list:Refresh()
+      K:Toggle(e.row) -- clicking the total line collapses
     end
   end)
   return r
 end
 
-local function updateRow(r, i)
-  local row = K.rows[i]
-  r.row = row
+local function clearCells(r)
+  for _, fs in pairs(r.cells) do fs:SetText(""); setColor(fs, C.text) end
+end
+
+local function updateRecipe(r, row)
   r.on = row.recipeID == K.selected
   r.bg:SetAlpha(r.on and 1 or 0)
+  r.sub:SetAlpha(0)
+  r.toggle:Show()
+  r.toggle:SetTexture(row.recipeID == K.expanded and MINUS or PLUS)
+  r.icon:ClearAllPoints()
+  r.icon:SetPoint("LEFT", 30, 0)
+  r.icon:SetSize(20, 20)
   r.icon:SetTexture(FI:ItemIcon(row.rec.o))
   local made = row.rec.n > 1 and ("  |cff8b95a3x%s|r"):format(row.rec.n % 1 == 0 and row.rec.n or ("%.1f"):format(row.rec.n)) or ""
   r.name:SetText(row.name .. made)
@@ -76,16 +133,78 @@ local function updateRow(r, i)
   local c = FI.ChangeColor(row.profit)
   if row.complete then
     r.cells.profit:SetText((row.profit >= 0 and "+" or "") .. FI.Money(row.profit))
-    r.cells.profit:SetTextColor(c[1], c[2], c[3])
+    setColor(r.cells.profit, c)
     r.cells.margin:SetText(row.margin and FI.Percent(row.margin) or "-")
-    r.cells.margin:SetTextColor(c[1], c[2], c[3])
+    setColor(r.cells.margin, c)
   else
-    r.cells.profit:SetText("-")
-    r.cells.profit:SetTextColor(C.muted[1], C.muted[2], C.muted[3])
-    r.cells.margin:SetText("-")
-    r.cells.margin:SetTextColor(C.muted[1], C.muted[2], C.muted[3])
+    r.cells.profit:SetText("-"); setColor(r.cells.profit, C.muted)
+    r.cells.margin:SetText("-"); setColor(r.cells.margin, C.muted)
   end
   r.cells.sold:SetText(row.soldPerDay and FI.Number(row.soldPerDay) or "-")
+  setColor(r.cells.sold, C.text)
+end
+
+-- one reagent: "Thorium Bar x2" | 25s 00c each | AH | 50s 00c
+local function updateReagent(r, g)
+  r.on = false
+  r.bg:SetAlpha(0)
+  r.sub:SetAlpha(1)
+  r.toggle:Hide()
+  r.icon:ClearAllPoints()
+  r.icon:SetPoint("LEFT", 50, 0)
+  r.icon:SetSize(16, 16)
+  r.icon:SetTexture(FI:ItemIcon(g.id))
+  r.name:SetText(("%s  |cff8b95a3x%s|r"):format(FI:ItemName(g.id), g.qty))
+  r.name:SetTextColor(FI:ItemQualityColor(g.id))
+  clearCells(r)
+  if g.price then
+    r.cells.cost:SetText(FI.Money(g.price) .. " ea")
+    setColor(r.cells.cost, C.soft)
+    r.cells.sell:SetText(g.src == "vendor" and "VENDOR" or "AH")
+    setColor(r.cells.sell, g.src == "vendor" and C.up or C.muted)
+    r.cells.profit:SetText(FI.Money(g.price * g.qty))
+    setColor(r.cells.profit, C.gold)
+  else
+    r.cells.cost:SetText("no price yet")
+    setColor(r.cells.cost, C.muted)
+    r.cells.profit:SetText("?")
+    setColor(r.cells.profit, C.muted)
+  end
+end
+
+-- the expanded recipe's bottom line: total cost, what it sells for, profit
+local function updateTotal(r, row)
+  r.on = false
+  r.bg:SetAlpha(0)
+  r.sub:SetAlpha(1)
+  r.toggle:Hide()
+  r.icon:ClearAllPoints()
+  r.icon:SetPoint("LEFT", 50, 0)
+  r.icon:SetSize(16, 16)
+  r.icon:SetTexture(nil)
+  clearCells(r)
+  r.name:SetText("|cff8b95a3Total to craft|r")
+  r.cells.cost:SetText(costText(row))
+  setColor(r.cells.cost, C.gold)
+  r.cells.sell:SetText(row.noSell and "|cff8b95a3no AH data|r" or FI.Money(row.sell))
+  if row.complete then
+    local c = FI.ChangeColor(row.profit)
+    r.cells.profit:SetText((row.profit >= 0 and "+" or "") .. FI.Money(row.profit))
+    setColor(r.cells.profit, c)
+    r.cells.margin:SetText(row.margin and FI.Percent(row.margin) or "-")
+    setColor(r.cells.margin, c)
+  else
+    r.cells.profit:SetText(row.missing > 0 and "needs prices" or "-")
+    setColor(r.cells.profit, C.muted)
+  end
+end
+
+local function updateRow(r, i)
+  local e = K.display[i]
+  r.e = e
+  if e.kind == "recipe" then updateRecipe(r, e.row)
+  elseif e.kind == "reagent" then updateReagent(r, e.g)
+  else updateTotal(r, e.row) end
 end
 
 local function buildDetail(tab)
@@ -328,7 +447,8 @@ function K:Refresh()
   self.rows = rows
   local fkey = self.prof .. self.sort .. tostring(self.onlyProfit) .. self.search
   if fkey ~= self.lastFilter then self.list.offset = 0; self.lastFilter = fkey end
-  self.list:SetCount(#rows)
+  self:BuildDisplay()
+  self.list:SetCount(#self.display)
 
   if #FI.Crafting:Professions() == 0 then
     self.empty:SetText("No recipes yet.\nOpen each of your profession windows once and Goonberg reads your recipes.\nThen visit the AH so it has prices.")

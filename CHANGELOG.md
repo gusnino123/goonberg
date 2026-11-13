@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.8.1
+
+- **Crafting: click a crafted item to expand it.** Right under it you see every reagent with how many you need, the price each, whether that price is from the AH or a vendor, and the cost of that line, then a total line with cost to craft, what it sells for, profit and margin. Click again to collapse. Click a reagent to open its chart; hover for its tooltip.
+
 ## 0.8.0
 
 - **Catch-up at login.** If you were away for more than 20 minutes, Goonberg asks your guild for everything they scanned while you were gone. The guildmate with the freshest data whispers it (up to 24 points per item for the 400 busiest items), and your charts fill in with no gap. Est. sold is worked out across the filled-in time too. `/goon sync catchup` asks on demand.

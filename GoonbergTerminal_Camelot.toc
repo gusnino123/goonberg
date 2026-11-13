@@ -2,7 +2,7 @@
 ## Title: Goonberg Terminal
 ## Notes: A trading terminal for the Auction House: price history, market depth, alerts and a market overview.
 ## Author: Goonberg Terminal
-## Version: 0.8.0
+## Version: 0.8.1
 ## Category: Auction
 ## SavedVariables: GoonbergTerminalDB
 ## OptionalDeps: Auctionator
