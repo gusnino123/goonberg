@@ -12,8 +12,11 @@ local AXIS_W = 70
 local PLOT_H, VOL_H = 250, 48
 
 local TF = {
-  ["1D"] = { span = 86400, n = 24, label = "past 24 hours", start = "24h ago" },
-  ["1W"] = { span = 7 * 86400, n = 28, label = "past 7 days", start = "7d ago" },
+  ["1H"] = { span = 3600, n = 12, label = "past hour", start = "1h ago", chg = "c1", sold = "sold1" },
+  ["6H"] = { span = 6 * 3600, n = 24, label = "past 6 hours", start = "6h ago", chg = "c6", sold = "sold6" },
+  ["12H"] = { span = 12 * 3600, n = 24, label = "past 12 hours", start = "12h ago", chg = "c12", sold = "sold12" },
+  ["1D"] = { span = 86400, n = 24, label = "past 24 hours", start = "24h ago", chg = "c24", sold = "sold24" },
+  ["1W"] = { span = 7 * 86400, n = 28, label = "past 7 days", start = "7d ago", chg = "c7", sold = "sold7" },
   ["1M"] = { span = 30 * 86400, n = 30, label = "past 30 days", start = "30d ago" },
   ["All"] = { n = 32, label = "all history", start = "first scan" },
 }
@@ -160,7 +163,8 @@ local function buildCenter(tab)
   tab.pill = pill
 
   local tfLabel = W.Text(center, 11, C.muted)
-  tfLabel:SetPoint("LEFT", pill, "RIGHT", 10, 0)
+  tfLabel:SetPoint("TOPLEFT", center, "TOPLEFT", PAD, -72)
+  tfLabel:SetPoint("RIGHT", center, "RIGHT", -PAD, 0)
   tab.tfLabel = tfLabel
 
   local watchBtn = W.Button(center, "+ Watch", 96, 26, "pill")
@@ -171,14 +175,17 @@ local function buildCenter(tab)
   end)
   tab.watchBtn = watchBtn
 
-  local tfs = W.Choice(center, { "1D", "1W", "1M", "All" }, "seg", function(v) T.tf = v; T:Refresh() end, 26)
-  tfs:SetPoint("TOPRIGHT", watchBtn, "BOTTOMRIGHT", 0, -8)
+  local tfs = W.Choice(center, { "1H", "6H", "12H", "1D", "1W", "1M", "All" }, "seg", function(v) T.tf = v; T:Refresh() end, 26)
+  -- timeframes sit on the title row, left of the watch button; the item name
+  -- stops before them so nothing overlaps on narrow windows
+  tfs:SetPoint("RIGHT", watchBtn, "LEFT", -10, 0)
+  tab.name:SetPoint("RIGHT", tfs, "LEFT", -12, 0)
   tfs:Select(T.tf)
   tab.tfs = tfs
 
   -- Chart box
   local box = W.Box(center, C.panel, C.border)
-  box:SetPoint("TOPLEFT", PAD, -100)
+  box:SetPoint("TOPLEFT", PAD, -96)
   box:SetPoint("RIGHT", center, "RIGHT", -PAD, 0)
   box:SetHeight(PLOT_H + VOL_H + 58)
   tab.box = box
@@ -245,7 +252,7 @@ local function buildCenter(tab)
 
   -- Stats row
   local stats = {}
-  local labels = { "HIGH", "LOW", "LISTED NOW", "EST. SOLD 24H" }
+  local labels = { "HIGH", "LOW", "LISTED NOW", "EST. SOLD" }
   for i = 1, 4 do
     local s = statBox(center)
     s.label:SetText(labels[i])
@@ -614,7 +621,7 @@ function T:Refresh()
   tab.price:SetText(FI.Money(it.mkt))
   tab.pill:Show()
   local tfChange
-  if self.tf == "1D" then tfChange = s.c24 elseif self.tf == "1W" then tfChange = s.c7 else
+  if TF[self.tf].chg then tfChange = s[TF[self.tf].chg] else
     local h = it.h
     local firstP
     local span = TF[self.tf].span or H.Span(it, now)
@@ -640,7 +647,9 @@ function T:Refresh()
   tab.stats[1].value:SetText(FI.Money(hi))
   tab.stats[2].value:SetText(FI.Money(lo))
   tab.stats[3].value:SetText(FI.Number(s.qty))
-  tab.stats[4].value:SetText(FI.Number(s.sold24))
+  local soldKey = TF[self.tf].sold or "sold7"
+  tab.stats[4].label:SetText("EST. SOLD " .. ((TF[self.tf].sold and self.tf) or "7D"):upper())
+  tab.stats[4].value:SetText(FI.Number(s[soldKey]))
 
   self:DrawChart(it)
   self:DrawDepth(it)

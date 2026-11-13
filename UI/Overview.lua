@@ -1,6 +1,16 @@
 -- Goonberg Terminal: market overview (index, movers, sortable and filterable item table)
 local _, FI = ...
 local O = { cat = "All", move = "All", tf = "24h", sort = "sold", dir = -1, search = "" }
+-- Timeframes: which change and sales figures each one uses
+local TF = {
+  ["1h"] = { chg = "c1", sold = "sold1", win = 3600, label = "1H", long = "past hour" },
+  ["6h"] = { chg = "c6", sold = "sold6", win = 6 * 3600, label = "6H", long = "past 6 hours" },
+  ["12h"] = { chg = "c12", sold = "sold12", win = 12 * 3600, label = "12H", long = "past 12 hours" },
+  ["24h"] = { chg = "c24", sold = "sold24", win = 86400, label = "24H", long = "past 24 hours" },
+  ["7d"] = { chg = "c7", sold = "sold7", win = 7 * 86400, label = "7D", long = "past 7 days" },
+}
+local TF_ORDER = { "1h", "6h", "12h", "24h", "7d" }
+O.TF = TF
 FI.OverviewTab = O
 local W = FI.Widgets
 local C = FI.colors
@@ -15,7 +25,7 @@ local COLS = {
   { key = "rank",  label = "#",          x = 34 },
   { key = "name",  label = "ITEM",       x = 44, left = true },
   { key = "price", label = "PRICE",      r = -520, sort = true },
-  { key = "chg24", label = "24H %",      r = -430, sort = true },
+  { key = "chgA",  label = "24H %",      r = -430, sort = true },
   { key = "chg7",  label = "7D %",       r = -345, sort = true },
   { key = "qty",   label = "LISTINGS",   r = -250, sort = true },
   { key = "sold",  label = "EST. SOLD",  r = -140, sort = true },
@@ -149,13 +159,14 @@ local function updateRow(r, i)
   r.cat:SetShown(r.name:GetStringWidth() + 70 < room)
   r.cat:SetText(row.cat)
   r.cells.price:SetText(FI.Money(row.price))
-  local c24, c7 = FI.ChangeColor(row.c24), FI.ChangeColor(row.c7)
-  r.cells.chg24:SetText(FI.Percent(row.c24))
-  r.cells.chg24:SetTextColor(c24[1], c24[2], c24[3])
+  local aKey = O:ColAKey()
+  local cA, c7 = FI.ChangeColor(row[aKey]), FI.ChangeColor(row.c7)
+  r.cells.chgA:SetText(FI.Percent(row[aKey]))
+  r.cells.chgA:SetTextColor(cA[1], cA[2], cA[3])
   r.cells.chg7:SetText(FI.Percent(row.c7))
   r.cells.chg7:SetTextColor(c7[1], c7[2], c7[3])
   r.cells.qty:SetText(FI.Number(row.qty))
-  r.cells.sold:SetText(FI.Number(O.tf == "24h" and row.sold24 or row.sold7))
+  r.cells.sold:SetText(FI.Number(row[TF[O.tf].sold]))
   local spark = row.spark
   if not spark then
     spark = H.Spark(FI:Realm().items[row.id], time(), 7 * 86400, SPARK_N)
@@ -202,7 +213,7 @@ function O:Build(parent)
   end)
   search:SetScript("OnEnterPressed", search.ClearFocus)
 
-  local tfs = W.Choice(tab, { "24h", "7d" }, "seg", function(v) O.tf = v; O:Refresh() end, 26)
+  local tfs = W.Choice(tab, TF_ORDER, "seg", function(v) O.tf = v; O:Refresh() end, 26)
   tfs:SetPoint("TOPRIGHT", -16, -136)
   tfs:Select(self.tf)
   local moves = W.Choice(tab, { "All", "Gainers", "Losers" }, "seg", function(v) O.move = v; O:Refresh() end, 26)
@@ -274,10 +285,18 @@ function O:UpdateHeaders()
       if on then b.arrow:SetDown(self.dir < 0) end
     end
     if b.col.key == "sold" then
-      b.text:SetText(self.tf == "24h" and "EST. SOLD 24H" or "EST. SOLD 7D")
+      b.text:SetText("EST. SOLD " .. TF[self.tf].label)
+      b:SetWidth(b.text:GetStringWidth() + 2)
+    elseif b.col.key == "chgA" then
+      b.text:SetText((self.tf == "7d" and "24H" or TF[self.tf].label) .. " %")
       b:SetWidth(b.text:GetStringWidth() + 2)
     end
   end
+end
+
+-- the first change column shows the chosen timeframe (24h when 7d is chosen)
+function O:ColAKey()
+  return self.tf == "7d" and "c24" or TF[self.tf].chg
 end
 
 local function setCard(c, value, extra, extraValue, sub)
@@ -295,18 +314,17 @@ function O:Refresh()
   local realm = FI:Realm()
   local now = time()
   local data = H.Overview(realm, now)
-  local is24 = self.tf == "24h"
+  local tf = TF[self.tf]
 
   -- Cards
   local level = H.IndexLevel(realm)
-  local ich = H.IndexChange(realm, now, is24 and 86400 or 7 * 86400)
+  local ich = H.IndexChange(realm, now, tf.win)
   setCard(self.cards[1], level and ("%.1f"):format(level) or "-", ich and FI.Percent(ich) or "", ich,
     ("Top %d items, weighted by gold traded"):format(H.INDEX_SIZE))
-  setCard(self.cards[2], FI.Money(is24 and data.gold24 or data.gold7), nil, nil,
-    is24 and "past 24 hours, estimated" or "past 7 days, estimated")
+  setCard(self.cards[2], FI.Money(data.gold[tf.sold] or 0), nil, nil, tf.long .. ", estimated")
   setCard(self.cards[3], FI.Number(data.listed), nil, nil, ("%s items tracked"):format(FI.Number(#data.rows)))
 
-  local key = is24 and "c24" or "c7"
+  local key = tf.chg
   local up, down
   for _, s in ipairs(data.rows) do
     -- ignore thin markets so one odd listing can't top the list
@@ -338,10 +356,10 @@ function O:Refresh()
   local sk, dir = self.sort, self.dir
   local function val(s)
     if sk == "price" then return s.price
-    elseif sk == "chg24" then return s.c24
+    elseif sk == "chgA" then return s[self:ColAKey()]
     elseif sk == "chg7" then return s.c7
     elseif sk == "qty" then return s.qty
-    else return is24 and s.sold24 or s.sold7 end
+    else return s[tf.sold] end
   end
   table.sort(rows, function(a, b)
     local va, vb = val(a), val(b)

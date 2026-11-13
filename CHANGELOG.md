@@ -1,5 +1,13 @@
 # Goonberg Terminal
 
+## 0.11.0
+
+- **More timeframes.**
+  - Overview: filter by **1h, 6h, 12h, 24h or 7d**. The change column, est. sold, gold traded, the Goonberg Index change, top gainer/loser and the Gainers/Losers filter all follow it. The 7D % column stays for comparison.
+  - Charts: **1H, 6H, 12H**, 1D, 1W, 1M and All. The header change and est. sold follow the timeframe.
+  - Short windows need a scan (yours or your guild's) at least that old, so a "-" means there isn't one yet.
+- Chart header tidied: timeframes sit on the title row, the time info on its own line.
+
 ## 0.10.0
 
 - **Disenchant value.** Uncommon, rare and epic armor and weapons show "Disenchant ~X" in their tooltip: the expected value of what they break into, priced at your AH prices. When disenchanting beats selling on the AH, the line turns green and says so. It shows even for gear that's never been on the AH. Hold Shift to see each possible material, its chance and its value.

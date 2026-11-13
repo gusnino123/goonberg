@@ -153,13 +153,21 @@ function H.Stats(it, now)
   local p7 = priceAt(h, now - 7 * DAY) or firstPrice(h, DAY, now)
   s.c24 = change(p24, it.mkt)
   s.c7 = change(p7, it.mkt)
-  local sold24, sold7 = 0, 0
+  -- short windows need a point at least that old (no fallback: an hour-old
+  -- change from a 10-minute-old first scan would be misleading)
+  s.c1 = change(priceAt(h, now - 3600), it.mkt)
+  s.c6 = change(priceAt(h, now - 6 * 3600), it.mkt)
+  s.c12 = change(priceAt(h, now - 12 * 3600), it.mkt)
+  local sold1, sold6, sold12, sold24, sold7 = 0, 0, 0, 0, 0
   for i = 1, #h, STRIDE do
-    local age = now - h[i]
-    if age <= DAY then sold24 = sold24 + h[i + 3] end
-    if age <= 7 * DAY then sold7 = sold7 + h[i + 3] end
+    local age, sold = now - h[i], h[i + 3]
+    if age <= 3600 then sold1 = sold1 + sold end
+    if age <= 6 * 3600 then sold6 = sold6 + sold end
+    if age <= 12 * 3600 then sold12 = sold12 + sold end
+    if age <= DAY then sold24 = sold24 + sold end
+    if age <= 7 * DAY then sold7 = sold7 + sold end
   end
-  s.sold24, s.sold7 = sold24, sold7
+  s.sold1, s.sold6, s.sold12, s.sold24, s.sold7 = sold1, sold6, sold12, sold24, sold7
   -- days of history actually covered, for "per day" figures
   local first = h[1]
   local span = first and math.min(7 * DAY, now - first) or 0
@@ -292,7 +300,8 @@ end
 function H.Overview(realm, now)
   if H.cache and H.cache.realm == realm and H.cache.scan == realm.lastScan then return H.cache end
   local rows = {}
-  local listed, gold24, gold7 = 0, 0, 0
+  local listed = 0
+  local gold = { sold1 = 0, sold6 = 0, sold12 = 0, sold24 = 0, sold7 = 0 }
   for itemID, it in pairs(realm.items) do
     local s = H.Stats(it, now)
     -- listed now, sold lately, or (imported) seen within the week
@@ -302,13 +311,12 @@ function H.Overview(realm, now)
       s.cat = FI:Category(itemID)
       rows[#rows + 1] = s
       listed = listed + s.qty
-      gold24 = gold24 + s.price * s.sold24
-      gold7 = gold7 + s.price * s.sold7
+      for k in pairs(gold) do gold[k] = gold[k] + s.price * s[k] end
     end
   end
   H.cache = {
     realm = realm, scan = realm.lastScan, rows = rows,
-    listed = listed, gold24 = gold24, gold7 = gold7,
+    listed = listed, gold = gold, gold24 = gold.sold24, gold7 = gold.sold7,
   }
   return H.cache
 end
