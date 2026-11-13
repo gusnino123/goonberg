@@ -1,62 +1,148 @@
 # Goonberg Terminal
 
-**Stock charts for the Auction House.** Built for World of Warcraft: Forever.
+**A trading terminal for the Auction House.** Built for World of Warcraft: Forever.
 
-Goonberg Terminal turns your AH scans into a trading screen: candlestick price charts, market depth, price alerts, and a market overview with the realm's biggest movers. Hover any item in your bags to see what it's worth.
+Goonberg Terminal turns the Auction House into a stock market screen: candlestick price charts, market depth, price alerts, a market overview with the realm's biggest movers, crafting profit for your professions, a P&L card for your trading, and AH value on every item you hover. Your guild shares its scans, so prices stay fresh even when you're nowhere near an auctioneer.
+
+Type **`/goon`** in game to open it, or click the goblin under your minimap.
+
+---
 
 ## Install
 
-1. Download the latest `GoonbergTerminal-x.y.z.zip` from this repository's **Releases** page (https://github.com/gusnino123/goonberg/releases).
-2. Unzip it so the `GoonbergTerminal` folder sits in your WoW Forever `Interface/AddOns` folder.
-3. Restart the game fully (not just `/reload`).
+1. Download the latest `GoonbergTerminal-x.y.z.zip` from the [Releases page](https://github.com/gusnino123/goonberg/releases).
+2. Unzip it so the `GoonbergTerminal` folder sits in your WoW Forever `Interface/AddOns` folder. You should end up with `AddOns/GoonbergTerminal/GoonbergTerminal.toc`, not a folder inside a folder.
+3. Quit the game completely and start it again (new addons aren't picked up by `/reload`).
+4. At character select, click **AddOns** and make sure **Goonberg Terminal** is ticked.
 
-**Automatic updates:** in [WowUp](https://wowup.io), choose *Get Addons → Install from URL* and paste `https://github.com/gusnino123/goonberg`. WowUp then updates Goonberg whenever a new release is published.
+**Automatic updates:** in [WowUp](https://wowup.io), choose **Get Addons → Install from URL** and paste `https://github.com/gusnino123/goonberg`. WowUp updates Goonberg whenever a new version is released.
 
-## What you get
-
-- **Candlestick charts** for any item over 1 day, 1 week, 1 month or all time, with est. sales bars underneath. Hover a candle for open, high, low and close.
-- **Market depth**: how many are listed at each price, and where the "wall" is (the big stack everyone has to buy through).
-- **Price alerts**: set "notify me below 3g50s" or "above 5g". When a scan crosses it you get a toast, a sound and a chat message.
-- **Market overview** (`/goon` anywhere): the Goonberg Index, est. gold traded, top gainer and loser, and every item sortable by price, 24h %, 7d %, listings and est. sold. Filter by Herbs, Ore & Bars, Cloth and more.
-- **Tooltips everywhere**: market price, stack value, lowest buyout, 7-day change, est. sold per day, vendor price and disenchant value, on every item you hover, with a green hint when vendoring or disenchanting beats the AH.
-- **Crafting profit** (`/goon2`): for every recipe you know, the cost of reagents vs. what the item sells for after the AH cut, so you see at a glance what's worth crafting today. Its overview tracks how all your recipes perform over time: margins over 14 days, each profession, and which recipes are getting better or worse.
-- **P&L card** (`/goon pnl`): your AH profit for today, 7 days, 30 days or all time, with a goblin sitting on his gold. Share it in guild chat or screenshot it.
-- **Share a price**: `/goon post Arcanite Bar` puts a one-line summary in guild chat.
+---
 
 ## How it works
 
-1. Open the Auction House. Goonberg Terminal opens beside it and scans the whole AH automatically, then again every 15 minutes while it stays open.
-2. Each scan saves a snapshot. Charts and trends build up as you scan, so the more you scan, the better they get.
-3. Close the AH and everything keeps working from your saved data.
+**1. Scanning.** Open the Auction House and Goonberg opens beside it and scans the whole AH on its own, then again every 15 minutes while the AH stays open. That's as often as Blizzard allows (one full scan per 15 minutes per account). Each scan saves every item's price, quantity and depth, which is what builds the charts. If another addon (like Auctionator) runs the full scan, Goonberg reads the same results instead of missing out.
 
-Blizzard allows one full AH scan every 15 minutes per account. The Scan button shows the countdown.
+**2. Everything works away from the AH.** Close the AH and the charts, overview, tooltips and crafting margins keep working from your saved data, anywhere in the world. Prices are as fresh as the last scan, yours or your guild's.
 
-**Guild sync:** everyone in your guild running Goonberg shares their scans, so prices stay fresh while you're out in the world, a new install gets up to 21 days of history from guildmates on day one, and when you log in, guildmates fill in whatever they scanned while you were away.
+**3. Guild sync.** Every guildmate running Goonberg shares their scans with the rest of the guild over the game's addon channel:
+- **Live:** when a guildmate scans, your prices update within minutes wherever you are, and your price alerts can fire from their scan.
+- **Catch-up:** when you log in after being away, a guildmate fills in everything they scanned while you were gone, so your charts have no gaps.
+- **New installs:** if you have little history, a guildmate sends you up to 21 days of daily prices at login.
 
-**Using Auctionator?** Goonberg imports the price history Auctionator already has at every login, so your charts start weeks deep, and it reads Auctionator's Full Scans too.
+Only your own scans are sent, nothing is relayed twice, and only guild messages are accepted.
 
-**About "est. sold":** the game doesn't show sales. Goonberg Terminal counts units that disappear between two scans close together. That includes cancelled and expired auctions, so it's an estimate, and it gets better the more often you scan.
+**4. Auctionator import.** If you've used Auctionator, Goonberg adds every day of price history it remembers to your charts at each login, so you start with weeks of history.
 
-**The Goonberg Index** is a single number for your realm's market. It started at 100 and moves with the average price change of the 25 most-traded items, weighted by gold traded.
+**About "est. sold":** the game doesn't show sales. Goonberg counts units that disappear between two scans close together, which includes cancelled and expired auctions, so treat it as an estimate. It gets better the more often you (or your guild) scan.
+
+**The Goonberg Index** is one number for your realm's market. It started at 100 and moves with the average price change of the 25 most-traded items, weighted by gold traded, like a stock index.
+
+---
+
+## The screens
+
+### Overview
+The whole market at a glance.
+- Cards: the **Goonberg Index**, est. gold traded, listings on the AH, top gainer and top loser.
+- Timeframes: **15m · 1h · 6h · 12h · 24h · 7d**. Every number on the screen follows the one you pick.
+- Filters by category (Herbs, Ore & Bars, Cloth, Leather, Enchanting, Trade Goods, Consumables, Gear, Recipes, Other), **Gainers / Losers**, and a search box.
+- Click any column header to sort; click again to flip. Each row has a 7-day trend line. Click a row to open its chart; shift-click to link it in chat.
+
+### Chart
+- **Candlestick chart** with est. sold bars: **15M · 1H · 6H · 12H · 1D · 1W · 1M · All**. Hover a candle for open, high, low, close and sales.
+- **Market depth:** how many are listed at each price, and where the **wall** is (the big stack everyone has to buy through).
+- **Watchlist** on the left (type a name or shift-click an item to add it; right-click to remove).
+- **Price alerts** on the right: notify below or above a price (e.g. `3g50s`). When a live scan crosses it you get a pop-up, a sound, a gold flash around the screen and a chat line.
+
+### Crafting (`/goon2`)
+- **Recipes:** every recipe you know with cost to craft, what it sells for after the 5% AH cut, **profit**, **margin** and how fast it sells. Click a recipe to expand it: each reagent with quantity, price each, where the price came from (AH or vendor) and the line cost, then the total. Filter by profession, show **Profitable only**, sort by profit, margin or sold per day.
+- **Overview:** how all your recipes perform: profitable count, median margin, daily profit pool, crafted items you actually sold, a 14-day margin chart, each profession, and which recipes are getting more or less profitable than last week.
+- Recipes are learned when you open each profession window once. Vendor prices (vials, thread...) are learned when you open a vendor, so reagents use the cheaper of the vendor and the AH.
+
+### P&L
+A shareable profit card for **Today, 7 days, 30 days or All time**: net profit, ROI (when you flip), sold, bought, the AH cut, your best item and what your bags are worth, with a goblin on a pile of gold. **Share in chat** posts it to your guild; **Screenshot** saves the screen. Trades are read from your AH mail invoices, so open a mailbox to update it.
+
+### Tooltips
+Hover any item (bags, bank, mail, chat links, the AH) to see:
+- Market price, **stack value**, lowest buyout now, **7-day change**, est. sold per day
+- **Vendor price**, in green when vendoring pays more than the AH
+- **Disenchant value** for green, blue and purple gear, in green when disenchanting beats selling. Hold **Shift** to see what it breaks into. (An estimate from the Classic disenchant tables; Forever's custom gear may differ.)
+
+### Minimap button
+The goblin under your minimap: **click** to open the terminal, **right-click** for your P&L, **drag** to move it. Hover it for the Goonberg Index and when the last scan was.
+
+---
 
 ## Commands
 
+Every command starts with `/goon` (or `/goonberg`). Wherever a command takes an `<item>`, you can type the name, shift-click the item into chat, or use its item ID.
+
+### Windows
 | Command | What it does |
 |---|---|
-| `/goon` | Open or close the window |
+| `/goon` | Open or close the terminal |
 | `/goon overview` | Market overview |
-| `/goon chart <item>` | Chart for an item |
+| `/goon chart <item>` | Price chart for an item |
 | `/goon2` or `/goon craft` | Crafting profit for your professions |
 | `/goon pnl` | Your profit and loss card |
-| `/goon scan` | Full scan (AH must be open) |
-| `/goon watch <item>` / `/goon unwatch <item>` | Add or remove from your watchlist |
-| `/goon alert <item> below 3g50s` | Price alert (also `above`, or `clear`) |
-| `/goon post <item> [guild\|party\|raid\|say]` | Share a price in chat |
-| `/goon de <item>` | What it disenchants into and is worth (`/goon de watch` follows all materials) |
-| `/goon sync` | Guild sync status (`on`, `off`, `history`) |
-| `/goon import` | Pull price history from Auctionator now (`/goon import off` stops the login import) |
-| `/goon scale 0.9` / `/goon scale reset` | Shrink or grow the window (or drag its corner) |
-| `/goon minimap on\|off\|reset` | Show, hide or re-center the minimap button |
-| `/goon autoscan\|dock\|sound\|tooltip on\|off` | Settings |
 
-You can shift-click items into any of these commands or into the watchlist box.
+### Scanning and data
+| Command | What it does |
+|---|---|
+| `/goon scan` | Full Auction House scan now (the AH must be open; once per 15 minutes) |
+| `/goon import` | Pull price history from Auctionator now |
+| `/goon import off` / `on` | Stop or restart the automatic Auctionator import at login |
+| `/goon sync` | Guild sync status: who in your guild runs Goonberg and the last guild scan |
+| `/goon sync on` / `off` | Turn guild sync on or off |
+| `/goon sync history` | Ask your guild for price history again |
+| `/goon sync catchup` | Ask your guild for everything scanned since your last scan |
+
+### Watchlist and alerts
+| Command | What it does |
+|---|---|
+| `/goon watch <item>` | Add an item to your watchlist |
+| `/goon unwatch <item>` | Remove it |
+| `/goon alert <item> below <price>` | Alert when the lowest price drops below a price, e.g. `/goon alert Black Lotus below 9g50s` |
+| `/goon alert <item> above <price>` | Alert when it rises above a price |
+| `/goon alert <item> clear` | Remove an item's alerts |
+
+Prices can be written `3g50s`, `3g 50s 20c`, `75s`, `20c` or just `3.5` (gold).
+
+### Sharing
+| Command | What it does |
+|---|---|
+| `/goon post <item>` | Post an item's price, weekly change and wall to guild chat |
+| `/goon post <item> party` | Same, to `party`, `raid` or `say` |
+
+### Disenchanting
+| Command | What it does |
+|---|---|
+| `/goon de <item>` | What an item disenchants into, the chance of each and what it's worth |
+| `/goon de watch` | Add every disenchant material to your watchlist so values stay priced |
+
+### Settings
+| Command | What it does |
+|---|---|
+| `/goon autoscan on` / `off` | Scan automatically when the AH opens and every 15 minutes while it's open |
+| `/goon dock on` / `off` | Open the terminal beside the AH when you visit it |
+| `/goon sound on` / `off` | Sound when an alert fires |
+| `/goon tooltip on` / `off` | Goonberg lines in item tooltips |
+| `/goon minimap on` / `off` / `reset` | Show, hide or re-center the minimap button |
+| `/goon scale 0.9` | Shrink or grow the whole window (0.5 to 1.5). You can also drag its bottom-right corner |
+| `/goon scale reset` | Put the window's size, scale and position back to default |
+| `/goon help` | List the commands in game |
+
+---
+
+## Good to know
+
+- **Charts start empty.** Each scan adds a point, so charts fill in over your first days. Guild sync and the Auctionator import fill them much faster.
+- **Short timeframes need recent scans.** 15m, 1h and so on show "-" until there's a scan at least that old.
+- **Alerts only fire on live scans** (yours or a guildmate's), never on catch-up or imported data, which can be out of date.
+- **Auctionator is optional.** Goonberg does its own scanning; Auctionator only adds history you already have.
+- Data is saved per realm and faction, and the P&L per character.
+
+## Feedback
+
+Found a bug or have an idea? [Open an issue](https://github.com/gusnino123/goonberg/issues). If something errors in game, type `/console scriptErrors 1` and include the error text.
