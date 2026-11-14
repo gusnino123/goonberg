@@ -1,5 +1,16 @@
 # Goonberg Terminal
 
+## 0.17.0
+
+- **Easier to read, everywhere.**
+  - Money shows its units in coin colours (gold, silver, copper), the way the game does, and drops units that add nothing ("5s" instead of "5s 00c"). Prices in tables are white, so gold is left for what matters.
+  - No text smaller than 11 points; numbers are sized to sit level with words.
+  - **Deals:** the toolbar is now two tidy rows (what to show; minimum margin and sort), so the Disenchant filter no longer hides under the search box. Columns are evenly spaced, renamed Profit each / Total profit, and the type reads as a word (Flip, Vendor, Rare, Disenchant). "Sells daily" explains itself on hover.
+  - **Chart:** on a narrow window the chart style and indicator buttons wrap onto a second row instead of running off the edge.
+  - **Overview:** the sort arrow sits beside its own column, cards have more room, shorter notes.
+  - **Crafting:** the summary cards no longer overlap their notes; a profession's best recipe moved into the row's tooltip.
+  - Status lines use a "·" separator throughout.
+
 ## 0.16.0
 
 - **Daily prices from Blizzard.** Blizzard's auction house API now covers WoW Forever, and a daily GitHub workflow turns it into 60 days of prices for every market (region, ruleset and faction). New installs and markets nobody in your guild scans start with full charts, fair values and deal checks. Your own scans and guild data always come first: Blizzard's days only fill the gaps.

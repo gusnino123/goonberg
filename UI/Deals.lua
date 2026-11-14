@@ -9,15 +9,16 @@ local ROWS, ROW_H = 40, 30
 -- BUY AT: the cheapest listing. SELL FOR: what you get per item (after the AH cut
 -- when reselling on the AH). PER ITEM / MARGIN: profit on that cheapest one.
 -- UNITS / TOTAL: every unit listed under the deal price, and the profit on all of them.
+-- right edges, evenly spaced by each column's width (money columns get the most room)
 local COLS = {
-  { key = "kind", label = "TYPE", r = -622 },
-  { key = "price", label = "BUY AT", r = -532 },
-  { key = "worth", label = "SELL FOR", r = -442 },
-  { key = "perItem", label = "PER ITEM", r = -362 },
-  { key = "margin", label = "MARGIN", r = -292 },
-  { key = "units", label = "UNITS", r = -232 },
-  { key = "profit", label = "TOTAL", r = -132 },
-  { key = "sold", label = "SOLD/DAY", r = -14 },
+  { key = "kind", label = "TYPE", r = -594 },
+  { key = "price", label = "BUY AT", r = -498 },
+  { key = "worth", label = "SELL FOR", r = -402 },
+  { key = "perItem", label = "PROFIT EACH", r = -310 },
+  { key = "margin", label = "MARGIN", r = -246 },
+  { key = "units", label = "UNITS", r = -186 },
+  { key = "profit", label = "TOTAL PROFIT", r = -86 },
+  { key = "sold", label = "SOLD/DAY", r = -16 },
 }
 local NAME_RIGHT = -690
 local KIND_COLOR = { Flip = C.gold, Vendor = C.up, Disenchant = { 0.64, 0.53, 0.96 }, Rare = { 0.40, 0.68, 1.00 } }
@@ -129,18 +130,18 @@ local function updateRow(r, i)
   r.name:SetTextColor(FI:ItemQualityColor(d.id))
   -- rare finds: "RARE?" when only a few days back the usual price; orange when the
   -- whole item is trending down (cheap because the market is falling)
-  r.cells.kind:SetText(d.kind == "Rare" and ("RARE" .. (d.confidence == "Thin" and "?" or "")) or d.kind:upper())
+  r.cells.kind:SetText(d.kind == "Rare" and ("Rare" .. (d.confidence == "Thin" and "?" or "")) or d.kind)
   setColor(r.cells.kind, (d.kind == "Rare" and d.trendDown) and C.down or (KIND_COLOR[d.kind] or C.soft))
-  r.cells.price:SetText(FI.Money(d.price))
-  setColor(r.cells.price, C.gold)
-  r.cells.worth:SetText(FI.Money(d.worth))
+  r.cells.price:SetText(FI.Coins(d.price))
+  setColor(r.cells.price, C.text)
+  r.cells.worth:SetText(FI.Coins(d.worth))
   setColor(r.cells.worth, C.soft)
-  r.cells.perItem:SetText("+" .. FI.Money(d.perItem))
+  r.cells.perItem:SetText("+" .. FI.Coins(d.perItem))
   setColor(r.cells.perItem, C.up)
   r.cells.margin:SetText(("%d%%"):format(math.floor(d.margin + 0.5)))
   setColor(r.cells.margin, C.up)
   r.cells.units:SetText(d.qtyKnown and FI.Number(d.units) or "1+")
-  r.cells.profit:SetText("+" .. FI.Money(d.profit))
+  r.cells.profit:SetText("+" .. FI.Coins(d.profit))
   setColor(r.cells.profit, C.up)
   r.cells.sold:SetText(d.soldPerDay and FI.Number(d.soldPerDay) or "-")
 end
@@ -156,20 +157,32 @@ function D:Build(parent)
   kinds:SetPoint("TOPLEFT", 16, -16)
   kinds:Select(self.kind)
 
-  local sortBy = W.Choice(tab, { "Total", "Per item", "Margin", "Sold/day" }, "seg", function(v) D.sort = v; D:Refresh() end, 26)
-  sortBy:SetPoint("TOPRIGHT", -16, -16)
-  sortBy:Select(self.sort)
-  local disc = W.Choice(tab, { "5%", "10%", "20%", "50%" }, "seg", function(v) D.margin = v; D:Refresh() end, 26)
-  disc:SetPoint("RIGHT", sortBy, "LEFT", -12, 0)
-  disc:Select(self.margin)
-  local discLabel = W.Text(tab, 11, C.muted)
-  discLabel:SetText("margin at least")
-  discLabel:SetPoint("RIGHT", disc, "LEFT", -6, 0)
+  local search = W.EditBox(tab, 220, "Search deals")
+  search:SetPoint("TOPRIGHT", -16, -16)
   local liquid = W.Button(tab, "Sells daily", nil, 26, "pill")
-  liquid:SetPoint("RIGHT", discLabel, "LEFT", -12, 0)
+  liquid:SetPoint("RIGHT", search, "LEFT", -10, 0)
   liquid:SetScript("OnClick", function(self) D.liquid = not D.liquid; self:SetSelected(D.liquid); D:Refresh() end)
-  local search = W.EditBox(tab, 150, "Search")
-  search:SetPoint("RIGHT", liquid, "LEFT", -12, 0)
+  liquid:SetScript("OnEnter", function(self)
+    self:Refresh()
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Sells daily")
+    GameTooltip:AddLine("Only items with at least 1 estimated sale a day, so you can sell them again.", 0.76, 0.79, 0.83, true)
+    GameTooltip:Show()
+  end)
+  liquid:SetScript("OnLeave", function(self) self:Refresh(); GameTooltip_Hide() end)
+
+  local discLabel = W.Text(tab, 12, C.soft)
+  discLabel:SetText("Minimum margin")
+  discLabel:SetPoint("TOPLEFT", 16, -59)
+  local disc = W.Choice(tab, { "5%", "10%", "20%", "50%" }, "seg", function(v) D.margin = v; D:Refresh() end, 26)
+  disc:SetPoint("LEFT", discLabel, "RIGHT", 10, 0)
+  disc:Select(self.margin)
+  local sortBy = W.Choice(tab, { "Total", "Per item", "Margin", "Sold/day" }, "seg", function(v) D.sort = v; D:Refresh() end, 26)
+  sortBy:SetPoint("TOPRIGHT", -16, -52)
+  sortBy:Select(self.sort)
+  local sortLabel = W.Text(tab, 12, C.soft)
+  sortLabel:SetText("Sort by")
+  sortLabel:SetPoint("RIGHT", sortBy, "LEFT", -10, 0)
   search:SetScript("OnTextChanged", function(self)
     if self.ph then self.ph:SetShown(self:GetText() == "") end
     D.search = self:GetText():lower()
@@ -178,7 +191,7 @@ function D:Build(parent)
   search:SetScript("OnEnterPressed", search.ClearFocus)
 
   local tbl = W.Box(tab, C.panel, C.border)
-  tbl:SetPoint("TOPLEFT", 16, -56)
+  tbl:SetPoint("TOPLEFT", 16, -90)
   tbl:SetPoint("BOTTOMRIGHT", -16, 16)
   local head = W.TableHeader(tbl, 30)
   local it = W.Heading(head, "ITEM")
@@ -261,7 +274,7 @@ function D:Refresh()
   else
     self.empty:Hide()
   end
-  self.footer:SetText(("%d deal%s, |cff3fb68b+%s|r if you bought every unit  -  margins after the 5%% AH cut  -  scan %s  -  click to find on the AH")
+  self.footer:SetText(("%d deal%s  ·  |cff3fb68b+%s|r if you bought every unit  ·  profits are after the 5%% AH cut  ·  scanned %s  ·  click a row to find it on the AH")
     :format(#rows, #rows == 1 and "" or "s", FI.Money(total), FI.Ago(realm.lastScan)))
 end
 

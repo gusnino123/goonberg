@@ -60,6 +60,31 @@ function V:Create(parent, opts)
   view.refBtn = W.Button(box, "Usual price", nil, 24, "pill")
   view.refBtn:SetPoint("LEFT", view.maBtn, "RIGHT", 6, 0)
   view.refBtn:SetScript("OnClick", function(self) view.showRef = not view.showRef; self:SetSelected(view.showRef); view:Draw() end)
+  -- One toolbar row when it fits; on a narrow chart the chart style and indicator
+  -- buttons move to a second row instead of running off the edge.
+  function view:LayoutBar()
+    local w = self.box:GetWidth() or 0
+    local need = self.tfChoice:GetWidth() + 10 + self.styleChoice:GetWidth() + 10 + self.maBtn:GetWidth() + 6 + self.refBtn:GetWidth() + 20
+    local rows = (w > 0 and need > w) and 2 or 1
+    if rows == self.barRows then return false end
+    self.barRows = rows
+    self.styleChoice:ClearAllPoints()
+    if rows == 1 then
+      self.styleChoice:SetPoint("LEFT", self.tfChoice, "RIGHT", 10, 0)
+    else
+      self.styleChoice:SetPoint("TOPLEFT", self.tfChoice, "BOTTOMLEFT", 0, -6)
+    end
+    local top = TOP_BAR + (rows - 1) * 30
+    self.legend:ClearAllPoints()
+    self.legend:SetPoint("TOPLEFT", 14, -(top + 2))
+    self.legend:SetPoint("RIGHT", self.box, "RIGHT", -AXIS_W, 0)
+    self.plot:ClearAllPoints()
+    self.plot:SetPoint("TOPLEFT", 14, -(top + LEGEND_H + 6))
+    self.plot:SetPoint("BOTTOMRIGHT", self.box, "BOTTOMRIGHT", -AXIS_W, VOL_H + 30)
+    return true
+  end
+  box:HookScript("OnSizeChanged", function() if view.plot and view:LayoutBar() then view:Draw() end end)
+
   view.nowBtn = W.Button(box, "Back to now", nil, 24, "gold")
   view.nowBtn:SetPoint("TOPRIGHT", -10, -6)
   view.nowBtn:SetScript("OnClick", function() view.offset = 0; view:Draw() end)
@@ -67,16 +92,15 @@ function V:Create(parent, opts)
 
   -- Legend (top-left of the plot)
   view.legend = W.Text(box, 11, C.soft, true)
-  view.legend:SetPoint("TOPLEFT", 14, -(TOP_BAR + 2))
   view.legend:SetPoint("RIGHT", box, "RIGHT", -AXIS_W, 0)
 
   -- Plot, volume, axes
   local plot = CreateFrame("Frame", nil, box)
-  plot:SetPoint("TOPLEFT", 14, -(TOP_BAR + LEGEND_H + 6))
   plot:SetPoint("BOTTOMRIGHT", box, "BOTTOMRIGHT", -AXIS_W, VOL_H + 30)
   plot:EnableMouse(true)
   plot:EnableMouseWheel(true)
   view.plot = plot
+  view:LayoutBar()
   local vol = CreateFrame("Frame", nil, box)
   vol:SetPoint("TOPLEFT", plot, "BOTTOMLEFT", 0, -6)
   vol:SetPoint("TOPRIGHT", plot, "BOTTOMRIGHT", 0, -6)

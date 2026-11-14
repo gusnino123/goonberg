@@ -120,7 +120,7 @@ local function buildCard(tab)
   card.stamp = W.Text(card, 11, C.muted)
   card.stamp:SetPoint("BOTTOMLEFT", 26, 12)
   local mark = W.Text(card, 11, C.gold)
-  mark:SetText("Goonberg Terminal  -  /goon")
+  mark:SetText("Goonberg Terminal  ·  /goon")
   mark:SetPoint("BOTTOMRIGHT", -16, 12)
   mark:SetJustifyH("RIGHT")
 
@@ -173,7 +173,7 @@ local function buildSide(tab)
     local c = sale and C.up or C.down
     r.kind:SetTextColor(c[1], c[2], c[3])
     r.item:SetText((e.q and e.q > 1) and (e.i .. " x" .. e.q) or e.i)
-    r.amt:SetText((sale and "+" or "-") .. FI.Money(sale and (e.g - e.f) or e.g))
+    r.amt:SetText((sale and "+" or "-") .. FI.Coins(sale and (e.g - e.f) or e.g))
     r.amt:SetTextColor(c[1], c[2], c[3])
   end)
   P.list:SetAllPoints(holder)
@@ -213,23 +213,23 @@ function P:Refresh()
   local from = since(self.period)
   local s = FI.Ledger:Summary(from)
 
-  card.period:SetText("P&L  -  " .. PERIODS[self.period].label)
-  card.who:SetText(("%s  -  %s"):format(UnitName("player") or "", GetRealmName() or ""))
+  card.period:SetText("P&L  ·  " .. PERIODS[self.period].label)
+  card.who:SetText(("%s  ·  %s"):format(UnitName("player") or "", GetRealmName() or ""))
   local col = s.net >= 0 and C.up or C.down
   card.net:SetText((s.net >= 0 and "+" or "") .. FI.Money(s.net))
   card.net:SetTextColor(col[1], col[2], col[3])
   if s.roi then
     card.roi:Show()
     card.roi.text:SetText(("%s ROI"):format(FI.Percent(s.roi)))
-    card.roi:SetWidth(card.roi.text:GetStringWidth() + 16)
+    card.roi:SetWidth(card.roi.text:GetStringWidth() + 22)
     card.roi:SetBackdropColor(col[1], col[2], col[3], 1)
     card.roi:SetBackdropBorderColor(col[1], col[2], col[3], 1)
   else
     card.roi:Hide()
   end
-  card.sold.value:SetText(FI.Money(s.income))
-  card.bought.value:SetText(FI.Money(s.spent))
-  card.fees.value:SetText(FI.Money(s.fees))
+  card.sold.value:SetText(FI.Coins(s.income))
+  card.bought.value:SetText(FI.Coins(s.spent))
+  card.fees.value:SetText(FI.Coins(s.fees))
   if s.best and s.best.net > 0 then
     card.best:SetText(("Best item: |cffe6e9ee%s|r  |cff3fb68b+%s|r"):format(s.best.name, FI.Money(s.best.net)))
   else

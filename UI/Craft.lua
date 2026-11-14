@@ -19,13 +19,13 @@ local COLS = {
 }
 local NAME_RIGHT = -440
 
-local function money(v) return v and FI.Money(v) or "-" end
+local function money(v) return v and FI.Coins(v) or "-" end
 -- a cost with unpriced reagents: "?" alone if nothing is priced yet
 local function costText(row)
   if row.missing > 0 then
     return row.cost > 0 and ("|cff8b95a3%s + ?|r"):format(FI.Money(row.cost)) or "|cff8b95a3?|r"
   end
-  return FI.Money(row.cost)
+  return FI.Coins(row.cost)
 end
 
 -- The list shows recipes; a clicked recipe expands in place to show its reagents
@@ -133,7 +133,7 @@ local function updateRecipe(r, row)
   r.cells.sell:SetText(row.noSell and "|cff8b95a3no AH data|r" or money(row.sell))
   local c = FI.ChangeColor(row.profit)
   if row.complete then
-    r.cells.profit:SetText((row.profit >= 0 and "+" or "") .. FI.Money(row.profit))
+    r.cells.profit:SetText((row.profit >= 0 and "+" or "") .. FI.Coins(row.profit))
     setColor(r.cells.profit, c)
     r.cells.margin:SetText(row.margin and FI.Percent(row.margin) or "-")
     setColor(r.cells.margin, c)
@@ -159,11 +159,11 @@ local function updateReagent(r, g)
   r.name:SetTextColor(FI:ItemQualityColor(g.id))
   clearCells(r)
   if g.price then
-    r.cells.cost:SetText(FI.Money(g.price) .. " ea")
+    r.cells.cost:SetText(FI.Coins(g.price) .. " ea")
     setColor(r.cells.cost, C.soft)
     r.cells.sell:SetText(g.src == "vendor" and "VENDOR" or "AH")
     setColor(r.cells.sell, g.src == "vendor" and C.up or C.muted)
-    r.cells.profit:SetText(FI.Money(g.price * g.qty))
+    r.cells.profit:SetText(FI.Coins(g.price * g.qty))
     setColor(r.cells.profit, C.gold)
   else
     r.cells.cost:SetText("no price yet")
@@ -187,10 +187,10 @@ local function updateTotal(r, row)
   r.name:SetText("|cff8b95a3Total to craft|r")
   r.cells.cost:SetText(costText(row))
   setColor(r.cells.cost, C.gold)
-  r.cells.sell:SetText(row.noSell and "|cff8b95a3no AH data|r" or FI.Money(row.sell))
+  r.cells.sell:SetText(row.noSell and "|cff8b95a3no AH data|r" or FI.Coins(row.sell))
   if row.complete then
     local c = FI.ChangeColor(row.profit)
-    r.cells.profit:SetText((row.profit >= 0 and "+" or "") .. FI.Money(row.profit))
+    r.cells.profit:SetText((row.profit >= 0 and "+" or "") .. FI.Coins(row.profit))
     setColor(r.cells.profit, c)
     r.cells.margin:SetText(row.margin and FI.Percent(row.margin) or "-")
     setColor(r.cells.margin, c)
@@ -301,7 +301,7 @@ function K:ShowDetail(row)
   d.icon:SetTexture(FI:ItemIcon(row.rec.o))
   d.name:SetText(row.name)
   d.name:SetTextColor(FI:ItemQualityColor(row.rec.o))
-  d.sub:SetText(("%s  -  makes %s"):format(row.prof, row.rec.n))
+  d.sub:SetText(("%s  ·  makes %s"):format(row.prof, row.rec.n))
   for i, l in ipairs(d.lines) do
     local g = row.reagents[i]
     if g then
@@ -309,16 +309,16 @@ function K:ShowDetail(row)
       l.icon:SetTexture(FI:ItemIcon(g.id))
       l.name:SetText(("%s x%d"):format(FI:ItemName(g.id), g.qty))
       l.src:SetText(g.src == "vendor" and "VENDOR" or (g.src == "ah" and "AH" or "NO PRICE"))
-      l.price:SetText(g.price and FI.Money(g.price * g.qty) or "-")
+      l.price:SetText(g.price and FI.Coins(g.price * g.qty) or "-")
     else
       l:Hide()
     end
   end
   d.totals[1]:SetText(costText(row))
-  d.totals[2]:SetText(row.noSell and "no AH data" or FI.Money(row.sell))
+  d.totals[2]:SetText(row.noSell and "no AH data" or FI.Coins(row.sell))
   if row.complete then
     local c = FI.ChangeColor(row.profit)
-    d.totals[3]:SetText(("%s%s  (%s)"):format(row.profit >= 0 and "+" or "", FI.Money(row.profit), row.margin and FI.Percent(row.margin) or "-"))
+    d.totals[3]:SetText(("%s%s  (%s)"):format(row.profit >= 0 and "+" or "", FI.Coins(row.profit), row.margin and FI.Percent(row.margin) or "-"))
     d.totals[3]:SetTextColor(c[1], c[2], c[3])
   else
     d.totals[3]:SetText(row.missing > 0 and "scan more to price all reagents" or "item not seen on the AH")
@@ -456,7 +456,7 @@ function K:Refresh()
   else
     self.empty:Hide()
   end
-  self.footer:SetText(("%d recipes  -  %d profitable right now  -  reagents priced at the cheaper of AH and vendor"):format(#all, profitable))
+  self.footer:SetText(("%d recipes  ·  %d profitable right now  ·  reagents priced at the cheaper of AH and vendor"):format(#all, profitable))
 
   local keep
   for _, r in ipairs(rows) do if r.recipeID == self.selected then keep = r end end

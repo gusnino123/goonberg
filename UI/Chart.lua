@@ -102,7 +102,7 @@ local function buildWatchlist(tab)
     local it = FI:Realm().items[id]
     if it and it.mkt then
       local s = H.Stats(it, time())
-      r.price:SetText(FI.Money(it.mkt))
+      r.price:SetText(FI.Coins(it.mkt))
       r.chg:SetText(s.c7 and FI.Percent(s.c7) or "")
       local c = FI.ChangeColor(s.c7)
       r.chg:SetTextColor(c[1], c[2], c[3])
@@ -355,10 +355,10 @@ function T:OnChartDrawn(info)
   local label = view.customSpan and ("showing " .. FI.Duration(info.span)) or (PRESET_LABEL[view.preset] or "")
   if info.offset and info.offset > 0 then label = label .. ", ending " .. FI.Duration(info.offset) .. " ago" end
   local fromAtr = it.imported and (not it.seen or it.imported > it.seen)
-  tab.tfLabel:SetText(label .. "  -  " .. (fromAtr and ("from Auctionator " .. FI.Ago(it.imported)) or ("scanned " .. FI.Ago(it.seen))))
+  tab.tfLabel:SetText(label .. "  ·  " .. (fromAtr and ("from Auctionator " .. FI.Ago(it.imported)) or ("scanned " .. FI.Ago(it.seen))))
   setChange(tab, info.change)
-  tab.stats[1].value:SetText(info.hi and info.hi > -math.huge and FI.Money(info.hi) or "-")
-  tab.stats[2].value:SetText(info.lo and info.lo < math.huge and FI.Money(info.lo) or "-")
+  tab.stats[1].value:SetText(info.hi and info.hi > -math.huge and FI.Coins(info.hi) or "-")
+  tab.stats[2].value:SetText(info.lo and info.lo < math.huge and FI.Coins(info.lo) or "-")
   tab.stats[4].label:SetText("EST. SOLD (WINDOW)")
   tab.stats[4].value:SetText(info.sold and FI.Number(info.sold) or "-")
 end

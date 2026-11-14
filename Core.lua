@@ -99,12 +99,23 @@ function FI.Money(copper, full)
     elseif s > 0 then out = ("%ds %02dc"):format(s, c)
     else out = ("%dc"):format(c) end
   else
+    -- drop units that add nothing: "9g", "5s" rather than "9g 00s", "5s 00c"
     if g >= 1000 then out = ("%sg"):format(FI.Number(g))
-    elseif g > 0 then out = ("%dg %02ds"):format(g, s)
-    elseif s > 0 then out = ("%ds %02dc"):format(s, c)
+    elseif g > 0 then out = s > 0 and ("%dg %02ds"):format(g, s) or ("%dg"):format(g)
+    elseif s > 0 then out = c > 0 and ("%ds %02dc"):format(s, c) or ("%ds"):format(s)
     else out = ("%dc"):format(c) end
   end
   return neg and ("-" .. out) or out
+end
+
+-- The same amount with the unit letters in coin colours (gold, silver, copper), the
+-- way the game shows money. The digits keep the text's own colour. For display only:
+-- chat messages and edit boxes use FI.Money.
+local COIN = { g = "|cffffd100g|r", s = "|cffc7c7cfs|r", c = "|cffeda55fc|r" }
+function FI.Coins(copper, full)
+  local out = FI.Money(copper, full)
+  if out == "-" then return out end
+  return (out:gsub("(%d)([gsc])", function(d, u) return d .. COIN[u] end))
 end
 
 function FI.Number(n)

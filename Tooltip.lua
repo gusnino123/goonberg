@@ -67,7 +67,7 @@ local function addLines(tooltip, itemID)
     local r, g, b = soft[1], soft[2], soft[3]
     local vr, vg, vb = 1, 1, 1
     if best == key then r, g, b = up[1], up[2], up[3]; vr, vg, vb = up[1], up[2], up[3] end
-    local text = value and ((prefix or "") .. FI.Money(value * count)) or "|cff8b95a3-|r"
+    local text = value and ((prefix or "") .. FI.Coins(value * count)) or "|cff8b95a3-|r"
     tooltip:AddDoubleLine(label, text, r, g, b, vr, vg, vb)
   end
   line("Vendor", "vendor", vendor)

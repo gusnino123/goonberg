@@ -24,9 +24,14 @@ function W.Tex(parent, color, alpha, layer)
   return t
 end
 
+-- Nothing smaller than 11: below that the game's fonts get hard to read
+W.MIN_SIZE = 11
 function W.Text(parent, size, color, num, flags)
   local fs = parent:CreateFontString(nil, "OVERLAY")
-  fs:SetFont(num and W.NUMFONT or W.FONT, size or 12, flags or "")
+  size = math.max(size or 12, W.MIN_SIZE)
+  -- Arial Narrow runs small next to the game font: one point up keeps numbers level with words
+  if num then size = size + 1 end
+  fs:SetFont(num and W.NUMFONT or W.FONT, size, flags or "")
   color = color or C.text
   fs:SetTextColor(color[1], color[2], color[3])
   fs:SetJustifyH("LEFT")

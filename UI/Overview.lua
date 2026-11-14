@@ -34,12 +34,12 @@ local NAME_RIGHT = -504 -- item names stop here, before the price column
 
 local function card(parent, title, accent)
   local b = W.Box(parent, C.panel, accent and { 0.23, 0.2, 0.16 } or C.border)
-  b:SetHeight(72)
+  b:SetHeight(78)
   b.title = W.Heading(b, title)
   b.title:SetPoint("TOPLEFT", 14, -12)
   if accent then b.title:SetTextColor(C.gold[1], C.gold[2], C.gold[3]) end
   b.value = W.Text(b, 20, C.text, true)
-  b.value:SetPoint("TOPLEFT", 14, -30)
+  b.value:SetPoint("TOPLEFT", 14, -29)
   b.value:SetPoint("RIGHT", -14, 0)
   b.extra = W.Text(b, 12, C.up, true)
   b.extra:SetPoint("LEFT", b.value, "LEFT", 0, 0) -- moved after text is set
@@ -89,7 +89,7 @@ local function makeRow(parent, i)
       r.cat = W.Text(r, 10, C.muted)
       r.cat:SetPoint("LEFT", r.icon, "RIGHT", 8, 0) -- moved next to the name on update
     else
-      local fs = W.Text(r, 12, col.key == "price" and C.gold or C.text, true)
+      local fs = W.Text(r, 12, C.text, true)
       if col.r then fs:SetPoint("RIGHT", r, "RIGHT", col.r, 0) else fs:SetPoint("RIGHT", r, "LEFT", col.x, 0) end
       fs:SetJustifyH("RIGHT")
       if col.key == "rank" then fs:SetTextColor(C.muted[1], C.muted[2], C.muted[3]) end
@@ -128,7 +128,7 @@ local function updateRow(r, i)
   r.cat:SetPoint("LEFT", r.name, "LEFT", math.min(r.name:GetStringWidth(), room) + 8, 0)
   r.cat:SetShown(r.name:GetStringWidth() + 70 < room)
   r.cat:SetText(row.cat)
-  r.cells.price:SetText(FI.Money(row.price))
+  r.cells.price:SetText(FI.Coins(row.price))
   local aKey = O:ColAKey()
   local cA, c7 = FI.ChangeColor(row[aKey]), FI.ChangeColor(row.c7)
   r.cells.chgA:SetText(FI.Percent(row[aKey]))
@@ -166,12 +166,12 @@ function O:Build(parent)
 
   -- Category filter
   local cats = W.Choice(tab, FI.categories, "pill", function(v) O.cat = v; O:Refresh() end, 26)
-  cats:SetPoint("TOPLEFT", 16, -102)
+  cats:SetPoint("TOPLEFT", 16, -108)
   cats:Select(self.cat)
 
   -- Search, movers, timeframe
   local search = W.EditBox(tab, 240, "Search items")
-  search:SetPoint("TOPLEFT", 16, -136)
+  search:SetPoint("TOPLEFT", 16, -142)
   search:SetScript("OnTextChanged", function(self)
     if self.ph then self.ph:SetShown(self:GetText() == "") end
     O.search = self:GetText():lower()
@@ -180,7 +180,7 @@ function O:Build(parent)
   search:SetScript("OnEnterPressed", search.ClearFocus)
 
   local tfs = W.Choice(tab, TF_ORDER, "seg", function(v) O.tf = v; O:Refresh() end, 26)
-  tfs:SetPoint("TOPRIGHT", -16, -136)
+  tfs:SetPoint("TOPRIGHT", -16, -142)
   tfs:Select(self.tf)
   local moves = W.Choice(tab, { "All", "Gainers", "Losers" }, "seg", function(v) O.move = v; O:Refresh() end, 26)
   moves:SetPoint("RIGHT", tfs, "LEFT", -12, 0)
@@ -188,7 +188,7 @@ function O:Build(parent)
 
   -- Table
   local tbl = W.Box(tab, C.panel, C.border)
-  tbl:SetPoint("TOPLEFT", 16, -172)
+  tbl:SetPoint("TOPLEFT", 16, -178)
   tbl:SetPoint("BOTTOMRIGHT", -16, 16)
 
   local head = W.TableHeader(tbl, 30)
@@ -208,7 +208,7 @@ function O:Build(parent)
     b:SetWidth(b.text:GetStringWidth() + 2)
     if col.sort then
       b.arrow = chevron(b)
-      b.arrow:SetPoint("RIGHT", b.text, "LEFT", -5, 0)
+      b.arrow:SetPoint("LEFT", b.text, "RIGHT", 4, 0)
       b:SetScript("OnClick", function()
         if O.sort == col.key then O.dir = -O.dir else O.sort, O.dir = col.key, -1 end
         O:Refresh()
@@ -235,7 +235,7 @@ function O:Build(parent)
   local note = W.Text(tbl, 10, C.muted)
   note:SetPoint("BOTTOMRIGHT", -14, 8)
   note:SetJustifyH("RIGHT")
-  note:SetText("Grey % = only 1-2 listed.  Est. sold = units that left the AH between scans (sold, cancelled or expired)")
+  note:SetText("Grey % = only 1-2 listed (could be one seller)   ·   Est. sold = units gone between scans")
 
   tab.Refresh = function() O:Refresh() end
   return tab
@@ -249,6 +249,11 @@ function O:UpdateHeaders()
     if b.arrow then
       b.arrow:SetShown(on)
       if on then b.arrow:SetDown(self.dir < 0) end
+      -- right-aligned headers make room for the arrow so it sits beside its own column
+      if not b.col.left then
+        b.text:ClearAllPoints()
+        b.text:SetPoint("RIGHT", b, "RIGHT", on and -12 or 0, 0)
+      end
     end
     if b.col.key == "sold" then
       b.text:SetText("EST. SOLD " .. TF[self.tf].label)
@@ -288,7 +293,7 @@ function O:Refresh()
   local level = H.IndexLevel(realm)
   local ich = H.IndexChange(realm, now, tf.win)
   setCard(self.cards[1], level and ("%.1f"):format(level) or "-", ich and FI.Percent(ich) or "", ich,
-    ("Top %d items, weighted by gold traded"):format(H.INDEX_SIZE))
+    ("Top %d items by gold traded"):format(H.INDEX_SIZE))
   setCard(self.cards[2], FI.Money(data.gold[tf.sold] or 0), nil, nil, tf.long .. ", estimated")
   setCard(self.cards[3], FI.Number(data.listed), nil, nil, ("%s items tracked"):format(FI.Number(#data.rows)))
 
@@ -363,7 +368,7 @@ function O:Refresh()
   else
     self.empty:Hide()
   end
-  self.footer:SetText(("Showing %s of %s items  -  scroll for more, shift-scroll pages"):format(FI.Number(#rows), FI.Number(#data.rows)))
+  self.footer:SetText(("Showing %s of %s items  ·  scroll for more, shift-scroll pages"):format(FI.Number(#rows), FI.Number(#data.rows)))
 end
 
 function O:SetBuilding(on)

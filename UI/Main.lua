@@ -189,10 +189,10 @@ function UI:UpdateStatus()
     if shared and shared.t == realm.lastScan then
       text = ("Last scan %s by %s (guild)"):format(FI.Ago(realm.lastScan), shared.from)
     else
-      text = ("Last scan %s  -  %d scans"):format(FI.Ago(realm.lastScan), scans)
+      text = ("Last scan %s  ·  %d scans"):format(FI.Ago(realm.lastScan), scans)
     end
     local q = FI.Sync and FI.Sync:QueueLength() or 0
-    if q > 0 then text = text .. ("  -  sharing with guild (%d)"):format(q) end
+    if q > 0 then text = text .. ("  ·  sharing with guild (%d)"):format(q) end
     color = (realm.lastScan > 0 and time() - realm.lastScan < 3600) and C.up or C.muted
   end
   self.status:SetText(text)
