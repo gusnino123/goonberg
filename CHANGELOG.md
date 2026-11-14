@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.15.4
+
+- **Cleaner item tooltip.** Three lines: **Vendor**, **Market** and **Disenchant** (gear only), for the whole stack, with the one that pays the most in green (after the 5% AH cut). How fresh the price is shows next to "Goonberg". Hold **Shift** for the details: price each, lowest listing, 7-day change, sales per day and what the item disenchants into.
+
 ## 0.15.3
 
 - **Fixed: scans that never finished.**

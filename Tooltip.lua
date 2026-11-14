@@ -22,79 +22,80 @@ local function stackCount(tooltip)
   return (count and count > 1) and count or 1
 end
 
+-- Three clean lines: Vendor, Market, Disenchant (for the whole stack).
+-- The one that pays most is green. Hold Shift for the details.
 local function addLines(tooltip, itemID)
   if not FI.db or not FI.settings.tooltip or not itemID then return end
   if tooltip.fiLastItem == itemID and tooltip.fiLastAdded == GetTime() then return end
   local realm = FI:Realm()
   local it = realm and realm.items[itemID]
+  local market = it and it.mkt
   local vendor = vendorPrice(itemID)
   local de, deComplete, deParts = FI.Disenchant:Value(itemID)
+  if not (market or vendor or de) then return end
+  local count = stackCount(tooltip)
+  local shift = IsShiftKeyDown()
+  local soft, up = FI.colors.soft, FI.colors.up
 
-  -- Disenchant line (plus, holding Shift, what it breaks into)
-  local function addDisenchant(mkt, count)
-    if not de then return end
-    local soft = FI.colors.soft
-    -- Fair comparison: the item and its materials would both be sold on the AH
-    -- (same 5% cut), so compare what the item sells for with what its mats sell for.
-    local itemSell = FI.Crafting:SellPrice(itemID) or mkt
-    local better = itemSell and de > itemSell
+  -- what each way actually pays you: the vendor pays in full, the AH pays what
+  -- you'd sell for (cheapest listing or market, whichever is lower) minus its 5% cut
+  local sell = market and (FI.Crafting:SellPrice(itemID) or market)
+  local net = {
+    vendor = vendor,
+    market = sell and sell * 0.95,
+    de = de and de * 0.95,
+  }
+  local best, bestV
+  for k, v in pairs(net) do
+    if v and (not bestV or v > bestV) then best, bestV = k, v end
+  end
+
+  -- header: name on the left, how fresh the price is on the right
+  local age
+  if it and it.imported and (not it.seen or it.imported > it.seen) then
+    age = "Auctionator, " .. FI.Ago(it.imported)
+  elseif it and it.seen then
+    age = "scanned " .. FI.Ago(it.seen)
+  elseif not market then
+    age = "not seen on the AH"
+  end
+  tooltip:AddLine(" ")
+  tooltip:AddDoubleLine("|cffe8b84aGoonberg|r" .. (count > 1 and ("  |cff8b95a3x%d|r"):format(count) or ""),
+    age and ("|cff8b95a3%s|r"):format(age) or "")
+
+  local function line(label, key, value, prefix)
     local r, g, b = soft[1], soft[2], soft[3]
-    if better or not mkt then r, g, b = FI.colors.up[1], FI.colors.up[2], FI.colors.up[3] end
-    local label = better and "Disenchant (better than AH)" or "Disenchant"
-    tooltip:AddDoubleLine(label, "~" .. FI.Money(de * count) .. (deComplete and "" or " ?"), r, g, b, 1, 1, 1)
-    if IsShiftKeyDown() and deParts then
+    local vr, vg, vb = 1, 1, 1
+    if best == key then r, g, b = up[1], up[2], up[3]; vr, vg, vb = up[1], up[2], up[3] end
+    local text = value and ((prefix or "") .. FI.Money(value * count)) or "|cff8b95a3-|r"
+    tooltip:AddDoubleLine(label, text, r, g, b, vr, vg, vb)
+  end
+  line("Vendor", "vendor", vendor)
+  line("Market", "market", market)
+  if de then line("Disenchant", "de", de, "~") end
+
+  if shift then
+    local function detail(label, value)
+      tooltip:AddDoubleLine("   " .. label, value, soft[1], soft[2], soft[3], soft[1], soft[2], soft[3])
+    end
+    if it and market then
+      local st = FI.History.Stats(it, time())
+      if count > 1 then detail("Market, each", FI.Money(market)) end
+      if st.min then detail("Lowest now", FI.Money(st.min))
+      elseif it.seen and it.seen == realm.lastScan then detail("Lowest now", "none listed") end
+      if st.c7 then detail("7 day change", FI.ColoredPercent(st.c7)) end
+      if st.soldPerDay then detail("Est. sold / day", FI.Number(st.soldPerDay)) end
+    end
+    if de and deParts then
       for _, p in ipairs(deParts) do
         local qty = p.qty % 1 == 0 and tostring(p.qty) or ("%.1f"):format(p.qty)
-        tooltip:AddDoubleLine(("   %s%%  %s x%s%s"):format(p.chance < 0.01 and ("%.1f"):format(p.chance * 100) or math.floor(p.chance * 100 + 0.5), FI:ItemName(p.id), qty, p.converted and " (as 3:1 essence)" or ""),
-          p.price and FI.Money(p.price * p.qty) or "no price", soft[1], soft[2], soft[3], soft[1], soft[2], soft[3])
+        local pct = p.chance < 0.01 and ("%.1f"):format(p.chance * 100) or math.floor(p.chance * 100 + 0.5)
+        detail(("%s%%  %s x%s%s"):format(pct, FI:ItemName(p.id), qty, p.converted and " (3:1 essence)" or ""),
+          p.price and FI.Money(p.price * p.qty) or "no price")
       end
-      tooltip:AddLine("|cff8b95a3Estimate from the Forever disenchanting table (by required level).|r")
+      if not deComplete then detail("Some materials have no AH price yet", "") end
     end
-  end
-
-  if not it or not it.mkt then
-    -- never seen on the AH: gear can still show what it disenchants for
-    if de then
-      tooltip:AddLine(" ")
-      tooltip:AddDoubleLine("|cffe8b84aGoonberg|r", "|cff8b95a3not seen on the AH|r")
-      addDisenchant(nil, stackCount(tooltip))
-      tooltip.fiLastItem, tooltip.fiLastAdded = itemID, GetTime()
-      tooltip:Show()
-    end
-    return
-  end
-
-  local s = FI.History.Stats(it, time())
-  local gold, muted = FI.colors.gold, FI.colors.soft
-  local count = stackCount(tooltip)
-
-  tooltip:AddLine(" ")
-  tooltip:AddDoubleLine("|cffe8b84aGoonberg|r", ("7d %s"):format(FI.ColoredPercent(s.c7)))
-  tooltip:AddDoubleLine("Market", FI.Money(it.mkt), muted[1], muted[2], muted[3], gold[1], gold[2], gold[3])
-  if count > 1 then
-    tooltip:AddDoubleLine(("Stack of %d"):format(count), FI.Money(it.mkt * count), muted[1], muted[2], muted[3], gold[1], gold[2], gold[3])
-  end
-  if s.min then
-    tooltip:AddDoubleLine("Lowest now", FI.Money(s.min), muted[1], muted[2], muted[3], gold[1], gold[2], gold[3])
-  elseif it.seen and it.seen == realm.lastScan then
-    tooltip:AddDoubleLine("Lowest now", "none listed", muted[1], muted[2], muted[3], muted[1], muted[2], muted[3])
-  end
-  if s.soldPerDay then
-    tooltip:AddDoubleLine("Est. sold / day", FI.Number(s.soldPerDay), muted[1], muted[2], muted[3], 1, 1, 1)
-  end
-  if vendor then
-    -- vendor pays in full; the AH pays what you'd sell for (cheapest listing or
-    -- market, whichever is lower) minus its 5% cut
-    local better = vendor >= (FI.Crafting:SellPrice(itemID) or it.mkt) * 0.95
-    local r, g, b = muted[1], muted[2], muted[3]
-    if better then r, g, b = FI.colors.up[1], FI.colors.up[2], FI.colors.up[3] end
-    tooltip:AddDoubleLine(better and "Vendor (better than AH)" or "Vendor", FI.Money(vendor * count), r, g, b, 1, 1, 1)
-  end
-  addDisenchant(it.mkt, count)
-  if it.imported and (not it.seen or it.imported > it.seen) then
-    tooltip:AddLine(("|cff8b95a3From Auctionator, %s|r"):format(FI.Ago(it.imported)))
-  else
-    tooltip:AddLine(("|cff8b95a3Scanned %s|r"):format(FI.Ago(it.seen or realm.lastScan)))
+    tooltip:AddLine("|cff8b95a3Green pays the most after the 5% AH cut.|r")
   end
   tooltip.fiLastItem, tooltip.fiLastAdded = itemID, GetTime()
   tooltip:Show()
