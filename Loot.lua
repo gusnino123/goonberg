@@ -24,6 +24,7 @@ local PRIOR = 20 -- a listed drop chance weighs as much as 20 kills
 LT.bosses = {}   -- creature ID -> source
 LT.sources = {}  -- every boss, rare spawn and chest: { key, name, instance, items, listed = { [item] = 0..1 }, rare, object }
 LT.trash = {}    -- dungeon trash tables: { instance, items, listed }
+LT.dungeonInfo = {} -- dungeon name -> { min, max, order } (level range, place in the list)
 LT.PRIOR = PRIOR
 
 function LT:IndexBundled()
@@ -32,16 +33,18 @@ function LT:IndexBundled()
   wipe(self.bosses)
   wipe(self.sources)
   wipe(self.trash)
+  wipe(self.dungeonInfo)
   -- wings (Scarlet Monastery, Dire Maul) share one instance: keep their own names
   local perInstance = {}
   for _, dg in ipairs(data.dungeons) do perInstance[dg.instance] = (perInstance[dg.instance] or 0) + 1 end
-  for _, dg in ipairs(data.dungeons) do
+  for idx, dg in ipairs(data.dungeons) do
     local name = dg.name
     if perInstance[dg.instance] == 1 and GetRealZoneText then
       local real = GetRealZoneText(dg.instance) -- the client's own (localized) name
       if type(real) == "string" and real ~= "" then name = real end
     end
     dg.display = name
+    self.dungeonInfo[name] = { min = dg.levels and dg.levels[1], max = dg.levels and dg.levels[2], order = idx }
     for _, b in ipairs(dg.bosses) do
       local npc, bossName, items, drops, rare, object = b[1], b[2], b[3], b[4], b[5], b[6]
       local listed = {}
@@ -442,7 +445,9 @@ function LT:Dungeons()
     if r.instance then
       local dg = by[r.instance]
       if not dg then
-        dg = { name = r.instance, bosses = {}, perClear = 0, items = 0, kills = 0 }
+        local info = self.dungeonInfo[r.instance] or {}
+        dg = { name = r.instance, bosses = {}, perClear = 0, items = 0, kills = 0,
+          minLevel = info.min, maxLevel = info.max, order = info.order }
         by[r.instance] = dg
       end
       dg.items = dg.items + 1

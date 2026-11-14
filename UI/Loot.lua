@@ -1,8 +1,8 @@
 -- Goonberg Terminal: Loot tab. Dungeon drops you can sell on the AH: where they
 -- drop, how often, and what they're worth.
 local _, FI = ...
-local T = { view = "Items", filter = "All", search = "",
-  itemSort = { sort = "price", dir = -1 }, dungeonSort = { sort = "perClear", dir = -1 } }
+local T = { view = "Items", filter = "All", search = "", collapsed = {},
+  itemSort = { sort = "price", dir = -1 }, dungeonSort = { sort = "level", dir = 1 } }
 FI.LootTab = T
 local W = FI.Widgets
 local C = FI.colors
@@ -15,6 +15,7 @@ local ITEM_COLS = {
   { key = "kills", label = "KILLS", r = -16 },
 }
 local FROM_LEFT, FROM_RIGHT = -620, -372 -- "drops from" column (offsets from the right)
+local LEVEL_AT = -610 -- dungeons view: level range (left-aligned, from the right)
 local DUNGEON_COLS = {
   { key = "bosses", label = "BOSSES", r = -470 },
   { key = "kills", label = "RUNS", r = -400 },
@@ -63,6 +64,23 @@ local function makeRow(parent)
   r.best = W.Text(r, 12, C.soft)
   r.best:SetPoint("LEFT", r, "RIGHT", -280, 0)
   r.best:SetPoint("RIGHT", r, "RIGHT", -140, 0)
+  r.level = W.Text(r, 12, C.soft, true)
+  r.level:SetPoint("LEFT", r, "RIGHT", LEVEL_AT, 0)
+
+  -- a dungeon's header row in the Items view
+  r.gBg = W.Tex(r, C.raised, 1, "BACKGROUND")
+  r.gBg:SetAllPoints()
+  r.gBar = W.Tex(r, C.gold, 1, "BORDER")
+  r.gBar:SetPoint("TOPLEFT"); r.gBar:SetPoint("BOTTOMLEFT"); r.gBar:SetWidth(3)
+  r.gArrow = W.Chevron(r)
+  r.gArrow:SetPoint("LEFT", 14, 0)
+  r.gName = W.Text(r, 13, C.gold)
+  r.gName:SetPoint("LEFT", 32, 0)
+  r.gLevel = W.Text(r, 12, C.soft)
+  r.gLevel:SetPoint("LEFT", r.gName, "RIGHT", 10, 0)
+  r.gInfo = W.Text(r, 12, C.soft)
+  r.gInfo:SetPoint("RIGHT", r, "RIGHT", -16, 0)
+  r.gInfo:SetJustifyH("RIGHT")
 
   r:SetScript("OnEnter", function(self)
     self.bg:SetAlpha(0.5)
@@ -70,6 +88,15 @@ local function makeRow(parent)
     if not row then return end
     GameTooltip:SetOwner(self, "ANCHOR_CURSOR_RIGHT")
     local soft = C.soft
+    if row.group then
+      GameTooltip:AddLine(row.name)
+      if row.minLevel then GameTooltip:AddDoubleLine("Levels", ("%d-%d"):format(row.minLevel, row.maxLevel or row.minLevel), soft[1], soft[2], soft[3], 1, 1, 1) end
+      GameTooltip:AddDoubleLine("Drops you can sell", row.count, soft[1], soft[2], soft[3], 1, 1, 1)
+      if row.perClear and row.perClear > 0 then GameTooltip:AddDoubleLine("Worth per run (bosses and chests)", FI.Money(row.perClear), soft[1], soft[2], soft[3], 0.25, 0.71, 0.55) end
+      GameTooltip:AddLine(T.collapsed[row.name] and "|cff8b95a3Click to show its drops.|r" or "|cff8b95a3Click to hide its drops.|r")
+      GameTooltip:Show()
+      return
+    end
     if self.dungeon then
       GameTooltip:AddLine(row.name)
       GameTooltip:AddDoubleLine("Sellable drops worth, per clear", FI.Money(row.perClear), soft[1], soft[2], soft[3], 1, 1, 1)
@@ -116,6 +143,11 @@ local function makeRow(parent)
   r:SetScript("OnClick", function(self, button)
     local row = self.row
     if not row then return end
+    if row.group then
+      T.collapsed[row.name] = not T.collapsed[row.name] or nil
+      T:Refresh()
+      return
+    end
     if self.dungeon then
       T.dungeon = row.name
       T.view = "Items"
@@ -135,19 +167,27 @@ local function makeRow(parent)
   return r
 end
 
+local function showGroup(r, on)
+  r.gBg:SetShown(on); r.gBar:SetShown(on); r.gArrow:SetShown(on)
+  r.gName:SetShown(on); r.gLevel:SetShown(on); r.gInfo:SetShown(on)
+  r.name:SetShown(not on)
+end
+
 local function showItemCells(r, on)
+  showGroup(r, false)
   r.icon:SetShown(on)
   r.from:SetShown(on)
   for _, fs in pairs(r.cells) do fs:SetShown(on) end
   for _, fs in pairs(r.dcells) do fs:SetShown(not on) end
   r.best:SetShown(not on)
+  r.level:SetShown(not on)
   r.name:ClearAllPoints()
   if on then
     r.name:SetPoint("LEFT", r.icon, "RIGHT", 8, 0)
     r.name:SetPoint("RIGHT", r, "RIGHT", FROM_LEFT - 12, 0)
   else
     r.name:SetPoint("LEFT", r, "LEFT", 14, 0)
-    r.name:SetPoint("RIGHT", r, "RIGHT", -500, 0)
+    r.name:SetPoint("RIGHT", r, "RIGHT", LEVEL_AT - 12, 0)
   end
 end
 
@@ -161,7 +201,7 @@ local function updateItemRow(r, row)
   r.name:SetText(row.name .. (#tags > 0 and ("   " .. table.concat(tags, "  ")) or ""))
   r.name:SetTextColor(FI:ItemQualityColor(row.id))
   local where = row.trash and "Trash (any mob)" or (row.boss .. (row.rareSpawn and " (rare spawn)" or "") .. (row.object and " (chest)" or ""))
-  r.from:SetText(where .. "  ·  " .. row.instance)
+  r.from:SetText(T.grouped and where or (where .. "  ·  " .. row.instance))
   local c = r.cells
   c.req:SetText(row.req > 1 and row.req or "-")
   setColor(c.req, C.soft)
@@ -201,12 +241,31 @@ local function updateDungeonRow(r, dg)
   setColor(c.perClear, dg.perClear > 0 and C.up or C.muted)
   r.best:SetText(dg.best and dg.best.name or "")
   if dg.best then r.best:SetTextColor(FI:ItemQualityColor(dg.best.id)) end
+  r.level:SetText(dg.minLevel and ("%d-%d"):format(dg.minLevel, dg.maxLevel or dg.minLevel) or "-")
+end
+
+local function updateGroupRow(r, g)
+  r.dungeon = false
+  r.icon:Hide(); r.from:Hide(); r.best:Hide(); r.level:Hide()
+  for _, fs in pairs(r.cells) do fs:Hide() end
+  for _, fs in pairs(r.dcells) do fs:Hide() end
+  showGroup(r, true)
+  r.zebra:Hide()
+  r.gArrow:SetDown(not T.collapsed[g.name])
+  r.gName:SetText(g.name)
+  r.gLevel:SetText(g.minLevel and ("Level %d-%d"):format(g.minLevel, g.maxLevel or g.minLevel) or "")
+  local parts = { ("%d item%s"):format(g.count, g.count == 1 and "" or "s") }
+  if g.best and g.best.price then parts[#parts + 1] = "best " .. FI.Coins(g.best.price) end
+  if g.perClear and g.perClear > 0 then parts[#parts + 1] = "|cff3fb68b~" .. FI.Coins(g.perClear) .. "|r a run" end
+  r.gInfo:SetText(table.concat(parts, "   ·   "))
 end
 
 local function updateRow(r, i)
   local row = T.rows[i]
   r.row = row
-  if T.view == "Dungeons" then updateDungeonRow(r, row) else updateItemRow(r, row) end
+  if row.group then updateGroupRow(r, row)
+  elseif T.view == "Dungeons" then updateDungeonRow(r, row)
+  else updateItemRow(r, row) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -220,6 +279,8 @@ local ITEM_SORT = {
 local DUNGEON_SORT = {
   best = function(dg) return dg.best and dg.best.price end,
   bosses = function(dg) return dg.bossCount end,
+  -- by level; dungeons without one go last, then in list order
+  level = function(dg) return dg.minLevel and (dg.minLevel * 1000 + (dg.order or 999)) or nil end,
 }
 
 local function header(tbl)
@@ -231,7 +292,8 @@ local function header(tbl)
   T.itemHeaders = W.SortHeaders(T.itemHead, cols, T.itemSort, function() T:Refresh() end)
   T.dungeonHead = CreateFrame("Frame", nil, head)
   T.dungeonHead:SetAllPoints()
-  cols = { { key = "name", label = "DUNGEON", x = 14, dir = 1 }, { key = "best", label = "MOST VALUABLE DROP", at = -280 } }
+  cols = { { key = "name", label = "DUNGEON", x = 14, dir = 1 }, { key = "level", label = "LEVEL", at = LEVEL_AT, dir = 1 },
+    { key = "best", label = "MOST VALUABLE DROP", at = -280 } }
   for _, col in ipairs(DUNGEON_COLS) do cols[#cols + 1] = { key = col.key, label = col.label, r = col.r } end
   T.dungeonHeaders = W.SortHeaders(T.dungeonHead, cols, T.dungeonSort, function() T:Refresh() end)
 end
@@ -268,6 +330,16 @@ function T:Build(parent)
   local hint = W.Text(tab, 11, C.muted)
   hint:SetText("Click a column header to sort")
   hint:SetPoint("TOPRIGHT", -18, -59)
+  -- fold every dungeon section at once (or open them all again)
+  local fold = W.Button(tab, "Collapse all", nil, 24, "pill")
+  fold:SetPoint("RIGHT", hint, "LEFT", -12, 0)
+  fold:SetScript("OnClick", function()
+    local anyOpen = false
+    for _, g in ipairs(T.groups or {}) do if not T.collapsed[g.name] then anyOpen = true end end
+    for _, g in ipairs(T.groups or {}) do T.collapsed[g.name] = anyOpen or nil end
+    T:Refresh()
+  end)
+  self.collapseAll = fold
 
   local tbl = W.Box(tab, C.panel, C.border)
   tbl:SetPoint("TOPLEFT", 16, -90)
@@ -342,8 +414,40 @@ function T:Refresh()
       if ok and q ~= "" and not (matches(r.name, q) or matches(r.boss, q) or matches(r.instance, q)) then ok = false end
       if ok then rows[#rows + 1] = r end
     end
-    W.SortRows(rows, self.itemSort.sort, self.itemSort.dir, ITEM_SORT[self.itemSort.sort])
+    -- one section per dungeon, lowest level first; the column headers sort the
+    -- drops inside each section
+    local byDungeon, groups = {}, {}
+    for _, r in ipairs(rows) do
+      local key = r.instance or "?"
+      local g = byDungeon[key]
+      if not g then
+        local info = L.dungeonInfo[key] or {}
+        g = { group = true, name = key, minLevel = info.min, maxLevel = info.max, order = info.order, items = {}, perClear = 0 }
+        byDungeon[key] = g
+        groups[#groups + 1] = g
+      end
+      table.insert(g.items, r)
+      if r.perKill and not r.trash then g.perClear = g.perClear + r.perKill end
+      if r.price and (not g.best or r.price > g.best.price) then g.best = r end
+    end
+    table.sort(groups, function(a, b)
+      local la, lb = a.minLevel or 999, b.minLevel or 999
+      if la ~= lb then return la < lb end
+      if (a.order or 999) ~= (b.order or 999) then return (a.order or 999) < (b.order or 999) end
+      return a.name < b.name
+    end)
+    rows = {}
+    for _, g in ipairs(groups) do
+      g.count = #g.items
+      rows[#rows + 1] = g
+      if not self.collapsed[g.name] then
+        W.SortRows(g.items, self.itemSort.sort, self.itemSort.dir, ITEM_SORT[self.itemSort.sort])
+        for _, r in ipairs(g.items) do rows[#rows + 1] = r end
+      end
+    end
+    self.groups = groups
   end
+  self.grouped = not dungeons
   self.rows = rows
   -- Back to the top only when what's listed changed (view, filter, sort, search,
   -- dungeon). Background refreshes (item info loading, new kills, a scan) keep your
@@ -366,9 +470,16 @@ function T:Refresh()
   if dungeons then
     self.footer:SetText(("%d dungeon%s  ·  gold per clear = average value of sellable boss drops at AH prices"):format(#rows, #rows == 1 and "" or "s"))
   else
-    self.footer:SetText(("%d item%s  ·  Bind on Equip and unbound drops only  ·  chances: WoW Forever loot tables + %s kills by you and your guild%s")
-      :format(#rows, #rows == 1 and "" or "s", FI.Number(kills), (L.pendingItems or 0) > 0 and ("  ·  loading %d items"):format(L.pendingItems) or ""))
+    local items = 0
+    for _, g in ipairs(self.groups or {}) do items = items + g.count end
+    self.footer:SetText(("%d item%s in %d dungeon%s, lowest level first  ·  Bind on Equip and unbound drops only  ·  chances: WoW Forever loot tables + %s kills by you and your guild%s")
+      :format(items, items == 1 and "" or "s", #(self.groups or {}), #(self.groups or {}) == 1 and "" or "s",
+        FI.Number(kills), (L.pendingItems or 0) > 0 and ("  ·  loading %d items"):format(L.pendingItems) or ""))
+    local anyOpen = false
+    for _, g in ipairs(self.groups or {}) do if not self.collapsed[g.name] then anyOpen = true end end
+    self.collapseAll:SetLabel(anyOpen and "Collapse all" or "Expand all")
   end
+  if self.collapseAll then self.collapseAll:SetShown(not dungeons) end
 end
 
 FI:On("FI_LOOT_CHANGED", function()

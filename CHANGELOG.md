@@ -1,5 +1,13 @@
 # Goonberg Terminal
 
+## 0.22.0
+
+- **Loot tab organised by dungeon, lowest level first.** The Items view is now one section per dungeon (Ragefire Chasm and Hall of Thanes at 13-18 first, up to Upper Blackrock Spire at 59-60), each with a header showing its level range, how many sellable drops it has, its best drop and what a run is worth. Its drops are listed underneath; the column headers sort the drops inside each dungeon.
+  - Click a dungeon's header to fold it away (or open it again); **Collapse all / Expand all** does every dungeon at once.
+  - Inside a section, "Drops from" shows just the boss (or trash, or chest).
+  - Filters and search still work: dungeons with nothing matching are left out.
+- **Dungeons view** has a Level column and is ordered by level (click any header to sort differently).
+
 ## 0.21.0
 
 - **Crafting counts in the P&L.** When you craft ("You create: ..." in chat), Goonberg looks up the recipe and uses up the materials you bought on the AH (oldest first), moving their cost onto what you made. Selling it is then a **Crafted** flip with its real profit, not a "Farmed" sale, and the bought materials no longer sit in "holding".
