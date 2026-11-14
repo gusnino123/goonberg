@@ -40,11 +40,23 @@ local BLUE = {
   { 45, SHARD.srad }, { 50, SHARD.lrad }, { 55, SHARD.sbril }, { 70, SHARD.lbril },
 }
 
--- What an item can turn into: list of { itemID, chance, avgQty }, or nil
+-- What an item can turn into: list of { itemID, chance, avgQty }, or nil.
+-- These never change for an item, so they're worked out once and cached
+-- (false = "can't be disenchanted"; items whose info isn't loaded yet aren't cached).
+local resultsCache = {}
 function D:Results(itemID)
-  local _, _, quality, ilvl = FI.GetItemInfo(itemID)
+  local c = resultsCache[itemID]
+  if c ~= nil then return c or nil end
+  local r, known = self:ComputeResults(itemID)
+  if known then resultsCache[itemID] = r or false end
+  return r
+end
+
+function D:ComputeResults(itemID)
   local _, _, _, _, _, classID = FI.GetItemInfoInstant(itemID)
-  if not quality or not ilvl or (classID ~= 2 and classID ~= 4) then return nil end
+  if classID ~= 2 and classID ~= 4 then return nil, true end -- not gear: never
+  local _, _, quality, ilvl = FI.GetItemInfo(itemID)
+  if not quality or not ilvl then return nil, false end -- not loaded yet: ask again later
   if quality == 2 then
     for _, row in ipairs(GREEN) do
       if ilvl <= row[1] then
@@ -52,20 +64,20 @@ function D:Results(itemID)
         local dustChance, essChance = weapon and 0.20 or 0.75, weapon and 0.75 or 0.20
         local out = { { row[2], dustChance, row[3] }, { row[4], essChance, row[5] } }
         if row[6] then out[#out + 1] = { row[6], 0.05, 1 } end
-        return out
+        return out, true
       end
     end
   elseif quality == 3 then
     for _, row in ipairs(BLUE) do
       if ilvl <= row[1] then
-        if ilvl >= 56 then return { { row[2], 0.995, 1 }, { NEXUS, 0.005, 1 } } end
-        return { { row[2], 1, 1 } }
+        if ilvl >= 56 then return { { row[2], 0.995, 1 }, { NEXUS, 0.005, 1 } }, true end
+        return { { row[2], 1, 1 } }, true
       end
     end
   elseif quality == 4 and ilvl >= 51 then
-    return { { NEXUS, 1, 1.5 } }
+    return { { NEXUS, 1, 1.5 } }, true
   end
-  return nil
+  return nil, true
 end
 
 -- Expected value in copper; complete = every possible result has a price

@@ -11,9 +11,28 @@ FI.Deals = DL
 local CUT = 0.05
 local MIN_PROFIT = 100 -- 1s: ignore crumbs
 
+DL.FLOOR = 0.20 -- deals are found once at the loosest setting; screens filter tighter
+local PER_FRAME = 250
+
+-- Caches. Vendor prices never change; fair values (7-day medians) move slowly, so
+-- they're refreshed every 3 hours instead of on every scan.
+local vendorCache, fairCache = {}, {}
+local FAIR_TTL = 3 * 3600
+
 local function vendorPrice(id)
-  local sell = select(11, FI.GetItemInfo(id))
+  local c = vendorCache[id]
+  if c ~= nil then return c or nil end
+  local name, _, _, _, _, _, _, _, _, _, sell = FI.GetItemInfo(id)
+  if name then vendorCache[id] = (sell and sell > 0) and sell or false end
   return sell and sell > 0 and sell or nil
+end
+
+local function fairValue(id, it, now)
+  local c = fairCache[id]
+  if c and now - c.t < FAIR_TTL then return c.v end
+  local v = FI.History.FairValue(it, now)
+  fairCache[id] = { t = now, v = v }
+  return v
 end
 
 -- Listings to judge: the scan's depth when it's current, else just the lowest price
@@ -23,71 +42,149 @@ local function listings(it)
   return { it.min, 1 }, false
 end
 
--- One candidate deal type: worth (per unit, net), cutoff (buy below this)
+-- Units and profit for listings under `cutoff`, reselling at `worth` each
 local function judge(levels, worth, cutoff)
   local units, profit = 0, 0
   for i = 1, #levels, 2 do
     local p, q = levels[i], levels[i + 1]
-    if p < cutoff then
-      units = units + q
-      profit = profit + (worth - p) * q
-    end
+    if p >= cutoff then break end -- levels are cheapest first
+    units = units + q
+    profit = profit + (worth - p) * q
   end
   return units, profit
 end
 
-function DL:Find(now)
-  now = now or time()
-  local realm = FI:Realm()
-  local H = FI.History
-  local out = {}
+-- One item: its best deal at the loosest discount (DL.FLOOR), or nil
+local function evaluate(id, it, now)
+  local levels, qtyKnown = listings(it)
+  local cheapest = levels[1]
+  -- the item can change between queuing and evaluating (a new scan landed)
+  if not cheapest or not it.seen or now - it.seen > DL.maxAge then return nil end
+  local best
+  local function consider(kind, worth, base, ref)
+    -- base: the value the discount applies to (nil = fixed cutoff at `worth`)
+    local cutoff = base and base * (1 - DL.FLOOR) or worth
+    if not worth or worth <= 0 or cheapest >= cutoff then return end
+    local units, profit = judge(levels, worth, cutoff)
+    if profit >= MIN_PROFIT and (not best or profit > best.profit) then
+      best = { kind = kind, worth = worth, base = base, ref = ref, units = units, profit = profit }
+    end
+  end
+  local fair = fairValue(id, it, now)
+  if fair then consider("Flip", fair * (1 - CUT), fair, fair) end
+  local vendor = vendorPrice(id)
+  if vendor then consider("Vendor", vendor, nil, vendor) end
+  if FI.Disenchant:Results(id) then
+    local de, complete = FI.Disenchant:Value(id)
+    if de and complete then consider("Disenchant", de * (1 - CUT), de * (1 - CUT), de) end
+  end
+  if not best then return nil end
+  best.id = id
+  best.price = cheapest
+  best.discount = (best.ref - cheapest) / best.ref * 100
+  best.qtyKnown = qtyKnown
+  best.levels = levels
+  best.seen = it.seen
+  return best
+end
+
+-- Units and profit of a deal at a stricter discount (e.g. 0.30); nil if it no longer qualifies
+function DL:At(d, minDiscount)
+  if not d.base then return d.units, d.profit end -- vendor deals: any discount counts
+  local cutoff = d.base * (1 - minDiscount)
+  if d.price >= cutoff then return nil end
+  local units, profit = judge(d.levels, d.worth, cutoff)
+  if profit < MIN_PROFIT then return nil end
+  return units, profit
+end
+
+local function finish(d, now)
+  local it = FI:Realm().items[d.id]
+  d.soldPerDay = it and FI.History.Stats(it, now).soldPerDay
+  d.name = FI:ItemName(d.id)
+end
+
+local function candidates(realm, now, maxAge)
+  local ids = {}
   for id, it in pairs(realm.items) do
-    if it.min and it.seen and now - it.seen <= self.maxAge then
-      local levels, qtyKnown = listings(it)
-      local best
-      local function consider(kind, worth, cutoff, ref)
-        if not worth or worth <= 0 or levels[1] >= cutoff then return end
-        local units, profit = judge(levels, worth, cutoff)
-        if profit >= MIN_PROFIT and (not best or profit > best.profit) then
-          best = { kind = kind, worth = worth, ref = ref, units = units, profit = profit }
-        end
-      end
-      -- Flip: resell on the AH near fair value
-      local fair = H.FairValue(it, now)
-      if fair then
-        consider("Flip", fair * (1 - CUT), fair * (1 - self.minDiscount), fair)
-      end
-      -- Vendor: an NPC pays this, no cut, no waiting
-      local vendor = vendorPrice(id)
-      if vendor then consider("Vendor", vendor, vendor, vendor) end
-      -- Disenchant: materials resold on the AH
-      local de, complete = FI.Disenchant:Value(id)
-      if de and complete then
-        consider("Disenchant", de * (1 - CUT), de * (1 - CUT) * (1 - self.minDiscount), de)
-      end
-      if best then
-        local s = H.Stats(it, now)
-        best.id = id
-        best.price = levels[1]
-        best.discount = (best.ref - levels[1]) / best.ref * 100
-        best.qtyKnown = qtyKnown
-        best.soldPerDay = s.soldPerDay
-        best.seen = it.seen
-        best.name = FI:ItemName(id)
-        out[#out + 1] = best
-      end
+    if it.min and it.seen and now - it.seen <= maxAge then ids[#ids + 1] = id end
+  end
+  return ids
+end
+
+-- Applies a discount to a raw list (units and profit recomputed)
+function DL:Filter(list, minDiscount)
+  local out = {}
+  for _, d in ipairs(list) do
+    local units, profit = self:At(d, minDiscount)
+    if units then
+      local c = setmetatable({ units = units, profit = profit }, { __index = d })
+      out[#out + 1] = c
     end
   end
   return out
 end
 
+-- All deals right now at self.minDiscount, in one go (commands, tests)
+function DL:Find(now)
+  now = now or time()
+  local realm = FI:Realm()
+  local raw = {}
+  for _, id in ipairs(candidates(realm, now, self.maxAge)) do
+    local d = evaluate(id, realm.items[id], now)
+    if d then finish(d, now); raw[#raw + 1] = d end
+  end
+  self.last = { scan = realm.lastScan, raw = raw, at = now }
+  return self:Filter(raw, self.minDiscount)
+end
+
+-- The same search spread over many frames, so a big AH never freezes the game.
+-- onDone(raw) runs when it's finished. A newer run replaces one still going.
+local runner = CreateFrame("Frame")
+runner:Hide()
+function DL:Run(onDone)
+  local realm = FI:Realm()
+  local now = time()
+  self.job = { ids = candidates(realm, now, self.maxAge), i = 0, raw = {}, now = now, scan = realm.lastScan, onDone = onDone }
+  runner:Show()
+end
+function DL:Running() return self.job ~= nil end
+
+runner:SetScript("OnUpdate", function(self)
+  local job = DL.job
+  if not job then self:Hide(); return end
+  local items = FI:Realm().items
+  local last = math.min(#job.ids, job.i + PER_FRAME)
+  for n = job.i + 1, last do
+    local id = job.ids[n]
+    local it = items[id]
+    local d = it and evaluate(id, it, job.now)
+    if d then job.raw[#job.raw + 1] = d end
+  end
+  job.i = last
+  if job.i >= #job.ids then
+    for _, d in ipairs(job.raw) do finish(d, job.now) end
+    DL.last = { scan = job.scan, raw = job.raw, at = job.now }
+    DL.job = nil
+    self:Hide()
+    if job.onDone then job.onDone(job.raw) end
+    FI:Fire("FI_DEALS_READY")
+  end
+end)
+
+-- Cached deals for the latest scan (nil while none have been found yet)
+function DL:Latest()
+  local realm = FI:Realm()
+  if self.last and self.last.scan == realm.lastScan then return self.last.raw end
+end
+
 -- ---------------------------------------------------------------------------
 -- Deal alerts: after a live scan, a pop-up when new deals add up to enough gold
 -- ---------------------------------------------------------------------------
-FI:On("FI_SCAN_DONE", function()
+local function alert(raw)
   if FI.settings.dealAlerts == false then return end
   local threshold = FI.settings.dealAlertGold or 50000 -- 5g
-  local deals = DL:Find(time())
+  local deals = DL:Filter(raw, DL.minDiscount)
   local seen = DL.alerted or {}
   local fresh, total, top = 0, 0, nil
   local now = {}
@@ -106,4 +203,10 @@ FI:On("FI_SCAN_DONE", function()
       ("Best: %s, %d%% under %s value. Click to view."):format(top.name, math.floor(top.discount), top.kind:lower()),
       function() FI.UI:Show("deals") end)
   end
+end
+
+-- After a scan (yours or a guildmate's), wait for things to settle, then search once.
+-- Several guild scans arriving together cause one search, not several.
+FI:On("FI_SCAN_DONE", function()
+  FI:Debounce("deals", 2, function() DL:Run(alert) end)
 end)

@@ -53,6 +53,7 @@ end
 
 -- Runs fn once after `delay` seconds, however many times it is asked for meanwhile
 local pending = {}
+function FI:Pending(key) return pending[key] == true end
 function FI:Debounce(key, delay, fn)
   if pending[key] then return end
   pending[key] = true

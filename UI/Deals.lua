@@ -181,8 +181,24 @@ end
 
 function D:Refresh()
   if not self.frame then return end
-  FI.Deals.minDiscount = DISCOUNTS[self.discount] or 0.30
-  local all = FI.Deals:Find(time())
+  -- Deals are found once per scan (in the background); here we only filter them
+  local raw = FI.Deals:Latest()
+  if not raw then
+    self.rows = {}
+    self.list:SetCount(0)
+    local realm = FI:Realm()
+    if realm.lastScan and realm.lastScan > 0 and time() - realm.lastScan <= FI.Deals.maxAge then
+      -- a search is already queued right after each scan; only start one if not
+      if not FI.Deals:Running() and not FI:Pending("deals") then FI.Deals:Run() end
+      self.empty:SetText("Finding deals in the latest scan...")
+    else
+      self.empty:SetText("Deals come from the latest scan, and listings change fast.\nOpen the Auction House (or wait for a guildmate's scan) to find deals.")
+    end
+    self.empty:Show()
+    self.footer:SetText("")
+    return
+  end
+  local all = FI.Deals:Filter(raw, DISCOUNTS[self.discount] or 0.30)
   local rows, total = {}, 0
   for _, d in ipairs(all) do
     local ok = self.kind == "All" or d.kind == self.kind
@@ -218,4 +234,4 @@ function D:Refresh()
     :format(#rows, #rows == 1 and "" or "s", FI.Money(total), FI.Ago(realm.lastScan)))
 end
 
-FI:On("FI_SCAN_DONE", function() if D.frame and D.frame:IsShown() then D:Refresh() end end)
+FI:On("FI_DEALS_READY", function() if D.frame and D.frame:IsShown() then D:Refresh() end end)

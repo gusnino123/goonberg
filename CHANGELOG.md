@@ -1,5 +1,14 @@
 # Goonberg Terminal
 
+## 0.12.1
+
+- **Smoother deal alerts.** The deal search no longer freezes the game after a scan:
+  - It runs in the background, a slice per frame, instead of all at once.
+  - It waits 2 seconds after a scan so several guild scans arriving together cause one search, not several.
+  - The alert and the Deals tab share one search per scan; changing filters only re-filters.
+  - Fair values are cached for 3 hours, and vendor and disenchant values once per item.
+  - On a 6,000-item test AH: the worst frame went from one ~45 ms stall to about 1.5 ms.
+
 ## 0.12.0
 
 - **Deals tab** (`/goon deals`): listings in the latest scan priced well under what they're worth.
