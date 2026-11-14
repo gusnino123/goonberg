@@ -1,5 +1,14 @@
 # Goonberg Terminal
 
+## 0.15.2
+
+- **Much less lag after logging in and when opening the window.**
+  - The overview now builds in the background, a little each frame, instead of all at once (on a 6,500-item realm opening the window went from about 0.5 s frozen to about 6 ms). Small realms still build instantly.
+  - Item stats are worked out in one pass over the last two weeks instead of seven passes over the whole history (about 40% faster; tooltips too).
+  - The Auctionator import at login skips items it already imported and stops after about 6 ms each frame (worst frame went from about 640 ms to about 35 ms).
+  - The deal finder also limits itself to about 6 ms per frame.
+  - Sorting and searching the overview are about twice as fast (item names and sort values are worked out once).
+
 ## 0.15.1
 
 - **Fixed: items not on the AH showed big % changes.** Items with 0 listings now show "-" instead of a change between two old listings, and can't top the gainers/losers.

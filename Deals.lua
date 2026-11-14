@@ -242,7 +242,10 @@ runner:SetScript("OnUpdate", function(self)
   if not job then self:Hide(); return end
   local items = FI:Realm().items
   local last = math.min(#job.ids, job.i + PER_FRAME)
+  local start = debugprofilestop()
   for n = job.i + 1, last do
+    -- at most ~6 ms of work per frame
+    if n > job.i + 10 and debugprofilestop() - start > 6 then last = n - 1; break end
     local id = job.ids[n]
     local it = items[id]
     local d = it and evaluate(id, it, job.now)

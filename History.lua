@@ -141,57 +141,69 @@ function H.PriceAt(it, t, maxAge)
   return p
 end
 
--- Price from roughly `ago` seconds before `ref`: the last point at or before
--- ref - ago, but no older than ref - 2*ago. Too old a point would turn a "1h change"
--- into a "3 days change", so then there's no answer (nil) rather than a wrong one.
-local function priceAgo(h, ref, ago)
-  local t, oldest = ref - ago, ref - 2 * ago
-  local p
-  for i = 1, #h, STRIDE do
-    if h[i] > t then break end
-    if h[i + 1] > 0 and h[i] >= oldest then p = h[i + 1] end
-  end
-  return p
-end
-
 local function change(from, to)
   if not from or not to or from <= 0 or to <= 0 then return nil end
   return (to - from) / from * 100
 end
 
 H.WINDOWS = { c15 = 900, c1 = 3600, c6 = 6 * 3600, c12 = 12 * 3600, c24 = DAY, c7 = 7 * DAY }
+-- the same windows, shortest first, for the single pass in Stats
+local WIN_LIST = {}
+for key, w in pairs(H.WINDOWS) do WIN_LIST[#WIN_LIST + 1] = { key, w } end
+table.sort(WIN_LIST, function(a, b) return a[2] < b[2] end)
+local LONGEST = WIN_LIST[#WIN_LIST][2]
 
--- Everything the tooltip, overview and chart header need for one item
+-- Everything the tooltip, overview and chart header need for one item.
+-- One backward pass over the last 14 days of history (older points are never
+-- touched), which matters with thousands of items.
 function H.Stats(it, now)
   now = now or time()
   local h = it.h or {}
   local s = { price = it.mkt, min = it.min, qty = it.qty or 0, listings = it.cnt or 0, seen = it.seen }
   -- Changes are measured back from the item's latest price (not from "now"), so an
-  -- item last seen yesterday shows how it moved up to then, not a mix of old and new.
+  -- item last seen yesterday shows how it moved up to then. The reference price for
+  -- a window of length w is the last point at or before ref - w but no older than
+  -- ref - 2w; too old a point would turn a "1h change" into a "3 days change".
   local ref = it.seen or it.imported or now
-  for key, w in pairs(H.WINDOWS) do s[key] = change(priceAgo(h, ref, w), it.mkt) end
   s.age = now - ref
-  s.stale = s.age > 6 * 3600 -- the "current" price is more than 6 hours old
+  s.stale = s.age > 6 * 3600
 
   -- Est. sold: units that left the AH between two scans no more than 12 hours
-  -- apart. "Per day" divides by the time actually watched that way, so days with
-  -- no scans (or imported daily prices, which carry no sales) don't dilute it.
-  local sold15, sold1, sold6, sold12, sold24, sold7 = 0, 0, 0, 0, 0, 0
-  local watched = 0
-  for i = 1, #h, STRIDE do
-    local age, sold = now - h[i], h[i + 3]
-    if age <= 900 then sold15 = sold15 + sold end
-    if age <= 3600 then sold1 = sold1 + sold end
-    if age <= 6 * 3600 then sold6 = sold6 + sold end
-    if age <= 12 * 3600 then sold12 = sold12 + sold end
-    if age <= DAY then sold24 = sold24 + sold end
+  -- apart. "Per day" divides by the time actually watched that way.
+  local sold15, sold1, sold6, sold12, sold24, sold7, watched = 0, 0, 0, 0, 0, 0, 0
+  local found, nextW, nWin = {}, 1, #WIN_LIST
+  local stopT = math.min(ref - 2 * LONGEST, now - 7 * DAY)
+  local n = #h
+  local i = n - STRIDE + 1
+  while i >= 1 do
+    local t = h[i]
+    if t < stopT then break end
+    local m, sold = h[i + 1], h[i + 3]
+    local age = now - t
     if age <= 7 * DAY then
       sold7 = sold7 + sold
+      if age <= DAY then sold24 = sold24 + sold end
+      if age <= 12 * 3600 then sold12 = sold12 + sold end
+      if age <= 6 * 3600 then sold6 = sold6 + sold end
+      if age <= 3600 then sold1 = sold1 + sold end
+      if age <= 900 then sold15 = sold15 + sold end
       if i > STRIDE then
-        local gap = h[i] - h[i - STRIDE]
+        local gap = t - h[i - STRIDE]
         if gap <= 12 * 3600 then watched = watched + gap end
       end
     end
+    -- windows are sorted shortest first, so only the next unresolved one can match
+    while nextW <= nWin and m > 0 and t <= ref - WIN_LIST[nextW][2] do
+      local w = WIN_LIST[nextW][2]
+      found[WIN_LIST[nextW][1]] = (t >= ref - 2 * w) and m or false
+      nextW = nextW + 1
+    end
+    if nextW > nWin and age > 7 * DAY then break end
+    i = i - STRIDE
+  end
+  for k = 1, #WIN_LIST do
+    local key = WIN_LIST[k][1]
+    s[key] = found[key] and change(found[key], it.mkt) or nil
   end
   s.sold15, s.sold1, s.sold6, s.sold12, s.sold24, s.sold7 = sold15, sold1, sold6, sold12, sold24, sold7
   s.watched = watched
@@ -341,36 +353,96 @@ function H.IndexChange(realm, now, window)
 end
 
 -- Rows for the overview, rebuilt once per scan (it walks every item)
-function H.Overview(realm, now)
-  if H.cache and H.cache.realm == realm and H.cache.scan == realm.lastScan then return H.cache end
-  local rows = {}
-  local listed = 0
-  local gold = { sold15 = 0, sold1 = 0, sold6 = 0, sold12 = 0, sold24 = 0, sold7 = 0 }
-  for itemID, it in pairs(realm.items) do
-    local s = H.Stats(it, now)
-    -- listed now, sold lately, or (imported) seen within the week
-    local recent = (it.seen and now - it.seen < 7 * DAY) or (it.imported and now - it.imported < 7 * DAY)
-    if (s.qty > 0 or s.sold7 > 0 or recent) and s.price then
-      s.id = itemID
-      s.cat = FI:Category(itemID)
-      rows[#rows + 1] = s
-      -- "on the AH now": listed in a recent scan. Items that aren't have no
-      -- current price to compare, so their changes are blank ("-"), not stale moves.
-      s.onAH = s.qty > 0 and it.seen ~= nil and (realm.lastScan or 0) - it.seen < 3 * 3600
-      if s.onAH then
-        listed = listed + s.qty
-      else
-        for key in pairs(H.WINDOWS) do s[key] = nil end
-      end
-      s.thin = s.qty < 3 -- one or two listings: a price "move" may just be one seller
-      for k in pairs(gold) do gold[k] = gold[k] + s.price * s[k] end
+local function newBuild(realm, now)
+  return { realm = realm, scan = realm.lastScan, now = now, rows = {}, listed = 0,
+    gold = { sold15 = 0, sold1 = 0, sold6 = 0, sold12 = 0, sold24 = 0, sold7 = 0 } }
+end
+
+local function addItem(b, itemID, it)
+  local now, realm = b.now, b.realm
+  local s = H.Stats(it, now)
+  -- listed now, sold lately, or (imported) seen within the week
+  local recent = (it.seen and now - it.seen < 7 * DAY) or (it.imported and now - it.imported < 7 * DAY)
+  if (s.qty > 0 or s.sold7 > 0 or recent) and s.price then
+    s.id = itemID
+    s.cat = FI:Category(itemID)
+    b.rows[#b.rows + 1] = s
+    -- "on the AH now": listed in a recent scan. Items that aren't have no
+    -- current price to compare, so their changes are blank ("-"), not stale moves.
+    s.onAH = s.qty > 0 and it.seen ~= nil and (realm.lastScan or 0) - it.seen < 3 * 3600
+    if s.onAH then
+      b.listed = b.listed + s.qty
+    else
+      for key in pairs(H.WINDOWS) do s[key] = nil end
     end
+    s.thin = s.qty < 3 -- one or two listings: a price "move" may just be one seller
+    local gold = b.gold
+    for k in pairs(gold) do gold[k] = gold[k] + s.price * s[k] end
   end
+end
+
+local function finishBuild(b)
   H.cache = {
-    realm = realm, scan = realm.lastScan, rows = rows,
-    listed = listed, gold = gold, gold24 = gold.sold24, gold7 = gold.sold7,
+    realm = b.realm, scan = b.scan, rows = b.rows,
+    listed = b.listed, gold = b.gold, gold24 = b.gold.sold24, gold7 = b.gold.sold7,
   }
   return H.cache
+end
+
+function H.Overview(realm, now)
+  if H.cache and H.cache.realm == realm and H.cache.scan == realm.lastScan then return H.cache end
+  local b = newBuild(realm, now)
+  for itemID, it in pairs(realm.items) do addItem(b, itemID, it) end
+  return finishBuild(b)
+end
+
+-- Same as Overview, but spread over several frames (~8 ms each) so opening the
+-- window or finishing a scan never freezes the game. Returns the current rows if
+-- they're up to date; otherwise returns the previous rows (or nil the first time)
+-- and fires FI_OVERVIEW_READY when the new ones are done.
+local builder = CreateFrame("Frame")
+builder:Hide()
+local BUILD_MS = 8
+builder:SetScript("OnUpdate", function(self)
+  local b = H.building
+  if not b or b.realm ~= FI:Realm() then H.building = nil; self:Hide(); return end
+  local start = debugprofilestop()
+  local items = b.realm.items
+  local n = 0
+  while true do
+    b.i = b.i + 1
+    local id = b.ids[b.i]
+    if id == nil then
+      H.building = nil
+      self:Hide()
+      finishBuild(b)
+      FI:Fire("FI_OVERVIEW_READY")
+      return
+    end
+    local it = items[id]
+    if it then addItem(b, id, it) end
+    n = n + 1
+    if n % 25 == 0 and debugprofilestop() - start > BUILD_MS then return end
+  end
+end)
+
+function H.OverviewAsync(realm, now)
+  local c = H.cache
+  if c and c.realm == realm and c.scan == realm.lastScan then return c, false end
+  local b = H.building
+  -- small realms: just build it now, it takes no time
+  local count = 0
+  for _ in pairs(realm.items) do count = count + 1; if count > 1500 then break end end
+  if count <= 1500 then H.building = nil; return H.Overview(realm, now), false end
+  if not (b and b.realm == realm and b.scan == realm.lastScan) then
+    -- snapshot the item IDs: scans and syncs may add items while we work
+    b = newBuild(realm, now)
+    b.ids, b.i = {}, 0
+    for id in pairs(realm.items) do b.ids[#b.ids + 1] = id end
+    H.building = b
+    builder:Show()
+  end
+  return (c and c.realm == realm) and c or nil, true
 end
 
 -- Adds outside history to an item. `points` is a list of { t, mkt, qty }.
@@ -390,6 +462,14 @@ function H.Merge(realm, itemID, points, opts)
   for i = 1, #h, STRIDE do
     days[math.floor(h[i] / DAY)] = true
     times[#times + 1] = h[i]
+  end
+  -- quick check before any copying: is there anything new at all?
+  if not opts.fine then
+    local any = false
+    for _, p in ipairs(points) do
+      if p[2] and p[2] > 0 and not days[math.floor(p[1] / DAY)] then any = true; break end
+    end
+    if not any then return 0 end
   end
   local function taken(t)
     if not opts.fine then return days[math.floor(t / DAY)] end

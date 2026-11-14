@@ -29,6 +29,7 @@ function I:Run(manual)
     if type(key) == "string" and key:match("^%d+$") then keys[#keys + 1] = key end
   end
   self.keys, self.i, self.items, self.points = keys, 0, 0, 0
+  FI.db.importSeen = FI.db.importSeen or {}
   self.day0 = A.Constants.SCAN_DAY_0
   self.running = true
   if manual then FI:Print("Importing Auctionator's price history for %s items...", FI.Number(#keys)) end
@@ -36,13 +37,24 @@ function I:Run(manual)
   worker:Show()
 end
 
+-- Work for at most ~6 ms per frame so login never stutters
+local BUDGET_MS = 6
+local clock = debugprofilestop
+
 worker:SetScript("OnUpdate", function(self)
   local A = _G.Auctionator
   local realm = FI:Realm()
+  local startMs = clock and clock() or 0
   local last = math.min(#I.keys, I.i + PER_FRAME)
   for n = I.i + 1, last do
+    if clock and n > I.i + 10 and clock() - startMs > BUDGET_MS then last = n - 1; break end
     local key = I.keys[n]
     local ok, hist = pcall(A.Database.GetPriceHistory, A.Database, key)
+    -- skip items whose newest Auctionator day was already imported last login
+    local newest = ok and type(hist) == "table" and hist[1] and hist[1].rawDay
+    local seen = FI.db.importSeen
+    if newest and seen[key] == newest and not I.manual then ok = false end
+    if ok and newest then seen[key] = newest end
     if ok and type(hist) == "table" and #hist > 0 then
       local points = {}
       for _, d in ipairs(hist) do

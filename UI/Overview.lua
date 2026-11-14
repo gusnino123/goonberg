@@ -279,7 +279,9 @@ function O:Refresh()
   if not self.frame then return end
   local realm = FI:Realm()
   local now = time()
-  local data = H.Overview(realm, now)
+  local data, building = H.OverviewAsync(realm, now)
+  if building then self:SetBuilding(true) end
+  if not data then return end -- first build still running; FI_OVERVIEW_READY refreshes
   local tf = TF[self.tf]
 
   -- Cards
@@ -315,8 +317,11 @@ function O:Refresh()
       ok = v and not s.thin and ((self.move == "Gainers" and v > 0) or (self.move == "Losers" and v < 0))
     end
     if ok then
-      s.name = FI:ItemName(s.id)
-      if self.search ~= "" and not s.name:lower():find(self.search, 1, true) then ok = false end
+      s.name = s.name or FI:ItemName(s.id) -- looked up once per scan, not every refresh
+      if self.search ~= "" then
+        s.lname = s.lname or s.name:lower()
+        if not s.lname:find(self.search, 1, true) then ok = false end
+      end
     end
     if ok then rows[#rows + 1] = s end
   end
@@ -329,8 +334,12 @@ function O:Refresh()
     elseif sk == "qty" then return s.qty
     else return s[tf.sold] end
   end
+  -- work out each row's sort value once, not on every comparison
+  for i = 1, #rows do local r = rows[i]; r._sv = val(r) or false end
   table.sort(rows, function(a, b)
-    local va, vb = val(a), val(b)
+    local va, vb = a._sv, b._sv
+    if va == false then va = nil end
+    if vb == false then vb = nil end
     if va == nil and vb == nil then return a.name < b.name end
     if va == nil then return false end -- missing values always last
     if vb == nil then return true end
@@ -356,6 +365,21 @@ function O:Refresh()
   end
   self.footer:SetText(("Showing %s of %s items  -  scroll for more, shift-scroll pages"):format(FI.Number(#rows), FI.Number(#data.rows)))
 end
+
+function O:SetBuilding(on)
+  if not self.frame then return end
+  if not self.busy then
+    self.busy = self.frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    self.busy:SetPoint("BOTTOMRIGHT", self.frame, "BOTTOMRIGHT", -12, 6)
+    self.busy:SetText("Updating market data...")
+  end
+  self.busy:SetShown(on)
+end
+
+FI:On("FI_OVERVIEW_READY", function()
+  O:SetBuilding(false)
+  if O.frame and O.frame:IsVisible() then O:Refresh() end
+end)
 
 FI:On("FI_ITEM_LOADED", function()
   FI:Debounce("overview", 0.5, function()
