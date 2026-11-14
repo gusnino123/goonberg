@@ -1,5 +1,16 @@
 # Goonberg Terminal
 
+## 0.13.1
+
+**Disenchanting accuracy**
+- **Uses the WoW Forever disenchanting table, by required level.** Forever's table goes by the item's "Requires Level", not its item level; using item level put a lot of gear in the wrong tier. The bands, materials and quantities now match the Forever table (e.g. required level 21-25 gives 1-2 Soul Dust, 56-60 gives 2-5 Illusion Dust and 1-3 Greater Eternal Essence).
+- **Rare gear** gives its band's shard, with the ~0.5% Nexus Crystal chance from level 51. **Epic gear** gives a shard up to level 50 and Nexus Crystals above.
+- **Low-level gear** (level 10 and below) has no shard; dust and essence share the chances.
+- **Shirts, tabards, bags and quivers** are no longer shown as disenchantable.
+- **Materials are valued at what they'd really sell for**: the lower of their market price and the cheapest listing now, and only if seen in the last 7 days.
+- **Essences** count at the better of selling as-is or combining/splitting 3:1 (lesser and greater).
+- **"Better than AH"** hints compare like with like: what the item would sell for vs. what its materials would sell for (both lose the same 5% AH cut). The vendor hint also uses the realistic sale price.
+
 ## 0.13.0
 
 **Accuracy pass**

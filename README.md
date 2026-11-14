@@ -81,7 +81,7 @@ A shareable profit card for **Today, 7 days, 30 days or All time**: net profit, 
 Hover any item (bags, bank, mail, chat links, the AH) to see:
 - Market price, **stack value**, lowest buyout now, **7-day change**, est. sold per day
 - **Vendor price**, in green when vendoring pays more than the AH
-- **Disenchant value** for green, blue and purple gear, in green when disenchanting beats selling. Hold **Shift** to see what it breaks into. (An estimate from the Classic disenchant tables; Forever's custom gear may differ.)
+- **Disenchant value** for green, blue and purple gear, in green when disenchanting beats selling. Hold **Shift** to see what it breaks into. It follows the WoW Forever disenchanting table, which goes by the item's **required level** (an estimate: the game doesn't tell addons what an item breaks into).
 
 ### Minimap button
 The goblin under your minimap: **click** to open the terminal, **right-click** for your P&L, **drag** to move it. Hover it for the Goonberg Index and when the last scan was.

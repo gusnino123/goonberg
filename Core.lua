@@ -412,7 +412,8 @@ SlashCmdList.GOONBERG = function(msg)
     if not parts then return FI:Print("%s can't be disenchanted.", FI:ItemName(id)) end
     FI:Print("%s disenchants for about %s%s:", FI:ItemLink(id) or FI:ItemName(id), FI.Money(v or 0), complete and "" or " (some materials not priced yet)")
     for _, p in ipairs(parts) do
-      DEFAULT_CHAT_FRAME:AddMessage(("   %d%%  %s x%s  %s"):format(math.floor(p.chance * 100 + 0.5), FI:ItemName(p.id), p.qty, p.price and FI.Money(p.price * p.qty) or "no price"))
+      local pct = p.chance < 0.01 and ("%.1f"):format(p.chance * 100) or tostring(math.floor(p.chance * 100 + 0.5))
+      DEFAULT_CHAT_FRAME:AddMessage(("   %s%%  %s x%s  %s%s"):format(pct, FI:ItemName(p.id), p.qty, p.price and FI.Money(p.price * p.qty) or "no recent price", p.converted and " (as 3:1 essence)" or ""))
     end
   elseif cmd == "sync" then
     local arg = rest:lower()

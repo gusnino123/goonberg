@@ -34,7 +34,10 @@ local function addLines(tooltip, itemID)
   local function addDisenchant(mkt, count)
     if not de then return end
     local soft = FI.colors.soft
-    local better = mkt and de > mkt * 0.95
+    -- Fair comparison: the item and its materials would both be sold on the AH
+    -- (same 5% cut), so compare what the item sells for with what its mats sell for.
+    local itemSell = FI.Crafting:SellPrice(itemID) or mkt
+    local better = itemSell and de > itemSell
     local r, g, b = soft[1], soft[2], soft[3]
     if better or not mkt then r, g, b = FI.colors.up[1], FI.colors.up[2], FI.colors.up[3] end
     local label = better and "Disenchant (better than AH)" or "Disenchant"
@@ -42,10 +45,10 @@ local function addLines(tooltip, itemID)
     if IsShiftKeyDown() and deParts then
       for _, p in ipairs(deParts) do
         local qty = p.qty % 1 == 0 and tostring(p.qty) or ("%.1f"):format(p.qty)
-        tooltip:AddDoubleLine(("   %d%%  %s x%s"):format(math.floor(p.chance * 100 + 0.5), FI:ItemName(p.id), qty),
+        tooltip:AddDoubleLine(("   %s%%  %s x%s%s"):format(p.chance < 0.01 and ("%.1f"):format(p.chance * 100) or math.floor(p.chance * 100 + 0.5), FI:ItemName(p.id), qty, p.converted and " (as 3:1 essence)" or ""),
           p.price and FI.Money(p.price * p.qty) or "no price", soft[1], soft[2], soft[3], soft[1], soft[2], soft[3])
       end
-      tooltip:AddLine("|cff8b95a3Estimate from Classic disenchant tables.|r")
+      tooltip:AddLine("|cff8b95a3Estimate from the Forever disenchanting table (by required level).|r")
     end
   end
 
@@ -80,7 +83,9 @@ local function addLines(tooltip, itemID)
     tooltip:AddDoubleLine("Est. sold / day", FI.Number(s.soldPerDay), muted[1], muted[2], muted[3], 1, 1, 1)
   end
   if vendor then
-    local better = vendor * 1.0 >= it.mkt * 0.95 -- AH takes a 5% cut
+    -- vendor pays in full; the AH pays what you'd sell for (cheapest listing or
+    -- market, whichever is lower) minus its 5% cut
+    local better = vendor >= (FI.Crafting:SellPrice(itemID) or it.mkt) * 0.95
     local r, g, b = muted[1], muted[2], muted[3]
     if better then r, g, b = FI.colors.up[1], FI.colors.up[2], FI.colors.up[3] end
     tooltip:AddDoubleLine(better and "Vendor (better than AH)" or "Vendor", FI.Money(vendor * count), r, g, b, 1, 1, 1)

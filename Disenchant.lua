@@ -1,8 +1,9 @@
 -- Goonberg Terminal: estimated disenchant value
 -- Expected value of disenchanting a piece of gear: each possible result's chance x
--- average quantity x its AH market price. The game doesn't tell addons what an item
--- disenchants into, so this uses the Classic disenchant tables (item level, quality,
--- armor vs. weapon). Forever's custom gear may differ, so it's shown as an estimate.
+-- average quantity x what that material sells for. The game doesn't tell addons what
+-- an item disenchants into, so this follows the WoW Forever disenchanting table:
+-- bands by the item's REQUIRED level (the "Requires Level" line), not its item level.
+-- Source: wow-professions.com/forever/disenchanting-guide (checked November 2026).
 local _, FI = ...
 local D = {}
 FI.Disenchant = D
@@ -19,26 +20,47 @@ local SHARD = {
 }
 local NEXUS = 20725
 
--- Uncommon (green) ARMOR by item level: { maxLevel, dust, dustQty, essence, essQty, shard }
--- Dust 75%, essence 20%, shard 5% (weapons swap the dust and essence chances).
+-- Uncommon (green) gear by REQUIRED level:
+-- { maxRequiredLevel, dust, avgDust, essence, avgEssence, shard }
+-- Quantities are the averages of the table's ranges (1-2 -> 1.5, 2-5 -> 3.5...).
 local GREEN = {
-  { 15, DUST.strange, 1.5, ESS.lmagic, 1.5, nil },
-  { 20, DUST.strange, 2.5, ESS.gmagic, 1.5, SHARD.sglim },
-  { 25, DUST.strange, 5, ESS.lastral, 1.5, SHARD.sglim },
-  { 30, DUST.soul, 1.5, ESS.gastral, 1.5, SHARD.lglim },
-  { 35, DUST.soul, 3.5, ESS.lmystic, 1.5, SHARD.sglow },
-  { 40, DUST.vision, 1.5, ESS.gmystic, 1.5, SHARD.lglow },
-  { 45, DUST.vision, 3.5, ESS.lnether, 1.5, SHARD.srad },
-  { 50, DUST.dream, 1.5, ESS.gnether, 1.5, SHARD.lrad },
-  { 55, DUST.dream, 3.5, ESS.leternal, 1.5, SHARD.sbril },
-  { 60, DUST.illusion, 1.5, ESS.geternal, 1.5, SHARD.lbril },
-  { 65, DUST.illusion, 3.5, ESS.geternal, 2.5, SHARD.lbril },
+  { 10, DUST.strange, 1.5, ESS.lmagic, 1.5, nil },
+  { 15, DUST.strange, 2.5, ESS.gmagic, 1.5, SHARD.sglim },
+  { 20, DUST.strange, 5, ESS.lastral, 1.5, SHARD.sglim },
+  { 25, DUST.soul, 1.5, ESS.gastral, 1.5, SHARD.lglim },
+  { 30, DUST.soul, 3.5, ESS.lmystic, 1.5, SHARD.sglow },
+  { 35, DUST.vision, 1.5, ESS.gmystic, 1.5, SHARD.lglow },
+  { 40, DUST.vision, 3.5, ESS.lnether, 1.5, SHARD.srad },
+  { 45, DUST.dream, 1.5, ESS.gnether, 1.5, SHARD.lrad },
+  { 50, DUST.dream, 3.5, ESS.leternal, 1.5, SHARD.sbril },
+  { 55, DUST.illusion, 1.5, ESS.geternal, 1.5, SHARD.lbril },
+  { 999, DUST.illusion, 3.5, ESS.geternal, 2, SHARD.lbril },
 }
--- Rare (blue): a shard, almost always one
-local BLUE = {
-  { 25, SHARD.sglim }, { 30, SHARD.lglim }, { 35, SHARD.sglow }, { 40, SHARD.lglow },
-  { 45, SHARD.srad }, { 50, SHARD.lrad }, { 55, SHARD.sbril }, { 70, SHARD.lbril },
+-- Rare (blue) and low-level epic gear: the band's shard
+local SHARD_BY_LEVEL = {
+  { 20, SHARD.sglim }, { 25, SHARD.lglim }, { 30, SHARD.sglow }, { 35, SHARD.lglow },
+  { 40, SHARD.srad }, { 45, SHARD.lrad }, { 50, SHARD.sbril }, { 999, SHARD.lbril },
 }
+-- Uncommon chances: armor 75% dust / 20% essence / 5% shard; weapons swap dust and
+-- essence. The guide gives the shard as 3-5%, so 5% is the generous end.
+local MAIN, SIDE, SHARD_CHANCE = 0.75, 0.20, 0.05
+local NEXUS_FROM_BLUE = 0.005 -- "extremely rarely (about 0.5%)", level 51+
+
+-- Each lesser essence can be combined 3 -> 1 greater (and split back), so an
+-- essence is worth whichever way sells for more.
+local ESSENCE_PAIRS = {
+  { ESS.lmagic, ESS.gmagic }, { ESS.lastral, ESS.gastral }, { ESS.lmystic, ESS.gmystic },
+  { ESS.lnether, ESS.gnether }, { ESS.leternal, ESS.geternal },
+}
+local lesserOf, greaterOf = {}, {}
+for _, p in ipairs(ESSENCE_PAIRS) do greaterOf[p[1]] = p[2]; lesserOf[p[2]] = p[1] end
+
+-- Slots that can't be disenchanted even though they're "armor"
+local NOT_DISENCHANTABLE = { INVTYPE_BODY = true, INVTYPE_TABARD = true, INVTYPE_BAG = true, INVTYPE_QUIVER = true }
+
+local function band(list, level)
+  for _, row in ipairs(list) do if level <= row[1] then return row end end
+end
 
 -- What an item can turn into: list of { itemID, chance, avgQty }, or nil.
 -- These never change for an item, so they're worked out once and cached
@@ -53,49 +75,69 @@ function D:Results(itemID)
 end
 
 function D:ComputeResults(itemID)
-  local _, _, _, _, _, classID = FI.GetItemInfoInstant(itemID)
+  local _, _, _, equipLoc, _, classID = FI.GetItemInfoInstant(itemID)
   if classID ~= 2 and classID ~= 4 then return nil, true end -- not gear: never
-  local _, _, quality, ilvl = FI.GetItemInfo(itemID)
-  if not quality or not ilvl then return nil, false end -- not loaded yet: ask again later
+  if equipLoc and NOT_DISENCHANTABLE[equipLoc] then return nil, true end
+  local _, _, quality, ilvl, reqLevel = FI.GetItemInfo(itemID)
+  if not quality then return nil, false end -- not loaded yet: ask again later
+  -- The table uses the required level. A few items have none; item level runs
+  -- about 5 above required level, so use that as the stand-in.
+  local level = (reqLevel and reqLevel > 0) and reqLevel or math.max(1, (ilvl or 1) - 5)
+
   if quality == 2 then
-    for _, row in ipairs(GREEN) do
-      if ilvl <= row[1] then
-        local weapon = classID == 2
-        local dustChance, essChance = weapon and 0.20 or 0.75, weapon and 0.75 or 0.20
-        local out = { { row[2], dustChance, row[3] }, { row[4], essChance, row[5] } }
-        if row[6] then out[#out + 1] = { row[6], 0.05, 1 } end
-        return out, true
-      end
+    local row = band(GREEN, level)
+    local weapon = classID == 2
+    local dust, ess = weapon and SIDE or MAIN, weapon and MAIN or SIDE
+    if not row[6] then
+      -- no shard at this level: dust and essence share all the chances
+      local total = dust + ess
+      return { { row[2], dust / total, row[3] }, { row[4], ess / total, row[5] } }, true
     end
+    return { { row[2], dust, row[3] }, { row[4], ess, row[5] }, { row[6], SHARD_CHANCE, 1 } }, true
   elseif quality == 3 then
-    for _, row in ipairs(BLUE) do
-      if ilvl <= row[1] then
-        if ilvl >= 56 then return { { row[2], 0.995, 1 }, { NEXUS, 0.005, 1 } }, true end
-        return { { row[2], 1, 1 } }, true
-      end
-    end
-  elseif quality == 4 and ilvl >= 51 then
-    return { { NEXUS, 1, 1.5 } }, true
+    local shard = band(SHARD_BY_LEVEL, level)[2]
+    if level >= 51 then return { { shard, 1 - NEXUS_FROM_BLUE, 1 }, { NEXUS, NEXUS_FROM_BLUE, 1 } }, true end
+    return { { shard, 1, 1 } }, true
+  elseif quality == 4 then
+    -- "Level 50 and below always gives a shard; high-level epics always give a crystal."
+    -- The guide doesn't give quantities: 1 shard, and 1-2 crystals at 56+, are estimates.
+    if level <= 50 then return { { band(SHARD_BY_LEVEL, level)[2], 1, 1 } }, true end
+    return { { NEXUS, 1, level >= 56 and 1.5 or 1 } }, true
   end
   return nil, true
 end
 
--- Expected value in copper; complete = every possible result has a price
+-- What one unit of a material sells for: the lower of its market price and the
+-- cheapest listing now (what you'd have to match), only if seen in the last 7 days.
+-- Essences take the better of selling as-is or converting (3 lesser = 1 greater).
+function D:MaterialPrice(id)
+  local own = FI.Crafting:SellPrice(id)
+  local best = own
+  if greaterOf[id] then
+    local g = FI.Crafting:SellPrice(greaterOf[id])
+    if g and (not best or g / 3 > best) then best = g / 3 end
+  elseif lesserOf[id] then
+    local l = FI.Crafting:SellPrice(lesserOf[id])
+    if l and (not best or l * 3 > best) then best = l * 3 end
+  end
+  return best, best and own and best > own
+end
+
+-- Expected value in copper (before the AH's cut on the materials);
+-- complete = every possible result has a price. parts lists each result.
 function D:Value(itemID)
   local results = self:Results(itemID)
   if not results then return nil end
-  local realm = FI:Realm()
   local value, complete = 0, true
   local parts = {}
   for _, r in ipairs(results) do
-    local it = realm.items[r[1]]
-    local price = it and it.mkt
+    local price, converted = self:MaterialPrice(r[1])
     if price then
       value = value + r[2] * r[3] * price
     else
       complete = false
     end
-    parts[#parts + 1] = { id = r[1], chance = r[2], qty = r[3], price = price }
+    parts[#parts + 1] = { id = r[1], chance = r[2], qty = r[3], price = price, converted = converted }
   end
   if value == 0 and not complete then return nil, false, parts end
   return value, complete, parts
