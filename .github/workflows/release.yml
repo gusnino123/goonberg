@@ -2,6 +2,7 @@
 # On every push to main: read "## Version:" from the .toc; if there's no release for
 # that version yet, build GoonbergTerminal-<version>.zip and publish it (this also
 # creates the v<version> tag). WowUp and similar managers update from these releases.
+# The zip also carries the market data addons (GoonbergData_*) from the `data` branch.
 name: Release
 on:
   push:
@@ -33,8 +34,16 @@ jobs:
         if: steps.exists.outputs.found == 'false'
         run: |
           mkdir -p dist/GoonbergTerminal
-          rsync -a --exclude '.git*' --exclude '.github' --exclude 'dist' ./ dist/GoonbergTerminal/
-          cd dist && zip -qr "GoonbergTerminal-${{ steps.v.outputs.version }}.zip" GoonbergTerminal
+          rsync -a --exclude '.git*' --exclude '.github' --exclude 'dist' --exclude 'tools' --exclude 'Markets' ./ dist/GoonbergTerminal/
+          # the latest daily market data (from the "Blizzard prices" workflow), if any
+          if git ls-remote --exit-code origin data >/dev/null 2>&1; then
+            git fetch --depth 1 origin data
+            git archive FETCH_HEAD Markets | tar -x -C dist
+            cp -r dist/Markets/* dist/ && rm -rf dist/Markets
+          fi
+          cd dist
+          shopt -s nullglob
+          zip -qr "GoonbergTerminal-${{ steps.v.outputs.version }}.zip" GoonbergTerminal GoonbergData_*
       - name: Publish release
         if: steps.exists.outputs.found == 'false'
         env:

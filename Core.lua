@@ -341,6 +341,7 @@ local help = {
   "/goon alert <item> below|above <price>  (e.g. 3g50s)",
   "/goon alert <item> clear",
   "/goon post <item> [guild|party|raid|say]  - share a price",
+  "/goon market  - which market's daily Blizzard prices you get  |  /goon market pvp|normal|rp|rppvp|auto",
   "/goon autoscan|dock|sound|tooltip on|off",
   "/goon minimap on|off|reset  - the button under the minimap",
   "/goon de <item>  - what it disenchants into and is worth  |  /goon de watch",
@@ -458,6 +459,26 @@ SlashCmdList.GOONBERG = function(msg)
       FI.Sync:RequestCatchup(FI:Realm().lastScan or (time() - 86400), true)
     else
       FI.Sync:Status()
+    end
+  elseif cmd == "market" then
+    local SD = FI.Seed
+    if rest ~= "" then
+      if rest == "auto" then
+        FI.settings.market = nil
+      else
+        local r = SD.RulesetFrom(rest)
+        if not r then return FI:Print("Unknown ruleset %q. Use normal, pvp, rp, rppvp or auto.", rest) end
+        FI.settings.market = r
+      end
+    end
+    local market, status, name = SD:MarketStatus()
+    if not market then
+      FI:Print("Couldn't tell your ruleset from the realm name %q. Set it with /goon market normal|pvp|rp|rppvp.", tostring(GetRealmName()))
+    elseif status == "missing" then
+      FI:Print("Market: %s. Its data addon (%s) isn't installed: download the full Goonberg zip from GitHub.", market, name)
+    else
+      FI:Print("Market: %s. Daily Blizzard prices are %s.", market, status == "current" and "up to date" or "being added")
+      if rest ~= "" then SD:Run(false) end
     end
   elseif cmd == "import" then
     if rest:lower() == "off" or rest:lower() == "on" then

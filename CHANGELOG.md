@@ -1,5 +1,12 @@
 # Goonberg Terminal
 
+## 0.16.0
+
+- **Daily prices from Blizzard.** Blizzard's auction house API now covers WoW Forever, and a daily GitHub workflow turns it into 60 days of prices for every market (region, ruleset and faction). New installs and markets nobody in your guild scans start with full charts, fair values and deal checks. Your own scans and guild data always come first: Blizzard's days only fill the gaps.
+  - Each market ships as a small load-on-demand addon (GoonbergData_...), and only yours is loaded, during the loading screen and only when it's newer.
+  - **/goon market** shows your market. If Goonberg can't tell your ruleset from the realm name, set it once with /goon market normal | pvp | rp | rppvp.
+  - The **Latest prices (daily)** release on GitHub always has the newest data.
+
 ## 0.15.4
 
 - **Cleaner item tooltip.** Three lines: **Vendor**, **Market** and **Disenchant** (gear only), for the whole stack, with the one that pays the most in green (after the 5% AH cut). How fresh the price is shows next to "Goonberg". Hold **Shift** for the details: price each, lowest listing, 7-day change, sales per day and what the item disenchants into.

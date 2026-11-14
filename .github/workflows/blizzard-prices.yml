@@ -1,0 +1,78 @@
+# Daily WoW Forever prices from Blizzard's auction house API.
+# Needs two repository secrets (Settings > Secrets and variables > Actions):
+#   BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET  (free: https://develop.battle.net/access/clients)
+# Without them this does nothing. With them, once a day it:
+#   1. adds today's prices to one data addon per market (GoonbergData_US_PvP_Horde ...),
+#      keeping 60 days, on the `data` branch (a single commit, so the repo doesn't grow);
+#   2. publishes GoonbergTerminal-full.zip (addon + all market data) to the
+#      "Latest prices" release, which is replaced every day.
+# Normal version releases also include the market data as of that day.
+name: Blizzard prices
+on:
+  schedule:
+    - cron: "17 10 * * *" # 10:17 UTC daily
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: blizzard-prices
+  cancel-in-progress: false
+jobs:
+  prices:
+    runs-on: ubuntu-latest
+    env:
+      BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+      BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+      REGIONS: ${{ vars.GOONBERG_REGIONS || 'us' }}
+    steps:
+      - name: Check for API keys
+        id: keys
+        run: |
+          if [ -z "$BLIZZARD_CLIENT_ID" ] || [ -z "$BLIZZARD_CLIENT_SECRET" ]; then
+            echo "::notice::Add BLIZZARD_CLIENT_ID and BLIZZARD_CLIENT_SECRET as repository secrets to turn on daily prices."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.keys.outputs.ok == 'true'
+      - name: Get the current market data
+        if: steps.keys.outputs.ok == 'true'
+        run: |
+          mkdir -p Markets
+          if git ls-remote --exit-code origin data >/dev/null 2>&1; then
+            git fetch --depth 1 origin data
+            git archive FETCH_HEAD Markets | tar -x
+          fi
+      - name: Fetch today's prices
+        if: steps.keys.outputs.ok == 'true'
+        run: OUT_DIR=Markets python3 tools/fetch_blizzard.py
+      - name: Save to the data branch
+        if: steps.keys.outputs.ok == 'true'
+        run: |
+          rm -rf /tmp/data && mkdir -p /tmp/data && cp -r Markets /tmp/data/
+          cd /tmp/data
+          git init -q -b data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898299+github-actions[bot]@users.noreply.github.com"
+          printf '# Goonberg Terminal market data\nBuilt daily by the "Blizzard prices" workflow on main. Replaced every day.\n' > README.md
+          git add -A
+          git commit -qm "Market data $(date -u +%Y-%m-%d)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
+      - name: Publish the "Latest prices" download
+        if: steps.keys.outputs.ok == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(sed -n 's/^## Version: *//p' GoonbergTerminal.toc | tr -d '\r')
+          mkdir -p dist/GoonbergTerminal
+          rsync -a --exclude '.git*' --exclude '.github' --exclude 'dist' --exclude 'tools' --exclude 'Markets' ./ dist/GoonbergTerminal/
+          cp -r Markets/* dist/
+          (cd dist && zip -qr GoonbergTerminal-full.zip GoonbergTerminal GoonbergData_*)
+          NOTES="Goonberg Terminal ${VERSION} with every market's daily Blizzard prices as of $(date -u '+%Y-%m-%d %H:%M UTC'). Unzip everything into Interface/AddOns. Only your own market's data is loaded in game."
+          if gh release view prices >/dev/null 2>&1; then
+            gh release upload prices dist/GoonbergTerminal-full.zip --clobber
+            gh release edit prices --notes "$NOTES"
+          else
+            gh release create prices dist/GoonbergTerminal-full.zip --title "Latest prices (daily)" --notes "$NOTES" --latest=false --target main
+          fi

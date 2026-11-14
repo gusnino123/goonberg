@@ -123,6 +123,7 @@ Every command starts with `/goon` (or `/goonberg`). Wherever a command takes an 
 ### Scanning and data
 | Command | What it does |
 |---|---|
+| `/goon market` | Which market's daily Blizzard prices you get (`/goon market pvp`, `normal`, `rp`, `rppvp`, `auto`) |
 | `/goon scan` | Full Auction House scan now (the AH must be open; once per 15 minutes) |
 | `/goon import` | Pull price history from Auctionator now |
 | `/goon import off` / `on` | Stop or restart the automatic Auctionator import at login |
@@ -209,3 +210,21 @@ python tools/build_seed.py "C:/Program Files (x86)/World of Warcraft/_forever_/W
 Pass several files to combine guildmates' data. Only daily prices and quantities are written;
 character names, P&L, alerts and settings are never copied. Commit `Seed/Data.lua`, never the
 SavedVariables file itself.
+
+## Daily prices from Blizzard
+
+Blizzard publishes every WoW Forever auction house listing through its Game Data API
+(undocumented for Forever so far). The **Blizzard prices** workflow reads it once a day and
+keeps 60 days of daily prices for each market: region, ruleset (Normal, PvP, Roleplay,
+Roleplay PvP) and faction. Each market is a small load-on-demand addon (`GoonbergData_US_PvP_Horde`
+and so on), and Goonberg Terminal only loads your own market, and only when it's newer than
+last time. Those days are added to your history without replacing anything you scanned.
+
+- **Install:** unzip everything in the release zip into `Interface/AddOns` (the GoonbergData folders too).
+  The **Latest prices (daily)** release always has today's data.
+- **Your market** is worked out from the realm name. If Goonberg can't tell, set it once:
+  `/goon market normal`, `pvp`, `rp` or `rppvp` (`/goon market` shows what it's using).
+- **Setup (repo owner, once):** create a free API client at https://develop.battle.net/access/clients,
+  then add its Client ID and Secret as repository secrets `BLIZZARD_CLIENT_ID` and `BLIZZARD_CLIENT_SECRET`
+  (Settings > Secrets and variables > Actions). EU and other regions: add a repository variable
+  `GOONBERG_REGIONS`, e.g. `us,eu`. The data lives on the `data` branch, replaced daily.
