@@ -442,24 +442,86 @@ function H.RecordShared(realm, itemID, t, mkt, minPrice, qty, listings)
   return true
 end
 
--- Fair value: the median market price over the last 7 days, leaving out the
--- latest scan (so today's cheap listings don't drag the yardstick down).
--- Needs at least 3 earlier points spanning 12 hours; nil otherwise.
+-- ---------------------------------------------------------------------------
+-- Baselines, the way TradeSkillMaster does it:
+--   Market     - a 14-day average of daily values, weighting the last 3 days more
+--   Historical - the 60-day median of daily values (for rare items, which may only
+--                show up a few days a month)
+-- A "daily value" is the average market price of that day's scans. The latest scan
+-- is left out, so a cheap listing being judged can't drag its own yardstick down.
+-- ---------------------------------------------------------------------------
+local function dailyValues(it, now, days)
+  local h = it.h
+  if not h then return {} end
+  local byDay, order = {}, {}
+  for i = 1, #h, STRIDE do
+    local t, m = h[i], h[i + 1]
+    if m > 0 and now - t <= days * DAY and t ~= it.seen then
+      local d = math.floor(t / DAY)
+      local e = byDay[d]
+      if not e then
+        e = { day = d, sum = 0, n = 0, low = m }
+        byDay[d] = e
+        order[#order + 1] = e
+      end
+      e.sum, e.n = e.sum + m, e.n + 1
+      if m < e.low then e.low = m end
+    end
+  end
+  for _, e in ipairs(order) do e.value = e.sum / e.n end
+  return order
+end
+H.DailyValues = dailyValues
+
+local function median(list)
+  local n = #list
+  if n == 0 then return nil end
+  table.sort(list)
+  local mid = math.floor((n + 1) / 2)
+  if n % 2 == 1 then return list[mid] end
+  return (list[mid] + list[mid + 1]) / 2
+end
+
+-- Market value (14 days, recent 3 days count triple). Needs at least 3 earlier
+-- points spanning 12 hours; nil otherwise. (Called "fair value" on the Deals tab.)
 function H.FairValue(it, now)
   local h = it.h
   if not h then return nil end
-  local vals, first, last = {}, nil, nil
+  local first, last, points = nil, nil, 0
   for i = 1, #h, STRIDE do
-    local t, m = h[i], h[i + 1]
-    if m > 0 and now - t <= 7 * DAY and t ~= it.seen then
-      vals[#vals + 1] = m
-      first = first or t
-      last = t
+    if h[i + 1] > 0 and now - h[i] <= 14 * DAY and h[i] ~= it.seen then
+      first = first or h[i]
+      last = h[i]
+      points = points + 1
     end
   end
-  if #vals < 3 or (last - first) < 12 * 3600 then return nil end
-  table.sort(vals)
-  local mid = math.floor((#vals + 1) / 2)
-  if #vals % 2 == 1 then return vals[mid] end
-  return (vals[mid] + vals[mid + 1]) / 2
+  if points < 3 or (last - first) < 12 * 3600 then return nil end
+  local today = math.floor(now / DAY)
+  local sum, weight = 0, 0
+  for _, e in ipairs(dailyValues(it, now, 14)) do
+    local w = (today - e.day <= 2) and 3 or 1
+    sum, weight = sum + e.value * w, weight + w
+  end
+  return weight > 0 and sum / weight or nil
+end
+
+-- Long-term picture for rare finds: the 60-day median of daily values, the item's
+-- "cheapest typical" price (its 10th-percentile daily low: cheaper than 90% of its
+-- days), how many separate days it was seen, and the 14-day market value for trend.
+function H.LongTerm(it, now)
+  local days = dailyValues(it, now, 60)
+  if #days == 0 then return nil end
+  local values, lows = {}, {}
+  for _, e in ipairs(days) do
+    values[#values + 1] = e.value
+    lows[#lows + 1] = e.low
+  end
+  table.sort(lows)
+  local idx = math.max(1, math.floor(#lows * 0.10 + 0.5))
+  return {
+    historical = median(values),
+    typicalLow = lows[idx],
+    days = #days,
+    market = H.FairValue(it, now),
+  }
 end

@@ -20,7 +20,7 @@ local COLS = {
   { key = "sold", label = "SOLD/DAY", r = -14 },
 }
 local NAME_RIGHT = -690
-local KIND_COLOR = { Flip = C.gold, Vendor = C.up, Disenchant = { 0.64, 0.53, 0.96 } }
+local KIND_COLOR = { Flip = C.gold, Vendor = C.up, Disenchant = { 0.64, 0.53, 0.96 }, Rare = { 0.40, 0.68, 1.00 } }
 local MARGINS = { ["5%"] = 0.05, ["10%"] = 0.10, ["20%"] = 0.20, ["50%"] = 0.50 }
 
 -- Type the item into the Auction House search, when the AH is open
@@ -74,8 +74,18 @@ local function makeRow(parent)
     GameTooltip:AddLine(" ")
     local muted = FI.colors.soft
     GameTooltip:AddDoubleLine("Buy at", FI.Money(d.price), muted[1], muted[2], muted[3], 1, 1, 1)
-    if d.kind == "Flip" then
-      GameTooltip:AddDoubleLine("Fair value (7-day median)", FI.Money(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
+    if d.kind == "Rare" then
+      GameTooltip:AddDoubleLine("Usual price (60-day median)", FI.Money(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
+      GameTooltip:AddDoubleLine("Cheapest it typically goes for", FI.Money(d.typicalLow), muted[1], muted[2], muted[3], 1, 1, 1)
+      GameTooltip:AddDoubleLine("Under its usual price", ("%d%%"):format(math.floor(d.under)), muted[1], muted[2], muted[3], 0.25, 0.71, 0.55)
+      GameTooltip:AddDoubleLine("Seen on", ("%d days (%s)"):format(d.days, d.confidence), muted[1], muted[2], muted[3], 1, 1, 1)
+      if d.relist and d.relist < d.ref then
+        GameTooltip:AddDoubleLine("Relist at (others list below usual)", FI.Money(d.relist), muted[1], muted[2], muted[3], 1, 1, 1)
+      end
+      GameTooltip:AddDoubleLine("After 5% AH cut", FI.Money(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
+      if d.trendDown then GameTooltip:AddLine("|cfff0613aTrending down: its 14-day price is well under its 60-day one.|r") end
+    elseif d.kind == "Flip" then
+      GameTooltip:AddDoubleLine("Market value (14-day)", FI.Money(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
       if d.relist and d.relist < d.ref then
         GameTooltip:AddDoubleLine("Relist at (others list below fair)", FI.Money(d.relist), muted[1], muted[2], muted[3], 1, 1, 1)
       end
@@ -117,8 +127,10 @@ local function updateRow(r, i)
   r.icon:SetTexture(FI:ItemIcon(d.id))
   r.name:SetText(d.name)
   r.name:SetTextColor(FI:ItemQualityColor(d.id))
-  r.cells.kind:SetText(d.kind:upper())
-  setColor(r.cells.kind, KIND_COLOR[d.kind] or C.soft)
+  -- rare finds: "RARE?" when only a few days back the usual price; orange when the
+  -- whole item is trending down (cheap because the market is falling)
+  r.cells.kind:SetText(d.kind == "Rare" and ("RARE" .. (d.confidence == "Thin" and "?" or "")) or d.kind:upper())
+  setColor(r.cells.kind, (d.kind == "Rare" and d.trendDown) and C.down or (KIND_COLOR[d.kind] or C.soft))
   r.cells.price:SetText(FI.Money(d.price))
   setColor(r.cells.price, C.gold)
   r.cells.worth:SetText(FI.Money(d.worth))
@@ -139,7 +151,8 @@ function D:Build(parent)
   self.frame = tab
   self.rows = {}
 
-  local kinds = W.Choice(tab, { "All", "Flip", "Vendor", "Disenchant" }, "pill", function(v) D.kind = v; D:Refresh() end, 26)
+  local kinds = W.Choice(tab, { "All", "Rare", "Flip", "Vendor", "Disenchant" }, "pill", function(v) D.kind = v; D:Refresh() end, 26)
+  self.kindChoice = kinds
   kinds:SetPoint("TOPLEFT", 16, -16)
   kinds:Select(self.kind)
 
@@ -197,6 +210,7 @@ end
 
 function D:Refresh()
   if not self.frame then return end
+  if self.kindChoice then self.kindChoice:Select(self.kind) end
   -- Deals are found once per scan (in the background); here we only filter them
   local raw = FI.Deals:Latest()
   if not raw then

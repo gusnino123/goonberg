@@ -1,11 +1,13 @@
 -- Goonberg Terminal: deal finder
 -- Looks at the latest scan for listings priced well under what the item is worth:
---   Flip       - under its 7-day fair value; relist near fair value
+--   Rare       - a seldom-listed item well under its usual (60-day) price and its usual lows
+--   Flip       - under its market value (14-day, recent days weighted); relist near it
 --   Vendor     - under what an NPC vendor pays for it; buy and vendor, no waiting
 --   Disenchant - gear under its estimated disenchant value
 -- A deal must leave a margin (5%+ by default) after the AH's 5% cut where you'd
 -- resell on the AH. Total profit counts every unit under the deal price (from depth).
 local _, FI = ...
+local STRIDE_OF_HISTORY = 4
 -- margin = what you pocket per item after any AH cut, divided by what you pay
 local DL = { minMargin = 0.05, alertMargin = 0.10, maxAge = 3600 }
 FI.Deals = DL
@@ -15,7 +17,7 @@ local MIN_PROFIT = 100 -- 1s: ignore crumbs
 DL.FLOOR = 0.05 -- deals are found once at the loosest margin; screens filter tighter
 local PER_FRAME = 250
 
--- Caches. Vendor prices never change; fair values (7-day medians) move slowly, so
+-- Caches. Vendor prices never change; market values (14-day averages) move slowly, so
 -- they're refreshed every 3 hours instead of on every scan.
 local vendorCache, fairCache = {}, {}
 local FAIR_TTL = 3 * 3600
@@ -30,10 +32,45 @@ end
 
 local function fairValue(id, it, now)
   local c = fairCache[id]
-  if c and now - c.t < FAIR_TTL then return c.v end
+  if c and now - c.t < FAIR_TTL then return c.v, c.lt end
   local v = FI.History.FairValue(it, now)
-  fairCache[id] = { t = now, v = v }
-  return v
+  local lt = FI.History.LongTerm(it, now)
+  fairCache[id] = { t = now, v = v, lt = lt }
+  return v, lt
+end
+
+-- ---------------------------------------------------------------------------
+-- Rare finds: items that are seldom listed, worth something, and showing up
+-- well under their usual price AND under the cheapest they normally go for.
+-- ---------------------------------------------------------------------------
+function DL:RareSettings()
+  local st = FI.settings
+  return st.rarePct or 0.20, st.rareMinGold or 50000, st.rareMinDays or 3
+end
+
+-- How many days in the last 60 anything was scanned (yours, guild or imported)
+local function scanDays60(realm, now)
+  local n, today = 0, math.floor(now / 86400)
+  for d in pairs(realm.scanDays or {}) do if today - d <= 60 then n = n + 1 end end
+  return n
+end
+DL.scanDays60 = scanDays60
+
+-- Is this item "rare"? Listed on at most half the days the AH was scanned, or
+-- usually only a couple listed at a time.
+local function isRare(it, lt, realmDays)
+  if realmDays >= 5 and lt.days / realmDays <= 0.5 then return true end
+  local h, n, total = it.h, 0, 0
+  for i = 1, #h, STRIDE_OF_HISTORY do
+    if h[i + 1] > 0 then n = n + 1; total = total + (h[i + 2] or 0) end
+  end
+  return n > 0 and total / n <= 3
+end
+
+-- Confidence from how many separate days back the "usual price"
+local function confidence(days)
+  if days >= 6 then return "Solid" end
+  return "Thin"
 end
 
 -- Listings to judge: the scan's depth when it's current, else just the lowest price
@@ -76,8 +113,33 @@ local function evaluate(id, it, now)
       best = { kind = kind, worth = worth, ref = ref, units = units, profit = profit }
     end
   end
-  local fair = fairValue(id, it, now)
-  if fair then
+  local fair, lt = fairValue(id, it, now)
+
+  -- Rare find?
+  local rarePct, rareMin, rareDays = DL:RareSettings()
+  if lt and lt.historical and lt.days >= rareDays and lt.historical >= rareMin
+    and isRare(it, lt, DL.realmDays or 0)
+    and cheapest <= lt.historical * (1 - rarePct) and cheapest < lt.typicalLow then
+    local relist = lt.historical
+    if qtyKnown then
+      for i = 1, #levels, 2 do
+        if levels[i] >= lt.typicalLow then relist = math.min(relist, levels[i] - 1); break end
+      end
+    end
+    local worth = relist * (1 - CUT)
+    local cutoff = math.min(lt.typicalLow, cutoffFor(worth, DL.FLOOR))
+    local units, profit = judge(levels, worth, cutoff)
+    if units > 0 and profit > 0 then
+      best = {
+        kind = "Rare", worth = worth, ref = lt.historical, units = units, profit = profit, relist = relist,
+        typicalLow = lt.typicalLow, days = lt.days, confidence = confidence(lt.days),
+        trendDown = lt.market and lt.market < lt.historical * 0.85 or false,
+        under = (lt.historical - cheapest) / lt.historical * 100,
+      }
+    end
+  end
+
+  if fair and not best then
     -- Realistic relist price: fair value, unless other sellers are already listed
     -- below it (after the cheap ones you'd buy out). Then you'd have to undercut them.
     local relist = fair
@@ -93,9 +155,9 @@ local function evaluate(id, it, now)
     consider("Flip", relist * (1 - CUT), fair)                     -- relist: AH takes 5%
     if best and best.kind == "Flip" then best.relist = relist end
   end
-  local vendor = vendorPrice(id)
+  local vendor = not (best and best.kind == "Rare") and vendorPrice(id)
   if vendor then consider("Vendor", vendor, vendor) end             -- NPC pays in full
-  if FI.Disenchant:Results(id) then
+  if not (best and best.kind == "Rare") and FI.Disenchant:Results(id) then
     local de, complete = FI.Disenchant:Value(id)
     if de and complete then consider("Disenchant", de * (1 - CUT), de) end -- mats sold on the AH
   end
@@ -113,6 +175,7 @@ end
 
 -- Units and profit of a deal at a stricter margin (e.g. 0.20); nil if it no longer qualifies
 function DL:At(d, minMargin)
+  if d.kind == "Rare" then return d.units, d.profit end -- judged by its own rule
   local cutoff = cutoffFor(d.worth, minMargin)
   if d.price >= cutoff then return nil end
   local units, profit = judge(d.levels, d.worth, cutoff)
@@ -151,6 +214,7 @@ end
 function DL:Find(now)
   now = now or time()
   local realm = FI:Realm()
+  self.realmDays = scanDays60(realm, now)
   local raw = {}
   for _, id in ipairs(candidates(realm, now, self.maxAge)) do
     local d = evaluate(id, realm.items[id], now)
@@ -167,6 +231,7 @@ runner:Hide()
 function DL:Run(onDone)
   local realm = FI:Realm()
   local now = time()
+  self.realmDays = scanDays60(realm, now)
   self.job = { ids = candidates(realm, now, self.maxAge), i = 0, raw = {}, now = now, scan = realm.lastScan, onDone = onDone }
   runner:Show()
 end
@@ -219,6 +284,26 @@ local function alert(raw)
     end
   end
   DL.alerted = now
+  -- Rare finds: one pop-up for the best new one, whatever the total
+  if FI.settings.rareAlerts ~= false then
+    local rareSeen = DL.rareAlerted or {}
+    local bestRare
+    local nowRare = {}
+    for _, d in ipairs(raw) do
+      if d.kind == "Rare" then
+        nowRare[d.id] = true
+        if not rareSeen[d.id] and (not bestRare or d.profit > bestRare.profit) then bestRare = d end
+      end
+    end
+    DL.rareAlerted = nowRare
+    if bestRare then
+      FI.Alerts:Toast(bestRare.id,
+        ("Rare find: %s"):format(bestRare.name),
+        ("%s, %d%% under its usual %s (seen %d days). Click to view."):format(FI.Money(bestRare.price), math.floor(bestRare.under), FI.Money(bestRare.ref), bestRare.days),
+        function() FI.DealsTab.kind = "Rare"; FI.UI:Show("deals") end)
+      return
+    end
+  end
   if fresh > 0 and total >= threshold then
     FI.Alerts:Toast(top.id,
       ("%d new deal%s worth %s"):format(fresh, fresh == 1 and "" or "s", FI.Money(total)),

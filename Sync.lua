@@ -146,7 +146,9 @@ local function onEnd(from, rest)
   local realm = FI:Realm()
   if s.t > (realm.lastScan or 0) then
     realm.lastScan = s.t
-    realm.scans = (realm.scans or 0) + 1
+      realm.scans = (realm.scans or 0) + 1
+    realm.scanDays = realm.scanDays or {}
+    realm.scanDays[math.floor(s.t / 86400)] = true
     realm.lastShared = { from = from, t = s.t, items = s.items }
     H.UpdateIndex(realm, s.prev, s.t)
     H.cache = nil

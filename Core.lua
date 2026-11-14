@@ -320,6 +320,7 @@ local help = {
   "/goon  - open or close the window",
   "/goon overview  |  /goon chart <item>  |  /goon pnl",
   "/goon deals  - listings under what they're worth  |  /goon deals alert 10 | alert on|off",
+  "/goon rare  - rare finds  |  /goon rare 30 (percent)  |  rare min 10 (gold)  |  rare days 4  |  rare on|off",
   "/goon2 (or /goon craft)  - crafting profit for your professions",
   "/goon scan  - full Auction House scan (AH must be open)",
   "/goon watch <item>  |  /goon unwatch <item>",
@@ -345,6 +346,23 @@ SlashCmdList.GOONBERG = function(msg)
     FI.UI:Toggle()
   elseif cmd == "overview" then
     FI.UI:Show("overview")
+  elseif cmd == "rare" then
+    local arg = rest:lower()
+    local st = FI.settings
+    if arg == "off" or arg == "on" then
+      st.rareAlerts = arg == "on"
+      return FI:Print("Rare find pop-ups are now %s.", arg)
+    end
+    local pct = arg:match("^(%d+)%%?$")
+    local gold = arg:match("^min%s+([%d%.]+)")
+    local days = arg:match("^days%s+(%d+)")
+    if pct then st.rarePct = math.max(5, math.min(90, tonumber(pct))) / 100 end
+    if gold then st.rareMinGold = math.floor(tonumber(gold) * 10000) end
+    if days then st.rareMinDays = math.max(2, tonumber(days)) end
+    local p, g, d = FI.Deals:RareSettings()
+    FI:Print("Rare finds: at least %d%% under the usual price and under its cheapest-typical price, worth %s+, seen on %d+ days. Pop-ups %s.",
+      math.floor(p * 100 + 0.5), FI.Money(g), d, st.rareAlerts == false and "off" or "on")
+    if not (pct or gold or days) then FI.DealsTab.kind = "Rare"; FI.UI:Show("deals") end
   elseif cmd == "deals" then
     local arg = rest:lower()
     if arg == "alert on" or arg == "alert off" then

@@ -124,6 +124,8 @@ local function finish()
 
   realm.lastScan = now
   realm.scans = (realm.scans or 0) + 1
+  realm.scanDays = realm.scanDays or {}
+  realm.scanDays[math.floor(now / 86400)] = true
   FI.db.lastFullScan = (S.mode == "replicate") and now or FI.db.lastFullScan
   H.UpdateIndex(realm, prevPrices, now)
   H.cache = nil

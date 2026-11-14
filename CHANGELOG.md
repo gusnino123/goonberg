@@ -1,5 +1,11 @@
 # Goonberg Terminal
 
+## 0.14.0
+
+- **Rare finds.** Seldom-listed items worth 5g+ that show up at least 20% under their usual price (60-day median) **and** under the cheapest they typically go for (their 10th-percentile day). The second check means items that normally swing a lot don't trigger it. Needs 3+ separate days of history; labelled **RARE** (solid, 6+ days) or **RARE?** (thin), in orange when the whole item is trending down. A new **Rare** filter on the Deals tab and its own pop-up for each new find. `/goon rare` to view and change the rules.
+- **Market value now works like TradeSkillMaster's**: a 14-day average of daily prices, counting the latest 3 days triple (was a 7-day median). Flips are judged against it.
+- Rarity uses how many days anything was scanned, from your scans, guild scans and the Auctionator import.
+
 ## 0.13.1
 
 **Disenchanting accuracy**

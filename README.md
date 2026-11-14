@@ -51,7 +51,8 @@ The whole market at a glance.
 
 ### Deals
 Listings in the latest scan you can buy and make money on:
-- **Flip:** cheaper than the item's **fair value** (its median price over the last 7 days). Buy and relist.
+- **Rare:** a seldom-listed item (worth 5g+) showing up at least 20% under its **usual price** (its 60-day median) **and** under the cheapest it typically goes for. See *Rare finds* below.
+- **Flip:** cheaper than the item's **market value**: its average over the last 14 days, counting the latest 3 days more (the same idea TradeSkillMaster uses). Buy and relist.
 - **Vendor:** cheaper than what an NPC vendor pays for it. Buy it, vendor it: guaranteed profit, no waiting.
 - **Disenchant:** gear cheaper than what it disenchants into.
 
@@ -62,6 +63,17 @@ Pick a minimum margin of **5%, 10%, 20% or 50%** after the AH cut (5% shows ever
 After every live scan you get a pop-up when new deals with a 10%+ margin add up to 5g or more (change it with `/goon deals alert 10`).
 
 Deals are only as fresh as the last scan: someone may have bought them already. Deals from a guildmate's scan know the lowest price but not how many are listed ("1+").
+
+### Rare finds
+Rare items (a world-drop epic, a pricey blue, an uncommon recipe) are only listed now and then, so they never build up enough recent history for normal deals. Goonberg judges them over 60 days instead:
+- **Usual price:** the median of the item's daily prices over 60 days.
+- **Cheapest typical:** the low end it normally hits (cheaper than 90% of its days).
+- A listing is a **rare find** when it's at least **20% under the usual price and under the cheapest typical**. That second check matters: an item that swings between 5g and 15g isn't special at 7g; one that's always 9g-11g is.
+- Only items worth **5g+**, seen on **3+ separate days**, that are listed on at most half the days the AH was scanned (or usually just a couple at a time).
+- **RARE** means solid history (6+ days); **RARE?** means thin (3-5 days). **Orange** means the whole item is trending down (its 14-day price is well under its 60-day one), so it may be cheap because the market is falling.
+- Each new rare find gets its own pop-up. Change the rules with `/goon rare 30` (percent), `/goon rare min 10` (gold), `/goon rare days 4`, or turn pop-ups off with `/goon rare off`.
+
+As with every deal, these are listing prices: the game doesn't show what things actually sold for.
 
 ### Chart
 - **Candlestick chart** with est. sold bars: **15M · 1H · 6H · 12H · 1D · 1W · 1M · All**. Hover a candle for open, high, low, close and sales.
@@ -130,6 +142,15 @@ Prices can be written `3g50s`, `3g 50s 20c`, `75s`, `20c` or just `3.5` (gold).
 | `/goon deals` | Open the deals tab |
 | `/goon deals alert 10` | Pop up when new deals add up to 10g or more (any amount in gold) |
 | `/goon deals alert off` / `on` | Turn deal pop-ups off or back on |
+
+### Rare finds
+| Command | What it does |
+|---|---|
+| `/goon rare` | Show rare finds (and the current rules) |
+| `/goon rare 30` | How far under the usual price a rare find must be (percent; default 20) |
+| `/goon rare min 10` | Minimum usual price in gold (default 5) |
+| `/goon rare days 4` | Minimum separate days seen (default 3) |
+| `/goon rare off` / `on` | Turn rare find pop-ups off or on |
 
 ### Sharing
 | Command | What it does |
