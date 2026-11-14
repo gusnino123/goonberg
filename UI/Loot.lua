@@ -80,10 +80,16 @@ local function makeRow(parent)
       GameTooltip:AddDoubleLine("Drops from", row.trash and ("Trash in " .. row.instance) or (row.boss .. ", " .. row.instance), soft[1], soft[2], soft[3], 1, 1, 1)
       if row.trash then
         GameTooltip:AddDoubleLine("Seen", ("%d times in %d looted mobs"):format(row.drops, row.kills), soft[1], soft[2], soft[3], 1, 1, 1)
-      elseif row.chance and row.drops == 0 then
-        GameTooltip:AddDoubleLine("Drop chance", ("not seen in %d kills"):format(row.kills), soft[1], soft[2], soft[3], 0.55, 0.58, 0.64)
       elseif row.chance then
-        GameTooltip:AddDoubleLine("Drop chance", ("%.1f%%  (%d of %d kills)"):format(row.chance * 100, row.drops, row.kills), soft[1], soft[2], soft[3], 1, 1, 1)
+        GameTooltip:AddDoubleLine("Drop chance", ("%.1f%%"):format(row.chance * 100), soft[1], soft[2], soft[3], 1, 1, 1)
+        if row.listedChance then
+          GameTooltip:AddDoubleLine("   Listed (WoW Forever loot tables)", ("%.1f%%"):format(row.listedChance * 100), soft[1], soft[2], soft[3], 0.76, 0.79, 0.83)
+        end
+        if row.kills > 0 then
+          GameTooltip:AddDoubleLine("   Your and your guild's kills", ("%d of %d"):format(row.drops, row.kills), soft[1], soft[2], soft[3], 0.76, 0.79, 0.83)
+        elseif row.listedChance then
+          GameTooltip:AddLine("|cff8b95a3Your kills will sharpen this as you play.|r")
+        end
       else
         GameTooltip:AddDoubleLine("Drop chance", "not seen drop yet", soft[1], soft[2], soft[3], 0.55, 0.58, 0.64)
       end
@@ -147,14 +153,14 @@ local function updateItemRow(r, row)
   if row.rare then tags[#tags + 1] = TAG.rare end
   r.name:SetText(row.name .. (#tags > 0 and ("   " .. table.concat(tags, "  ")) or ""))
   r.name:SetTextColor(FI:ItemQualityColor(row.id))
-  r.from:SetText(row.trash and ("Trash  ·  " .. row.instance) or (row.boss .. "  ·  " .. row.instance))
+  r.from:SetText(row.trash and ("Trash  ·  " .. row.instance) or (row.boss .. (row.rareSpawn and " (rare spawn)" or "") .. "  ·  " .. row.instance))
   local c = r.cells
   c.req:SetText(row.req > 1 and row.req or "-")
   setColor(c.req, C.soft)
   if row.trash then
     c.chance:SetText(("seen %dx"):format(row.drops))
     setColor(c.chance, C.soft)
-  elseif row.chance and row.drops == 0 then
+  elseif row.chance and row.drops == 0 and not row.listedChance then
     c.chance:SetText("none yet")
     setColor(c.chance, C.muted)
   elseif row.chance then
@@ -361,8 +367,8 @@ function T:Refresh()
   if dungeons then
     self.footer:SetText(("%d dungeon%s  ·  gold per clear = average value of sellable boss drops at AH prices"):format(#rows, #rows == 1 and "" or "s"))
   else
-    self.footer:SetText(("%d item%s  ·  Bind on Equip and unbound drops only  ·  chances from %s boss kills (yours and your guild's)%s")
-      :format(#rows, #rows == 1 and "" or "s", FI.Number(kills), (L.pendingItems or 0) > 0 and "  ·  loading item info..." or ""))
+    self.footer:SetText(("%d item%s  ·  Bind on Equip and unbound drops only  ·  chances: WoW Forever loot tables + %s kills by you and your guild%s")
+      :format(#rows, #rows == 1 and "" or "s", FI.Number(kills), (L.pendingItems or 0) > 0 and ("  ·  loading %d items"):format(L.pendingItems) or ""))
   end
 end
 

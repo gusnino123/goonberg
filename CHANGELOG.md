@@ -1,5 +1,14 @@
 # Goonberg Terminal
 
+## 0.18.1
+
+- **Loot tab comes pre-filled.** WoW Forever loot tables now ship with the addon: 29 dungeons (including Hall of Thanes, Ruins of Lordaeron, Excavation Site and City of Dalaran), 252 bosses, 1,426 items and 1,118 drop chances, from Dungeon Codex (AtlasLootClassic boss loot, foreverchanges.pro Forever drop chances). No need to re-run dungeons.
+  - Your and your guild's kills keep refining them: a listed chance weighs as much as 20 kills, so real data takes over as it builds up. The tooltip shows both.
+  - Bosses are now recognised by their creature, so kills count even without an encounter event. Kills recorded in 0.18.0 are merged in by boss name.
+  - Rare spawns are marked in "Drops from".
+- **Goonberg Terminal is now GPL-2.0** (as required by the loot data). See Credits in the README.
+- Fixed: a boss in the loot tables could be filed under its encounter instead of its creature.
+
 ## 0.18.0
 
 - **New Loot tab** (`/goon loot`): dungeon drops you can sell on the AH, where they drop, how often, and what they're worth.

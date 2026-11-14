@@ -235,12 +235,28 @@ last time. Those days are added to your history without replacing anything you s
 Dungeon drops you can sell on the AH (Bind on Equip and unbound items only): where they drop,
 how often and what they're worth, plus what a full dungeon run is worth on average.
 
-WoW Forever reworked every dungeon's loot and no drop chances are published, so Goonberg learns
-them from real kills: every boss corpse looted in a dungeon is one kill and its green-or-better
-drops are counted. With guild sync on, guildmates' kills are shared (one short message per boss
+The loot tables ship with the addon (`Loot/Data.lua`): 29 dungeons, 252 bosses and their drop
+chances, from Dungeon Codex (see Credits). Goonberg keeps refining the chances from real kills:
+every boss corpse looted in a dungeon is one kill and its green-or-better drops are counted, and a
+listed chance weighs as much as 20 kills, so your own data takes over as it builds up. With guild sync on, guildmates' kills are shared (one short message per boss
 kill), and each kill counts once however many people looted it. Dungeons, bosses and any loot
 listed in the in-game Adventure Guide appear before anyone has seen them drop.
 
 - **Twink gear:** Bind on Equip gear for the 19/29/39/49 brackets that sells for at least 5g / 10g / 15g / 25g
   (or is among the priciest drops for its bracket).
 - **Rare drops:** 5% or less over 20+ kills and worth 5g+, or any epic with an AH price.
+
+## Credits and license
+
+Goonberg Terminal is free software under the **GNU General Public License v2** (see `LICENSE`).
+
+Dungeon loot tables (`Loot/Data.lua`, built by `tools/build_loot.py`) come from
+[Dungeon Codex](https://github.com/dldvlpr-addons-wow/dungeonCodex) (GPL-2.0), whose boss loot
+lists come from [AtlasLootClassic](https://github.com/Hoizame/AtlasLootClassic) (GPL-2.0) and whose
+WoW Forever drop chances and new items come from [foreverchanges.pro](https://foreverchanges.pro).
+Thank you to all of them. To refresh the tables:
+
+```
+git clone --depth 1 https://github.com/dldvlpr-addons-wow/dungeonCodex /tmp/dungeonCodex
+python tools/build_loot.py /tmp/dungeonCodex
+```

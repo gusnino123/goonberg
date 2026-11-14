@@ -1,10 +1,11 @@
 -- Goonberg Terminal: dungeon loot worth selling.
 --
--- WoW Forever reworked every dungeon's loot table, and nobody publishes drop chances,
--- so Goonberg learns them: every boss corpse you loot in a dungeon is one kill, and
--- what it dropped is counted. Guildmates' kills arrive through guild sync, each kill
--- counted once however many people looted it. Dungeons and bosses come from the
--- game's Adventure Guide when it has one (its loot lists too, as "not seen yet").
+-- Loot tables ship with the addon (Loot\Data.lua: Dungeon Codex's WoW Forever data,
+-- with drop chances), so the tab is full from the start. On top of that Goonberg keeps
+-- learning: every boss corpse you loot in a dungeon is one kill and what it dropped is
+-- counted; guildmates' kills arrive through guild sync, each kill counted once however
+-- many people looted it. A listed drop chance counts like 20 kills, so real kills move
+-- it more and more. The game's Adventure Guide adds anything the tables miss.
 --
 -- Only what can be sold on the AH is shown: Bind on Equip and unbound items
 -- (recipes, materials). Bind on Pickup and quest items are never listed.
@@ -15,6 +16,38 @@ FI.Loot = LT
 local KEEP_SEEN = 3 * 86400 -- corpse GUIDs remembered for de-duplication
 local BOSS_WINDOW = 300     -- a boss corpse is looted within 5 minutes of the kill
 local MIN_QUALITY = 2       -- green and up
+
+-- ---------------------------------------------------------------------------
+-- Bundled loot tables
+-- ---------------------------------------------------------------------------
+local PRIOR = 20 -- a listed drop chance weighs as much as 20 kills
+LT.bosses = {}   -- creature ID -> { key, name, instance, items = {}, listed = { [item] = 0..1 }, rare }
+LT.PRIOR = PRIOR
+
+function LT:IndexBundled()
+  local data = FI.LootData
+  if not data then return end
+  wipe(self.bosses)
+  -- wings (Scarlet Monastery, Dire Maul) share one instance: keep their own names
+  local perInstance = {}
+  for _, dg in ipairs(data.dungeons) do perInstance[dg.instance] = (perInstance[dg.instance] or 0) + 1 end
+  for _, dg in ipairs(data.dungeons) do
+    local name = dg.name
+    if perInstance[dg.instance] == 1 and GetRealZoneText then
+      local real = GetRealZoneText(dg.instance) -- the client's own (localized) name
+      if type(real) == "string" and real ~= "" then name = real end
+    end
+    dg.display = name
+    for _, b in ipairs(dg.bosses) do
+      local npc, bossName, items, drops, rare = b[1], b[2], b[3], b[4], b[5]
+      local listed = {}
+      for id, pct in pairs(drops or {}) do listed[id] = pct / 100 end
+      self.bosses[npc] = { key = "n" .. npc, npc = npc, name = bossName, instance = name, levels = dg.levels,
+        items = items, listed = listed, rare = rare and true or false }
+    end
+  end
+  self.cache = nil
+end
 
 local function db()
   local d = FI.db.loot
@@ -122,8 +155,11 @@ local function readLoot()
   for guid, list in pairs(byCorpse) do
     if not d.seen[guid] then
       local npc = npcFromGUID(guid)
-      local boss = d.bossNpc[npc]
-      local p = LT.pending
+      local bundled = LT.bosses[npc]
+      local boss = bundled and { key = bundled.key, name = bundled.name, instance = inst } or d.bossNpc[npc]
+      local p = nil
+      if not bundled then p = LT.pending end
+      if bundled and LT.pending and LT.pending.instance == inst then LT.pending = nil end
       -- first loot after a kill in the same dungeon with a blue or better: the boss
       -- (in Forever every boss drops a guaranteed blue)
       local best = 0
@@ -151,6 +187,7 @@ FI:On("LOOT_READY", function() readLoot() end)
 
 -- forget old corpse IDs at login
 FI:On("PLAYER_LOGIN", function()
+  LT:IndexBundled()
   local d = db()
   local now = time()
   for guid, t in pairs(d.seen) do
@@ -262,19 +299,65 @@ function LT:Rows()
       gear = isGear(info), bracket = isGear(info) and info.bind == 2 and bracket(info.req) or nil,
       boss = src.boss, instance = src.instance, trash = src.trash,
       kills = src.kills or 0, drops = src.drops or 0, price = price,
-      listed = it and it.qty or 0,
+      onAH = it and it.qty or 0, listedChance = src.listed, rareSpawn = src.rareSpawn,
     }
-    if r.kills > 0 and not r.trash then
-      r.chance = r.drops / r.kills
-      if price then r.perKill = r.chance * price end
+    if not r.trash then
+      if r.listedChance then
+        r.chance = (r.listedChance * PRIOR + r.drops) / (PRIOR + r.kills)
+      elseif r.kills > 0 then
+        r.chance = r.drops / r.kills
+      end
+      if r.chance and price then r.perKill = r.chance * price end
     end
     rows[#rows + 1] = r
   end
   local known = {}
+  -- Adventure Guide items join the bundled boss of the same name
+  local guideItems = {}
+  if d.journal then
+    for _, inst in ipairs(d.journal.dungeons) do
+      for _, b in ipairs(inst.bosses) do guideItems[(b.name or ""):lower()] = b.items end
+    end
+  end
+  -- kills recorded under another key for the same boss (0.18.0 keyed by encounter)
+  local byName = {}
   for key, e in pairs(d.enc) do
-    for id, n in pairs(e.d) do
-      add(id, { boss = e.n, instance = e.i, kills = e.k, drops = n })
-      known[key .. ":" .. id] = true
+    if e.n then
+      local n = e.n:lower()
+      byName[n] = byName[n] or {}
+      table.insert(byName[n], key)
+    end
+  end
+  for _, b in pairs(self.bosses) do
+    local e = d.enc[b.key]
+    local others = byName[b.name:lower()]
+    if others and (#others > 1 or others[1] ~= b.key) then
+      local merged = { k = 0, d = {} }
+      for _, key in ipairs(others) do
+        local x = d.enc[key]
+        merged.k = merged.k + x.k
+        for id, n in pairs(x.d) do merged.d[id] = (merged.d[id] or 0) + n end
+      end
+      e = merged
+    end
+    local items, seen = {}, {}
+    local function push(id) if not seen[id] then seen[id] = true; items[#items + 1] = id end end
+    for _, id in ipairs(b.items) do push(id) end
+    if e then for id in pairs(e.d) do push(id) end end
+    for _, id in ipairs(guideItems[b.name:lower()] or {}) do push(id) end
+    for _, id in ipairs(items) do
+      add(id, { boss = b.name, instance = b.instance, kills = e and e.k or 0, drops = e and e.d[id] or 0,
+        listed = b.listed[id], rareSpawn = b.rare })
+    end
+    known[b.key] = true
+    known["name:" .. b.name:lower()] = true
+  end
+  for key, e in pairs(d.enc) do
+    if not known[key] and not known["name:" .. (e.n or ""):lower()] then
+      for id, n in pairs(e.d) do
+        add(id, { boss = e.n, instance = e.i, kills = e.k, drops = n })
+        known[key .. ":" .. id] = true
+      end
     end
   end
   for inst, tr in pairs(d.trash) do
@@ -285,7 +368,7 @@ function LT:Rows()
     for _, inst in ipairs(d.journal.dungeons) do
       for _, b in ipairs(inst.bosses) do
         local e = d.enc[b.key]
-        for _, id in ipairs(b.items) do
+        for _, id in ipairs(known["name:" .. (b.name or ""):lower()] and {} or b.items) do
           if not known[b.key .. ":" .. id] then
             add(id, { boss = b.name, instance = inst.name, kills = e and e.k or 0, drops = 0 })
           end
@@ -314,7 +397,7 @@ function LT:Rows()
   for _, r in ipairs(rows) do
     r.twink = r.bracket and r.price and (r.price >= FLOOR[r.bracket]
       or (#(byBracket[r.bracket] or {}) >= 4 and r.price >= math.max(10000, cut[r.bracket] or 0))) or false
-    r.rare = (r.chance and r.kills >= 20 and r.chance <= 0.05 and (r.price or 0) >= 50000)
+    r.rare = (r.chance and (r.kills >= 20 or r.listedChance) and r.chance <= 0.05 and (r.price or 0) >= 50000)
       or (r.quality >= 4 and (r.price or 0) > 0) or false
   end
   self.cache, self.cacheScan, self.pendingItems = rows, realm.lastScan, pending
