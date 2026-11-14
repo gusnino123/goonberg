@@ -31,7 +31,14 @@ local handlers = {}
 eventFrame:SetScript("OnEvent", function(_, event, ...)
   local list = handlers[event]
   if list then
-    for i = 1, #list do list[i](event, ...) end
+    -- one broken handler must not stop the others (or leave a scan half done)
+    for i = 1, #list do
+      local ok, err = pcall(list[i], event, ...)
+      if not ok then
+        local handler = geterrorhandler and geterrorhandler()
+        if handler then handler(err) else print("Goonberg Terminal error: " .. tostring(err)) end
+      end
+    end
   end
 end)
 
@@ -47,7 +54,14 @@ end
 function FI:Fire(event, ...)
   local list = handlers[event]
   if list then
-    for i = 1, #list do list[i](event, ...) end
+    -- one broken handler must not stop the others (or leave a scan half done)
+    for i = 1, #list do
+      local ok, err = pcall(list[i], event, ...)
+      if not ok then
+        local handler = geterrorhandler and geterrorhandler()
+        if handler then handler(err) else print("Goonberg Terminal error: " .. tostring(err)) end
+      end
+    end
   end
 end
 

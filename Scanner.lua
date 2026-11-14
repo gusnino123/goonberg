@@ -20,7 +20,8 @@ function S:CooldownLeft()
     local _, canAll = CanSendAuctionQuery()
     if canAll then return 0 end
   end
-  local last = FI.db and FI.db.lastFullScan or 0
+  -- Blizzard's 15 minutes start when the scan is asked for, not when it arrives
+  local last = math.max(FI.db and FI.db.lastFullScan or 0, FI.db and FI.db.lastScanRequest or 0)
   return math.max(0, last + self.COOLDOWN - time())
 end
 
@@ -58,16 +59,23 @@ function S:Start(manual)
   self.mode = mode
   self.requested = GetTime()
   setState("waiting")
+  local ok, err
   if mode == "replicate" then
-    C_AuctionHouse.ReplicateItems()
+    FI.db.lastScanRequest = time()
+    ok, err = pcall(C_AuctionHouse.ReplicateItems)
   else
-    QueryAuctionItems("", nil, nil, 0, nil, nil, true, false, nil)
+    ok, err = pcall(QueryAuctionItems, "", nil, nil, 0, nil, nil, true, false, nil)
+  end
+  if not ok then
+    setState("idle")
+    return FI:Print("The Auction House refused the scan request (%s).", tostring(err))
   end
   local token = self.requested
-  C_Timer.After(90, function()
+  -- busy realms can take a few minutes to send everything
+  C_Timer.After(180, function()
     if S.state == "waiting" and S.requested == token then
       setState("idle")
-      FI:Print("The Auction House didn't send the scan. Try again in a bit.")
+      FI:Print("The Auction House hasn't sent the scan yet. If it arrives while the AH is open it will still be read.")
     end
   end)
 end
@@ -84,6 +92,13 @@ end
 
 local worker = CreateFrame("Frame")
 worker:Hide()
+
+local function stop(why)
+  worker:Hide()
+  S.acc = nil
+  setState("idle")
+  FI:Print("Scan stopped: %s. Try /goon scan again.", tostring(why))
+end
 
 local function finish()
   worker:Hide()
@@ -115,11 +130,22 @@ local function finish()
     auctions = auctions + #pairsList
   end
 
-  -- Items listed last scan and gone now: everything sold or expired
-  for itemID, it in pairs(realm.items) do
-    if not acc[itemID] and it.seen == realm.lastScan and (it.qty or 0) > 0 then
-      H.Record(realm, itemID, now, 0, nil, 0, 0, nil)
+  -- Items listed last scan and gone now: everything sold or expired.
+  -- Skipped when this scan looks incomplete (far fewer items than last time),
+  -- so a cut-off scan can't mark the whole AH as sold out.
+  local lastCount = 0
+  for _, it in pairs(realm.items) do
+    if it.seen == realm.lastScan and (it.qty or 0) > 0 then lastCount = lastCount + 1 end
+  end
+  if lastCount < 200 or items >= lastCount * 0.5 then
+    for itemID, it in pairs(realm.items) do
+      if not acc[itemID] and it.seen == realm.lastScan and (it.qty or 0) > 0 then
+        H.Record(realm, itemID, now, 0, nil, 0, 0, nil)
+      end
     end
+  else
+    FI:Print("This scan only had %s of the %s items seen last time; items missing from it aren't counted as sold.",
+      FI.Number(items), FI.Number(lastCount))
   end
 
   realm.lastScan = now
@@ -136,14 +162,15 @@ local function finish()
   FI:Fire("FI_SCAN_DONE", now)
 end
 
-worker:SetScript("OnUpdate", function()
+local function step()
   local read = S.mode == "replicate" and readReplicate or readLegacy
   local acc = S.acc
   local last = math.min(S.total, S.done + PER_FRAME)
   local offset = S.mode == "replicate" and -1 or 0 -- replicate indexes are 0-based
   for n = S.done + 1, last do
-    local count, buyout, itemID = read(n + offset)
-    if itemID and count and count > 0 and buyout and buyout > 0 then
+    -- one auction the client can't read is skipped, not the whole scan
+    local ok, count, buyout, itemID = pcall(read, n + offset)
+    if ok and type(itemID) == "number" and count and count > 0 and buyout and buyout > 0 then
       local e = acc[itemID]
       if not e then e = {}; acc[itemID] = e end
       e[#e + 1] = math.floor(buyout / count + 0.5)
@@ -153,6 +180,16 @@ worker:SetScript("OnUpdate", function()
   S.done = last
   FI:Fire("FI_SCAN_PROGRESS", S.done, S.total)
   if S.done >= S.total then finish() end
+end
+
+worker:SetScript("OnUpdate", function()
+  if not S.acc then worker:Hide(); return end
+  local ok, err = pcall(step)
+  if not ok then
+    stop(err)
+    local handler = geterrorhandler and geterrorhandler()
+    if handler then handler(err) end
+  end
 end)
 
 local function begin(total)
@@ -161,15 +198,27 @@ local function begin(total)
   S.acc = {}
   setState("processing")
   if S.total == 0 then
-    finish()
+    local ok, err = pcall(finish)
+    if not ok then stop(err) end
   else
     worker:Show()
   end
 end
 
 FI:On("REPLICATE_ITEM_LIST_UPDATE", function()
+  local total = C_AuctionHouse.GetNumReplicateItems() or 0
+  -- an empty list is the AH still getting ready (a real AH always has auctions):
+  -- keep waiting for the next update instead of recording "everything sold out"
+  if total == 0 then return end
   if S.state == "waiting" and S.mode == "replicate" then
-    begin(C_AuctionHouse.GetNumReplicateItems())
+    begin(total)
+  elseif S.state == "idle" and FI.ahOpen and time() - (FI.db.lastScanRequest or 0) < S.COOLDOWN
+    and (FI.db.lastFullScan or 0) < (FI.db.lastScanRequest or 0) then
+    -- our own scan, arriving after we stopped waiting for it
+    S.mode = "replicate"
+    S.requested = GetTime()
+    FI:Print("The scan arrived, reading it now.")
+    begin(total)
   elseif S.state == "idle" and FI.ahOpen and time() - (FI.db.lastFullScan or 0) > 600 then
     -- Another addon (e.g. Auctionator's Full Scan) asked for the full AH. Blizzard's
     -- 15-minute limit is shared, so read the same results instead of missing out.
@@ -177,7 +226,7 @@ FI:On("REPLICATE_ITEM_LIST_UPDATE", function()
     S.mode = "replicate"
     S.requested = GetTime()
     FI:Print("Reading the full scan another addon just requested.")
-    begin(C_AuctionHouse.GetNumReplicateItems())
+    begin(total)
   end
 end)
 

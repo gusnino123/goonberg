@@ -1,5 +1,15 @@
 # Goonberg Terminal
 
+## 0.15.3
+
+- **Fixed: scans that never finished.**
+  - An error while reading the AH (for example one auction the client couldn't read) left the scan stuck on "processing" until a /reload. Bad auctions are now skipped, and any other error stops the scan cleanly with a message, so /goon scan works again straight away.
+  - If the AH first answered with an empty list, the scan "finished" with 0 auctions, marked everything as sold out and then ignored the real data. It now waits for the real list.
+  - On a slow realm the scan was asked for again after 90 seconds, though Blizzard's 15-minute limit had already started. It now waits up to 3 minutes, never re-asks within 15 minutes, and still reads a scan that arrives late.
+  - A scan with far fewer items than the last one no longer counts the missing items as sold.
+  - One broken event handler no longer stops the rest (deals, alerts, guild sync) from running after a scan.
+- **Shared price history (groundwork).** The addon can now ship daily prices for the last 60 days in `Seed\Data.lua`, added to your history at login (never over days you already have). `tools/build_seed.py` builds that file from SavedVariables, keeping prices only. The file is empty in this version.
+
 ## 0.15.2
 
 - **Much less lag after logging in and when opening the window.**

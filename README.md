@@ -196,3 +196,16 @@ Prices can be written `3g50s`, `3g 50s 20c`, `75s`, `20c` or just `3.5` (gold).
 ## Feedback
 
 Found a bug or have an idea? [Open an issue](https://github.com/gusnino123/goonberg/issues). If something errors in game, type `/console scriptErrors 1` and include the error text.
+
+## Shared price history (for maintainers)
+
+New installs can start with price history that ships with the addon in `Seed/Data.lua`.
+To build it, log out of WoW and run:
+
+```
+python tools/build_seed.py "C:/Program Files (x86)/World of Warcraft/_forever_/WTF/Account/<ACCOUNT>/SavedVariables/GoonbergTerminal.lua"
+```
+
+Pass several files to combine guildmates' data. Only daily prices and quantities are written;
+character names, P&L, alerts and settings are never copied. Commit `Seed/Data.lua`, never the
+SavedVariables file itself.
