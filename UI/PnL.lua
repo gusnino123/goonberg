@@ -139,18 +139,41 @@ local function buildSide(tab)
   periods:SetPoint("TOPLEFT", 14, -14)
   periods:Select(P.period)
 
+  -- flips only (bought on the AH, then sold) or every sale and purchase
+  local mode = W.Choice(side, { "Flips only", "All sales" }, "seg", function(v)
+    FI.settings.pnlMode = (v == "All sales") and "all" or "flips"
+    P:Refresh()
+  end, 26)
+  mode:SetPoint("TOPLEFT", 14, -50)
+  mode:Select((FI.settings.pnlMode == "all") and "All sales" or "Flips only")
+  for v, b in pairs(mode.buttons) do
+    b:HookScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+      if v == "Flips only" then
+        GameTooltip:AddLine("Flips only")
+        GameTooltip:AddLine("Counts only items you bought on the AH and sold again: each sale against what those units cost you. Farmed or crafted items you sell aren't counted.", 0.76, 0.79, 0.83, true)
+      else
+        GameTooltip:AddLine("All sales")
+        GameTooltip:AddLine("Every AH sale and purchase, whatever you sold.", 0.76, 0.79, 0.83, true)
+      end
+      GameTooltip:Show()
+    end)
+    b:HookScript("OnLeave", GameTooltip_Hide)
+  end
+  P.modeChoice = mode
+
   local share = W.Button(side, "Share in chat", nil, 28, "gold")
-  share:SetPoint("TOPLEFT", 14, -52)
+  share:SetPoint("TOPLEFT", 14, -88)
   share:SetScript("OnClick", function() P:Share() end)
   local shot = W.Button(side, "Screenshot", nil, 28, "pill")
   shot:SetPoint("LEFT", share, "RIGHT", 8, 0)
   shot:SetScript("OnClick", function() if Screenshot then Screenshot() end end)
 
   local head = W.Heading(side, "RECENT TRADES")
-  head:SetPoint("TOPLEFT", 14, -98)
+  head:SetPoint("TOPLEFT", 14, -134)
 
   local holder = CreateFrame("Frame", nil, side)
-  holder:SetPoint("TOPLEFT", 0, -116)
+  holder:SetPoint("TOPLEFT", 0, -152)
   holder:SetPoint("BOTTOMRIGHT", 0, 40)
   P.list = W.List(holder, 30, 28, function(parent)
     local r = CreateFrame("Frame", nil, parent)
@@ -169,17 +192,23 @@ local function buildSide(tab)
     local e = P.recent[i]
     r.when:SetText(date("%b %d", e.t))
     local sale = e.k == "sale"
-    r.kind:SetText(sale and "Sold" or "Bought")
-    local c = sale and C.up or C.down
+    local s = P.summary
+    -- in flips mode, a sale with nothing bought before it was farmed: not counted
+    local flipped = s and s.flipOf[e]
+    local farmed = sale and s and s.mode == "flips" and flipped == 0
+    r.kind:SetText(farmed and "Farmed" or (sale and "Sold" or "Bought"))
+    local c = farmed and C.muted or (sale and C.up or C.down)
     r.kind:SetTextColor(c[1], c[2], c[3])
     r.item:SetText((e.q and e.q > 1) and (e.i .. " x" .. e.q) or e.i)
+    local ic = farmed and C.muted or C.text
+    r.item:SetTextColor(ic[1], ic[2], ic[3])
     r.amt:SetText((sale and "+" or "-") .. FI.Coins(sale and (e.g - e.f) or e.g))
     r.amt:SetTextColor(c[1], c[2], c[3])
   end)
   P.list:SetAllPoints(holder)
 
   P.empty = W.Text(side, 11, C.muted)
-  P.empty:SetPoint("TOPLEFT", 14, -122)
+  P.empty:SetPoint("TOPLEFT", 14, -158)
   P.empty:SetPoint("RIGHT", -14, 0)
   P.empty:SetWordWrap(true)
   P.empty:SetText("No trades yet. Open your mailbox after selling or buying on the AH: Goonberg Terminal reads the AH invoices there.")
@@ -212,8 +241,11 @@ function P:Refresh()
   card.goblin.Load()
   local from = since(self.period)
   local s = FI.Ledger:Summary(from)
+  self.summary = s
+  local flips = s.mode == "flips"
 
-  card.period:SetText("P&L  ·  " .. PERIODS[self.period].label)
+  card.period:SetText((flips and "Flips P&L  ·  " or "P&L  ·  ") .. PERIODS[self.period].label)
+  card.bought.label:SetText(flips and "COST" or "BOUGHT")
   card.who:SetText(("%s  ·  %s"):format(UnitName("player") or "", GetRealmName() or ""))
   local col = s.net >= 0 and C.up or C.down
   card.net:SetText((s.net >= 0 and "+" or "") .. FI.Money(s.net))
@@ -231,11 +263,20 @@ function P:Refresh()
   card.bought.value:SetText(FI.Coins(s.spent))
   card.fees.value:SetText(FI.Coins(s.fees))
   if s.best and s.best.net > 0 then
-    card.best:SetText(("Best item: |cffe6e9ee%s|r  |cff3fb68b+%s|r"):format(s.best.name, FI.Money(s.best.net)))
+    card.best:SetText(("Best flip: |cffe6e9ee%s|r  |cff3fb68b+%s|r"):format(s.best.name, FI.Money(s.best.net)))
+  elseif flips then
+    card.best:SetText(s.sales > 0 and ("%d flip%s sold"):format(s.sales, s.sales == 1 and "" or "s") or "No flips sold yet: buy on the AH, sell it again.")
   else
     card.best:SetText(("%d sales, %d purchases"):format(s.sales, s.buys))
   end
-  card.bags:SetText(("Bags worth |cffe8b84a%s|r at market (not sold yet)"):format(FI.Money(FI.Ledger:BagValue())))
+  if flips then
+    local parts = {}
+    if s.holdingUnits > 0 then parts[#parts + 1] = ("Holding |cffe8b84a%s|r of flips not sold yet"):format(FI.Money(s.holding)) end
+    if s.farmedSales > 0 then parts[#parts + 1] = ("%d farmed sale%s not counted"):format(s.farmedSales, s.farmedSales == 1 and "" or "s") end
+    card.bags:SetText(#parts > 0 and table.concat(parts, "  ·  ") or "Only items you bought on the AH and sold again count.")
+  else
+    card.bags:SetText(("Bags worth |cffe8b84a%s|r at market (not sold yet)"):format(FI.Money(FI.Ledger:BagValue())))
+  end
   card.stamp:SetText(date("%B %d, %Y"))
 
   local recent = {}
@@ -247,14 +288,13 @@ function P:Refresh()
   self.list.offset = 0
   self.list:SetCount(#recent)
   self.empty:SetShown(#recent == 0)
-  self.summary = s
 end
 
 function P:Share()
   local s = self.summary or FI.Ledger:Summary(since(self.period))
-  local parts = { ("[Goonberg] My AH P&L, %s: %s%s"):format(PERIODS[self.period].label, s.net >= 0 and "+" or "", FI.Money(s.net)) }
+  local parts = { ("[Goonberg] My AH %s, %s: %s%s"):format(s.mode == "flips" and "flips" or "P&L", PERIODS[self.period].label, s.net >= 0 and "+" or "", FI.Money(s.net)) }
   if s.roi then parts[#parts + 1] = FI.Percent(s.roi) .. " ROI" end
-  if s.best and s.best.net > 0 then parts[#parts + 1] = ("best item %s"):format(s.best.name) end
+  if s.best and s.best.net > 0 then parts[#parts + 1] = ("best flip %s"):format(s.best.name) end
   SendChatMessage(table.concat(parts, " - "), IsInGuild() and "GUILD" or "SAY")
 end
 

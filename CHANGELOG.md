@@ -1,5 +1,11 @@
 # Goonberg Terminal
 
+## 0.17.1
+
+- **P&L counts flips only (new default).** A sale only counts when you bought that item on the AH first: each sale is matched to your earlier purchases of the same item, oldest first, and its profit is what you got after the AH cut minus what those units cost. Items you farmed, crafted or looted and sold aren't counted (they show greyed as "Farmed" in Recent trades), and purchases you haven't sold yet show as "Holding". A sale this week can use stock you bought earlier.
+  - **All sales** (the old view) is one click away, under the period buttons.
+  - The card reads **Sold / Cost / AH cut**, ROI is profit on what the flips cost, and "Share in chat" says "flips".
+
 ## 0.17.0
 
 - **Easier to read, everywhere.**

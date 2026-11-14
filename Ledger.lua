@@ -68,30 +68,100 @@ FI:On("MAIL_INBOX_UPDATE", function()
 end)
 FI:On("MAIL_SHOW", function() L:ReadInbox() end)
 
--- Totals since `since` (a time), for this character
-function L:Summary(since)
+-- Totals since `since` (a time), for this character.
+--
+-- mode "flips" (the default): only items you bought on the AH and sold again count.
+-- Each sale is matched against your earlier AH purchases of the same item, oldest
+-- first, and its profit is what you got (after the AH cut) minus what those units
+-- cost. Units you never bought on the AH (farmed, crafted, looted) aren't counted,
+-- and neither are purchases you haven't sold yet ("holding").
+-- mode "all": every sale and every purchase, the way the AH mail adds up.
+function L:Summary(since, mode)
+  mode = mode or (FI.settings and FI.settings.pnlMode) or "flips"
   local d = self:Data()
-  local s = { income = 0, fees = 0, spent = 0, sales = 0, buys = 0, items = {} }
-  for _, e in ipairs(d.entries) do
-    if e.t >= since then
-      local per = s.items[e.i] or { net = 0 }
-      s.items[e.i] = per
-      if e.k == "sale" then
-        s.income = s.income + e.g
-        s.fees = s.fees + e.f
-        s.sales = s.sales + 1
-        per.net = per.net + e.g - e.f
-      else
-        s.spent = s.spent + e.g
-        s.buys = s.buys + 1
-        per.net = per.net - e.g
+  local s = { income = 0, fees = 0, spent = 0, sales = 0, buys = 0, items = {}, mode = mode,
+    farmed = 0, farmedSales = 0, holding = 0, holdingUnits = 0, flipOf = {} }
+
+  if mode == "all" then
+    for _, e in ipairs(d.entries) do
+      if e.t >= since then
+        local per = s.items[e.i] or { net = 0 }
+        s.items[e.i] = per
+        if e.k == "sale" then
+          s.income = s.income + e.g
+          s.fees = s.fees + e.f
+          s.sales = s.sales + 1
+          per.net = per.net + e.g - e.f
+        else
+          s.spent = s.spent + e.g
+          s.buys = s.buys + 1
+          per.net = per.net - e.g
+        end
       end
     end
+    s.net = s.income - s.fees - s.spent
+    -- ROI only means something when you mostly flip; for farmers it'd be a silly 500%+
+    if s.spent > 0 and s.spent >= (s.income - s.fees) * 0.25 then s.roi = s.net / s.spent * 100 end
+  else
+    -- every trade in time order (purchases first on the same timestamp), whatever
+    -- the period: a sale this week can use stock bought last month
+    local list = {}
+    for _, e in ipairs(d.entries) do list[#list + 1] = e end
+    table.sort(list, function(x, y)
+      if x.t ~= y.t then return x.t < y.t end
+      return x.k == "buy" and y.k ~= "buy"
+    end)
+    local lots = {} -- item -> { { qty, unitCost }, ... } oldest first
+    for _, e in ipairs(list) do
+      local q = math.max(1, e.q or 1)
+      if e.k == "buy" then
+        lots[e.i] = lots[e.i] or {}
+        table.insert(lots[e.i], { q, e.g / q })
+      else
+        local need, cost, got = q, 0, 0
+        local queue = lots[e.i]
+        while need > 0 and queue and queue[1] do
+          local lot = queue[1]
+          local take = math.min(need, lot[1])
+          cost = cost + take * lot[2]
+          got = got + take
+          need = need - take
+          lot[1] = lot[1] - take
+          if lot[1] <= 0 then table.remove(queue, 1) end
+        end
+        s.flipOf[e] = got
+        if e.t >= since then
+          local share = got / q
+          if got > 0 then
+            local income, fee = e.g * share, e.f * share
+            s.income = s.income + income
+            s.fees = s.fees + fee
+            s.spent = s.spent + cost
+            s.sales = s.sales + 1
+            local per = s.items[e.i] or { net = 0 }
+            s.items[e.i] = per
+            per.net = per.net + income - fee - cost
+          end
+          if got < q then
+            s.farmed = s.farmed + (e.g - e.f) * (1 - share)
+            s.farmedSales = s.farmedSales + 1
+          end
+        end
+      end
+    end
+    -- bought and not sold yet (any time): their cost
+    for _, queue in pairs(lots) do
+      for _, lot in ipairs(queue) do
+        s.holding = s.holding + lot[1] * lot[2]
+        s.holdingUnits = s.holdingUnits + lot[1]
+      end
+    end
+    for _, e in ipairs(d.entries) do
+      if e.k == "buy" and e.t >= since then s.buys = s.buys + 1 end
+    end
+    s.net = s.income - s.fees - s.spent
+    if s.spent > 0 then s.roi = s.net / s.spent * 100 end
   end
-  s.net = s.income - s.fees - s.spent
-  -- ROI only means something when you mostly flip (buy to resell). For farmers,
-  -- whose sales cost nothing on the AH, it would be a silly 500%+.
-  if s.spent > 0 and s.spent >= (s.income - s.fees) * 0.25 then s.roi = s.net / s.spent * 100 end
   for name, per in pairs(s.items) do
     if not s.best or per.net > s.best.net then s.best = { name = name, net = per.net } end
   end
