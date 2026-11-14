@@ -36,7 +36,7 @@ Only your own scans are sent, nothing is relayed twice, and only guild messages 
 
 **About "est. sold":** the game doesn't show sales. Goonberg counts units that disappear between two scans close together, which includes cancelled and expired auctions, so treat it as an estimate. It gets better the more often you (or your guild) scan.
 
-**The Goonberg Index** is one number for your realm's market. It started at 100 and moves with the average price change of the 25 most-traded items, weighted by gold traded, like a stock index.
+**The Goonberg Index** is one number for your realm's market. It starts at 100 and moves with the average price change of the 25 most-traded trade goods (deep, liquid markets only; no gear), weighted by gold traded, like a stock index.
 
 ---
 

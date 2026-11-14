@@ -270,11 +270,16 @@ function H.Span(it, now)
 end
 
 -- ---------------------------------------------------------------------------
--- The Goonberg Index: a chain-linked index of the realm's 25 most-traded items,
+-- The Goonberg Index: a chain-linked index of the realm's busiest trade goods,
 -- starting at 100. Each scan moves it by the weighted average price change of
 -- those items since the previous scan (weights = gold traded over 7 days).
+-- Only deep, liquid markets count (no gear, 20+ listed in both scans, 20+ sold
+-- in a week), and each item's move is capped at -20%/+25% per scan, so a few
+-- one-off listings can't drag the whole index around.
 -- ---------------------------------------------------------------------------
 H.INDEX_SIZE = 25
+H.INDEX_VERSION = 2
+local INDEX_MIN_QTY, INDEX_MIN_SOLD = 20, 20
 
 function H.UpdateIndex(realm, prevPrices, now)
   local idx = realm.index
@@ -282,9 +287,16 @@ function H.UpdateIndex(realm, prevPrices, now)
   local cands = {}
   for itemID, prev in pairs(prevPrices) do
     local it = realm.items[itemID]
-    if it and it.seen == now and it.mkt and it.mkt > 0 and prev > 0 then
-      local s = H.Stats(it, now)
-      cands[#cands + 1] = { w = prev * (s.sold7 + 1), r = math.max(0.5, math.min(2, it.mkt / prev)) }
+    if it and it.seen == now and it.mkt and it.mkt > 0 and prev > 0 and (it.qty or 0) >= INDEX_MIN_QTY then
+      local _, _, _, _, _, classID = FI.GetItemInfoInstant(itemID)
+      local h = it.h
+      local prevQty = h and #h >= 2 * STRIDE and h[#h - 2 * STRIDE + 3] or 0
+      if classID ~= 2 and classID ~= 4 and prevQty >= INDEX_MIN_QTY then
+        local s = H.Stats(it, now)
+        if s.sold7 >= INDEX_MIN_SOLD then
+          cands[#cands + 1] = { w = prev * s.sold7, r = math.max(0.8, math.min(1.25, it.mkt / prev)) }
+        end
+      end
     end
   end
   table.sort(cands, function(a, b) return a.w > b.w end)
@@ -304,6 +316,13 @@ function H.UpdateIndex(realm, prevPrices, now)
   end
   return level
 end
+
+-- The index method changed: start every realm's index again from 100
+FI:On("ADDON_LOADED", function(_, name)
+  if not FI.db or FI.db.indexVersion == H.INDEX_VERSION then return end
+  for _, r in pairs(FI.db.realms or {}) do r.index, r.indexAdds = {}, 0 end
+  FI.db.indexVersion = H.INDEX_VERSION
+end)
 
 function H.IndexLevel(realm)
   local idx = realm.index
@@ -335,8 +354,15 @@ function H.Overview(realm, now)
       s.id = itemID
       s.cat = FI:Category(itemID)
       rows[#rows + 1] = s
-      -- only items from a recent scan count as "on the AH now"
-      if it.seen and (realm.lastScan or 0) - it.seen < 3 * 3600 then listed = listed + s.qty end
+      -- "on the AH now": listed in a recent scan. Items that aren't have no
+      -- current price to compare, so their changes are blank ("-"), not stale moves.
+      s.onAH = s.qty > 0 and it.seen ~= nil and (realm.lastScan or 0) - it.seen < 3 * 3600
+      if s.onAH then
+        listed = listed + s.qty
+      else
+        for key in pairs(H.WINDOWS) do s[key] = nil end
+      end
+      s.thin = s.qty < 3 -- one or two listings: a price "move" may just be one seller
       for k in pairs(gold) do gold[k] = gold[k] + s.price * s[k] end
     end
   end

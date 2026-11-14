@@ -132,8 +132,10 @@ local function updateRow(r, i)
   local aKey = O:ColAKey()
   local cA, c7 = FI.ChangeColor(row[aKey]), FI.ChangeColor(row.c7)
   r.cells.chgA:SetText(FI.Percent(row[aKey]))
+  if row.thin then cA = C.muted end -- 1-2 listings: shown, but greyed (could be one seller)
   r.cells.chgA:SetTextColor(cA[1], cA[2], cA[3])
   r.cells.chg7:SetText(FI.Percent(row.c7))
+  if row.thin then c7 = C.muted end
   r.cells.chg7:SetTextColor(c7[1], c7[2], c7[3])
   r.cells.qty:SetText(FI.Number(row.qty))
   r.cells.sold:SetText(FI.Number(row[TF[O.tf].sold]))
@@ -233,7 +235,7 @@ function O:Build(parent)
   local note = W.Text(tbl, 10, C.muted)
   note:SetPoint("BOTTOMRIGHT", -14, 8)
   note:SetJustifyH("RIGHT")
-  note:SetText("Est. sold = units that left the AH between scans (sold, cancelled or expired)")
+  note:SetText("Grey % = only 1-2 listed.  Est. sold = units that left the AH between scans (sold, cancelled or expired)")
 
   tab.Refresh = function() O:Refresh() end
   return tab
@@ -292,7 +294,8 @@ function O:Refresh()
   local up, down
   for _, s in ipairs(data.rows) do
     -- ignore thin markets so one odd listing can't top the list
-    if s[key] and (s.qty >= 5 or s.sold7 >= 5) then
+    -- top gainer/loser: on the AH now with a real market (5+ listed), not one seller
+    if s[key] and s.onAH and s.qty >= 5 then
       if not up or s[key] > up[key] then up = s end
       if not down or s[key] < down[key] then down = s end
     end
@@ -309,7 +312,7 @@ function O:Refresh()
     local ok = self.cat == "All" or s.cat == self.cat
     if ok and self.move ~= "All" then
       local v = s[key]
-      ok = v and ((self.move == "Gainers" and v > 0) or (self.move == "Losers" and v < 0))
+      ok = v and not s.thin and ((self.move == "Gainers" and v > 0) or (self.move == "Losers" and v < 0))
     end
     if ok then
       s.name = FI:ItemName(s.id)
@@ -320,8 +323,9 @@ function O:Refresh()
   local sk, dir = self.sort, self.dir
   local function val(s)
     if sk == "price" then return s.price
-    elseif sk == "chgA" then return s[self:ColAKey()]
-    elseif sk == "chg7" then return s.c7
+    -- sorting by change puts thin markets (1-2 listed) after real ones
+    elseif sk == "chgA" then return not s.thin and s[self:ColAKey()] or nil
+    elseif sk == "chg7" then return not s.thin and s.c7 or nil
     elseif sk == "qty" then return s.qty
     else return s[tf.sold] end
   end

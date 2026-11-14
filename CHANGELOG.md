@@ -1,5 +1,11 @@
 # Goonberg Terminal
 
+## 0.15.1
+
+- **Fixed: items not on the AH showed big % changes.** Items with 0 listings now show "-" instead of a change between two old listings, and can't top the gainers/losers.
+- **Fixed: the Goonberg Index could slide on noise** (it fell ~50% in an hour on real data). It now only uses deep, liquid trade goods (no gear; 20+ listed in both scans; 20+ sold in a week), and each item's move counts at most -20%/+25% per scan. The index restarts at 100 with the new method.
+- **Thin markets** (1-2 listings) are shown with a grey %, sort after real markets when sorting by change, and are kept off the Gainers/Losers filters and the top gainer/loser cards (which now need 5+ listed).
+
 ## 0.15.0
 
 - **Interactive charts (TradingView-style).**
