@@ -85,7 +85,8 @@ local function buildToast()
   toast:EnableMouse(true)
   toast:SetScript("OnMouseUp", function(self)
     self:Hide()
-    if self.itemID then FI.UI:ShowItem(self.itemID) end
+    if self.onClick then self.onClick()
+    elseif self.itemID then FI.UI:ShowItem(self.itemID) end
   end)
   toast:SetScript("OnUpdate", function(self)
     local age = GetTime() - self.shown
@@ -95,9 +96,10 @@ local function buildToast()
   end)
 end
 
-function A:Toast(itemID, title, body)
+function A:Toast(itemID, title, body, onClick)
   if not toast then buildToast() end
   toast.itemID = itemID
+  toast.onClick = onClick
   toast.icon:SetTexture(FI:ItemIcon(itemID))
   toast.title:SetText(title)
   toast.body:SetText(body)

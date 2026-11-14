@@ -107,6 +107,7 @@ function H.Record(realm, itemID, now, mkt, minPrice, qty, listings, depth)
   it.qty = qty
   it.cnt = listings
   it.d = depth
+  it.dt = depth and now or nil -- depth is only trusted from the scan that made it
 
   it.adds = (it.adds or 0) + 1
   if it.adds >= 24 then
@@ -417,4 +418,26 @@ function H.RecordShared(realm, itemID, t, mkt, minPrice, qty, listings)
     it.adds = 0
   end
   return true
+end
+
+-- Fair value: the median market price over the last 7 days, leaving out the
+-- latest scan (so today's cheap listings don't drag the yardstick down).
+-- Needs at least 3 earlier points spanning 12 hours; nil otherwise.
+function H.FairValue(it, now)
+  local h = it.h
+  if not h then return nil end
+  local vals, first, last = {}, nil, nil
+  for i = 1, #h, STRIDE do
+    local t, m = h[i], h[i + 1]
+    if m > 0 and now - t <= 7 * DAY and t ~= it.seen then
+      vals[#vals + 1] = m
+      first = first or t
+      last = t
+    end
+  end
+  if #vals < 3 or (last - first) < 12 * 3600 then return nil end
+  table.sort(vals)
+  local mid = math.floor((#vals + 1) / 2)
+  if #vals % 2 == 1 then return vals[mid] end
+  return (vals[mid] + vals[mid + 1]) / 2
 end

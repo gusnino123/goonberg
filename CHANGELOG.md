@@ -1,5 +1,15 @@
 # Goonberg Terminal
 
+## 0.12.0
+
+- **Deals tab** (`/goon deals`): listings in the latest scan priced well under what they're worth.
+  - **Flip**: at least 20/30/50% under the item's fair value (its 7-day median price). Buy and relist.
+  - **Vendor**: under what an NPC vendor pays. Buy and vendor it, guaranteed profit.
+  - **Disenchant**: gear under its estimated disenchant value.
+  - For each deal: lowest price, what it's worth, the discount, how many units are under the deal price, total profit after the 5% AH cut, and how fast it sells. Filter by type, discount and "Sells daily"; sort by profit, discount or sales.
+  - Click a deal to search for it on the open Auction House; right-click for its chart.
+- **Deal alerts**: after each live scan, a pop-up when new deals add up to 5g or more. Click it to open Deals. `/goon deals alert 10` sets the amount; `/goon deals alert off` turns it off.
+
 ## 0.11.1
 
 - **15-minute timeframe** on the overview (15m) and charts (15M): what moved since the previous scan. Needs a scan from at least 15 minutes ago (yours or your guild's).

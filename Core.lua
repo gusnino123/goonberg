@@ -318,6 +318,7 @@ end
 local help = {
   "/goon  - open or close the window",
   "/goon overview  |  /goon chart <item>  |  /goon pnl",
+  "/goon deals  - listings under what they're worth  |  /goon deals alert 10 | alert on|off",
   "/goon2 (or /goon craft)  - crafting profit for your professions",
   "/goon scan  - full Auction House scan (AH must be open)",
   "/goon watch <item>  |  /goon unwatch <item>",
@@ -343,6 +344,19 @@ SlashCmdList.GOONBERG = function(msg)
     FI.UI:Toggle()
   elseif cmd == "overview" then
     FI.UI:Show("overview")
+  elseif cmd == "deals" then
+    local arg = rest:lower()
+    if arg == "alert on" or arg == "alert off" then
+      FI.settings.dealAlerts = arg == "alert on"
+      return FI:Print("Deal alerts are now %s.", arg:sub(7))
+    end
+    local gold = arg:match("^alert%s+([%d%.]+)")
+    if gold then
+      FI.settings.dealAlertGold = math.floor(tonumber(gold) * 10000)
+      FI.settings.dealAlerts = true
+      return FI:Print("Deal alerts fire when new deals add up to %s.", FI.Money(FI.settings.dealAlertGold))
+    end
+    FI.UI:Show("deals")
   elseif cmd == "craft" or cmd == "crafting" then
     FI.UI:Show("craft")
   elseif cmd == "pnl" then

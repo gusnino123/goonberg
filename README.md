@@ -2,7 +2,7 @@
 
 **A trading terminal for the Auction House.** Built for World of Warcraft: Forever.
 
-Goonberg Terminal turns the Auction House into a stock market screen: candlestick price charts, market depth, price alerts, a market overview with the realm's biggest movers, crafting profit for your professions, a P&L card for your trading, and AH value on every item you hover. Your guild shares its scans, so prices stay fresh even when you're nowhere near an auctioneer.
+Goonberg Terminal turns the Auction House into a stock market screen: candlestick price charts, market depth, price alerts, a market overview with the realm's biggest movers, a deal finder, crafting profit for your professions, a P&L card for your trading, and AH value on every item you hover. Your guild shares its scans, so prices stay fresh even when you're nowhere near an auctioneer.
 
 Type **`/goon`** in game to open it, or click the goblin under your minimap.
 
@@ -49,6 +49,18 @@ The whole market at a glance.
 - Filters by category (Herbs, Ore & Bars, Cloth, Leather, Enchanting, Trade Goods, Consumables, Gear, Recipes, Other), **Gainers / Losers**, and a search box.
 - Click any column header to sort; click again to flip. Each row has a 7-day trend line. Click a row to open its chart; shift-click to link it in chat.
 
+### Deals
+Listings in the latest scan priced well under what they're worth:
+- **Flip:** at least 20%, 30% or 50% (your pick) under the item's **fair value**, its median price over the last 7 days. Buy and relist.
+- **Vendor:** cheaper than what an NPC vendor pays for it. Buy and vendor it: guaranteed profit, no waiting.
+- **Disenchant:** gear cheaper than its estimated disenchant value.
+
+Each deal shows the lowest price, what it's worth, the discount, how many units are under the deal price, the **total profit** if you bought them all (after the 5% AH cut) and how fast it sells. Turn on **Sells daily** to skip things nobody buys. **Click** a deal to search for it on the open Auction House, **right-click** for its chart.
+
+After every live scan you get a pop-up when new deals add up to 5g or more (change it with `/goon deals alert 10`).
+
+Deals are only as fresh as the last scan: someone may have bought them already. Deals from a guildmate's scan know the lowest price but not how many are listed ("1+").
+
 ### Chart
 - **Candlestick chart** with est. sold bars: **15M · 1H · 6H · 12H · 1D · 1W · 1M · All**. Hover a candle for open, high, low, close and sales.
 - **Market depth:** how many are listed at each price, and where the **wall** is (the big stack everyone has to buy through).
@@ -83,6 +95,7 @@ Every command starts with `/goon` (or `/goonberg`). Wherever a command takes an 
 |---|---|
 | `/goon` | Open or close the terminal |
 | `/goon overview` | Market overview |
+| `/goon deals` | Listings priced under what they're worth |
 | `/goon chart <item>` | Price chart for an item |
 | `/goon2` or `/goon craft` | Crafting profit for your professions |
 | `/goon pnl` | Your profit and loss card |
@@ -108,6 +121,13 @@ Every command starts with `/goon` (or `/goonberg`). Wherever a command takes an 
 | `/goon alert <item> clear` | Remove an item's alerts |
 
 Prices can be written `3g50s`, `3g 50s 20c`, `75s`, `20c` or just `3.5` (gold).
+
+### Deals
+| Command | What it does |
+|---|---|
+| `/goon deals` | Open the deals tab |
+| `/goon deals alert 10` | Pop up when new deals add up to 10g or more (any amount in gold) |
+| `/goon deals alert off` / `on` | Turn deal pop-ups off or back on |
 
 ### Sharing
 | Command | What it does |
