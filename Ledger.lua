@@ -19,9 +19,31 @@ function L:Data()
   return d
 end
 
--- entries: flat list of { t, kind ("sale"|"buy"), item, qty, gross, fee }
+-- entries: flat list of { t, kind ("sale"|"buy"), item, qty, gross, fee, deal }
+-- deal = true: a purchase of something you'd just opened from the Deals tab
+local DEAL_WINDOW = 3 * DAY
+function L:TagDeal(d, e)
+  local picked = e.k == "buy" and d.dealPicks and d.dealPicks[e.i]
+  if picked and time() - picked <= DEAL_WINDOW and e.t >= picked - DAY then e.deal = true end
+end
+
 local function add(d, t, kind, item, qty, gross, fee)
-  d.entries[#d.entries + 1] = { t = t, k = kind, i = item, q = qty or 1, g = gross or 0, f = fee or 0 }
+  local e = { t = t, k = kind, i = item, q = qty or 1, g = gross or 0, f = fee or 0 }
+  L:TagDeal(d, e)
+  d.entries[#d.entries + 1] = e
+end
+
+-- The Deals tab calls this when you open a deal on the AH, so buying it afterwards
+-- counts as a Deals-tab flip in the P&L.
+function L:MarkDeal(itemName)
+  if not itemName then return end
+  local d = self:Data()
+  d.dealPicks = d.dealPicks or {}
+  local now = time()
+  for name, t in pairs(d.dealPicks) do
+    if now - t > DEAL_WINDOW then d.dealPicks[name] = nil end
+  end
+  d.dealPicks[itemName] = now
 end
 
 function L:ReadInbox()
@@ -111,20 +133,23 @@ function L:Summary(since, mode)
       if x.t ~= y.t then return x.t < y.t end
       return x.k == "buy" and y.k ~= "buy"
     end)
-    local lots = {} -- item -> { { qty, unitCost }, ... } oldest first
+    local lots = {} -- item -> { { qty, unitCost, fromDeal }, ... } oldest first
+    local farmItems = {}
+    s.farmGross, s.farmFees, s.dealSales, s.dealNet, s.dealCost = 0, 0, 0, 0, 0
     for _, e in ipairs(list) do
       local q = math.max(1, e.q or 1)
       if e.k == "buy" then
         lots[e.i] = lots[e.i] or {}
-        table.insert(lots[e.i], { q, e.g / q })
+        table.insert(lots[e.i], { q, e.g / q, e.deal })
       else
-        local need, cost, got = q, 0, 0
+        local need, cost, got, dealGot, dealCost = q, 0, 0, 0, 0
         local queue = lots[e.i]
         while need > 0 and queue and queue[1] do
           local lot = queue[1]
           local take = math.min(need, lot[1])
           cost = cost + take * lot[2]
           got = got + take
+          if lot[3] then dealGot = dealGot + take; dealCost = dealCost + take * lot[2] end
           need = need - take
           lot[1] = lot[1] - take
           if lot[1] <= 0 then table.remove(queue, 1) end
@@ -142,12 +167,25 @@ function L:Summary(since, mode)
             s.items[e.i] = per
             per.net = per.net + income - fee - cost
           end
+          if dealGot > 0 then
+            local ds = dealGot / q
+            s.dealSales = s.dealSales + 1
+            s.dealCost = s.dealCost + dealCost
+            s.dealNet = s.dealNet + (e.g - e.f) * ds - dealCost
+          end
           if got < q then
-            s.farmed = s.farmed + (e.g - e.f) * (1 - share)
+            local fs = 1 - share
+            s.farmed = s.farmed + (e.g - e.f) * fs
+            s.farmGross = s.farmGross + e.g * fs
+            s.farmFees = s.farmFees + e.f * fs
             s.farmedSales = s.farmedSales + 1
+            farmItems[e.i] = (farmItems[e.i] or 0) + (e.g - e.f) * fs
           end
         end
       end
+    end
+    for name, v in pairs(farmItems) do
+      if not s.farmTop or v > s.farmTop.net then s.farmTop = { name = name, net = v } end
     end
     -- bought and not sold yet (any time): their cost
     for _, queue in pairs(lots) do
@@ -161,6 +199,9 @@ function L:Summary(since, mode)
     end
     s.net = s.income - s.fees - s.spent
     if s.spent > 0 then s.roi = s.net / s.spent * 100 end
+    if s.dealCost > 0 then s.dealRoi = s.dealNet / s.dealCost * 100 end
+    -- everything you made on the AH: flipping profit plus farming income
+    s.total = s.net + s.farmed
   end
   for name, per in pairs(s.items) do
     if not s.best or per.net > s.best.net then s.best = { name = name, net = per.net } end

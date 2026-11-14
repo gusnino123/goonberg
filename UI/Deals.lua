@@ -31,8 +31,10 @@ local KIND_COLOR = { Flip = C.gold, Vendor = C.up, Disenchant = { 0.64, 0.53, 0.
 local MARGINS = { ["5%"] = 0.05, ["10%"] = 0.10, ["20%"] = 0.20, ["50%"] = 0.50 }
 
 -- Type the item into the Auction House search, when the AH is open
-function D:FindOnAH(itemID)
+function D:FindOnAH(itemID, fromDeal)
   local name = FI:ItemName(itemID)
+  -- buying it next counts as a Deals-tab flip in the P&L
+  if fromDeal then FI.Ledger:MarkDeal(name) end
   local ok = false
   local AHF = _G.AuctionHouseFrame
   if AHF and AHF:IsShown() and AHF.SearchBar and AHF.SearchBar.SearchBox then
@@ -120,7 +122,7 @@ local function makeRow(parent)
     elseif button == "RightButton" then
       FI.UI:ShowItem(d.id)
     else
-      D:FindOnAH(d.id)
+      D:FindOnAH(d.id, true)
     end
   end)
   return r

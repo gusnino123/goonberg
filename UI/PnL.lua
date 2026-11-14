@@ -1,6 +1,6 @@
 -- Goonberg Terminal: P&L tab with a shareable card (goblin included)
 local _, FI = ...
-local P = { period = "7D", tradeSort = { sort = "t", dir = -1 } }
+local P = { period = "7D", show = "All", tradeSort = { sort = "t", dir = -1 } }
 FI.PnLTab = P
 local W = FI.Widgets
 local C = FI.colors
@@ -45,7 +45,7 @@ local function buildGoblin(card)
   -- gold glow behind the goblin
   local glow = holder:CreateTexture(nil, "BACKGROUND")
   glow:SetPoint("BOTTOM", 0, 10)
-  glow:SetSize(220, 220)
+  glow:SetSize(170, 170) -- stays inside the card
   glow:SetTexture("Interface\\Cooldown\\star4")
   glow:SetVertexColor(C.gold[1], C.gold[2], C.gold[3], 0.35)
   glow:SetBlendMode("ADD")
@@ -74,9 +74,62 @@ local function buildGoblin(card)
   return holder
 end
 
+-- one half of the card: Flipping or Farming
+local function panel(card, title, sub)
+  local f = W.Box(card, C.panel, C.border)
+  f.title = W.Text(f, 12, C.gold)
+  f.title:SetText(title)
+  f.title:SetPoint("TOPLEFT", 14, -12)
+  f.sub = W.Text(f, 11, C.muted)
+  f.sub:SetText(sub)
+  f.sub:SetPoint("LEFT", f.title, "RIGHT", 8, 0)
+  f.value = W.Text(f, 24, C.up, true)
+  f.value:SetPoint("TOPLEFT", 14, -34)
+  f.badge = W.Box(f, C.up, C.up)
+  f.badge:SetHeight(20)
+  f.badge:SetPoint("LEFT", f.value, "RIGHT", 10, 0)
+  f.badge.text = W.Text(f.badge, 11, C.bg, true)
+  f.badge.text:SetPoint("CENTER")
+  f.stats = {}
+  for i = 1, 3 do
+    local st = CreateFrame("Frame", nil, f)
+    st:SetSize(10, 34)
+    st.label = W.Heading(st, "")
+    st.label:SetPoint("TOPLEFT")
+    st.value = W.Text(st, 13, C.text, true)
+    st.value:SetPoint("BOTTOMLEFT")
+    f.stats[i] = st
+  end
+  f.stats[1]:SetPoint("TOPLEFT", 14, -72)
+  f.line1 = W.Text(f, 11, C.soft)
+  f.line1:SetPoint("TOPLEFT", 14, -116)
+  f.line1:SetPoint("RIGHT", -12, 0)
+  f.line2 = W.Text(f, 11, C.soft)
+  f.line2:SetPoint("TOPLEFT", 14, -134)
+  f.line2:SetPoint("RIGHT", -12, 0)
+  -- the three small numbers share the panel's width
+  f:SetScript("OnSizeChanged", function(self, w)
+    local each = math.floor(((w or 300) - 28) / 3)
+    for i, st in ipairs(self.stats) do
+      st:SetWidth(each)
+      if i > 1 then st:ClearAllPoints(); st:SetPoint("LEFT", self.stats[i - 1], "RIGHT", 0, 0) end
+    end
+  end)
+  return f
+end
+
+local function setBadge(b, text, col)
+  if not text then b:Hide(); return end
+  b:Show()
+  b.text:SetText(text)
+  b:SetWidth(b.text:GetStringWidth() + 18)
+  b:SetBackdropColor(col[1], col[2], col[3], 1)
+  b:SetBackdropBorderColor(col[1], col[2], col[3], 1)
+end
+
 local function buildCard(tab)
   local card = W.Box(tab, C.side, C.gold)
-  card:SetSize(660, 380)
+  card:SetSize(660, 420)
   card:SetPoint("TOPLEFT", 24, -24)
   P.card = card
 
@@ -90,30 +143,27 @@ local function buildCard(tab)
   card.period:SetPoint("LEFT", brand, "RIGHT", 10, 0)
 
   card.who = W.Text(card, 15, C.text)
-  card.who:SetPoint("TOPLEFT", 26, -52)
+  card.who:SetPoint("TOPLEFT", 26, -50)
 
-  local netLabel = W.Heading(card, "NET PROFIT")
-  netLabel:SetPoint("TOPLEFT", 26, -96)
-  card.net = W.Text(card, 44, C.up, true)
-  card.net:SetPoint("TOPLEFT", 24, -114)
+  local totalLabel = W.Heading(card, "TOTAL MADE ON THE AH")
+  totalLabel:SetPoint("TOPLEFT", 26, -88)
+  card.total = W.Text(card, 40, C.up, true)
+  card.total:SetPoint("TOPLEFT", 24, -104)
+  card.split = W.Text(card, 12, C.soft)
+  card.split:SetPoint("TOPLEFT", 26, -156)
 
-  card.roi = W.Box(card, C.up, C.up)
-  card.roi:SetHeight(24)
-  card.roi:SetPoint("TOPLEFT", 26, -170)
-  card.roi.text = W.Text(card.roi, 13, C.bg, true)
-  card.roi.text:SetPoint("CENTER")
+  card.goblin = buildGoblin(card)
+  card.goblin:ClearAllPoints()
+  card.goblin:SetPoint("TOPRIGHT", -8, -8)
+  card.goblin:SetSize(220, 186)
+  card.split:SetPoint("RIGHT", card.goblin, "LEFT", -10, 0)
 
-  card.sold = stat(card, "SOLD")
-  card.sold:SetPoint("TOPLEFT", 26, -214)
-  card.bought = stat(card, "BOUGHT")
-  card.bought:SetPoint("LEFT", card.sold, "RIGHT", 12, 0)
-  card.fees = stat(card, "AH CUT")
-  card.fees:SetPoint("LEFT", card.bought, "RIGHT", 12, 0)
-
-  card.best = W.Text(card, 12, C.soft)
-  card.best:SetPoint("TOPLEFT", 26, -272)
-  card.bags = W.Text(card, 12, C.soft)
-  card.bags:SetPoint("TOPLEFT", 26, -294)
+  card.flip = panel(card, "FLIPPING", "bought and sold on the AH")
+  card.flip:SetPoint("TOPLEFT", 16, -196)
+  card.flip:SetPoint("BOTTOMRIGHT", card, "BOTTOM", -6, 46)
+  card.farm = panel(card, "FARMING", "found, looted or crafted, then sold")
+  card.farm:SetPoint("TOPLEFT", card, "TOP", 6, -196)
+  card.farm:SetPoint("BOTTOMRIGHT", -16, 46)
 
   local foot = W.Tex(card, C.border, 1)
   foot:SetPoint("BOTTOMLEFT", 1, 34); foot:SetPoint("BOTTOMRIGHT", -1, 34); foot:SetHeight(1)
@@ -123,11 +173,6 @@ local function buildCard(tab)
   mark:SetText("Goonberg Terminal  ·  /goon")
   mark:SetPoint("BOTTOMRIGHT", -16, 12)
   mark:SetJustifyH("RIGHT")
-
-  card.goblin = buildGoblin(card)
-  -- text stops before the goblin, whatever the card's width
-  card.best:SetPoint("RIGHT", card.goblin, "LEFT", -10, 0)
-  card.bags:SetPoint("RIGHT", card.goblin, "LEFT", -10, 0)
 end
 
 local function buildSide(tab)
@@ -139,43 +184,23 @@ local function buildSide(tab)
   periods:SetPoint("TOPLEFT", 14, -14)
   periods:Select(P.period)
 
-  -- flips only (bought on the AH, then sold) or every sale and purchase
-  local mode = W.Choice(side, { "Flips only", "All sales" }, "seg", function(v)
-    FI.settings.pnlMode = (v == "All sales") and "all" or "flips"
-    P:Refresh()
-  end, 26)
-  mode:SetPoint("TOPLEFT", 14, -50)
-  mode:Select((FI.settings.pnlMode == "all") and "All sales" or "Flips only")
-  for v, b in pairs(mode.buttons) do
-    b:HookScript("OnEnter", function(self)
-      GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-      if v == "Flips only" then
-        GameTooltip:AddLine("Flips only")
-        GameTooltip:AddLine("Counts only items you bought on the AH and sold again: each sale against what those units cost you. Farmed or crafted items you sell aren't counted.", 0.76, 0.79, 0.83, true)
-      else
-        GameTooltip:AddLine("All sales")
-        GameTooltip:AddLine("Every AH sale and purchase, whatever you sold.", 0.76, 0.79, 0.83, true)
-      end
-      GameTooltip:Show()
-    end)
-    b:HookScript("OnLeave", GameTooltip_Hide)
-  end
-  P.modeChoice = mode
-
   local share = W.Button(side, "Share in chat", nil, 28, "gold")
-  share:SetPoint("TOPLEFT", 14, -88)
+  share:SetPoint("TOPLEFT", 14, -52)
   share:SetScript("OnClick", function() P:Share() end)
   local shot = W.Button(side, "Screenshot", nil, 28, "pill")
   shot:SetPoint("LEFT", share, "RIGHT", 8, 0)
   shot:SetScript("OnClick", function() if Screenshot then Screenshot() end end)
 
   local head = W.Heading(side, "RECENT TRADES")
-  head:SetPoint("TOPLEFT", 14, -134)
+  head:SetPoint("TOPLEFT", 14, -100)
+  local show = W.Choice(side, { "All", "Flips", "Farmed", "Bought" }, "pill", function(v) P.show = v; P:Refresh() end, 22)
+  show:SetPoint("TOPLEFT", 14, -116)
+  show:Select(P.show)
 
   -- click a header to sort the trades
   local hf = CreateFrame("Frame", nil, side)
-  hf:SetPoint("TOPLEFT", 0, -148)
-  hf:SetPoint("TOPRIGHT", 0, -148)
+  hf:SetPoint("TOPLEFT", 0, -146)
+  hf:SetPoint("TOPRIGHT", 0, -146)
   hf:SetHeight(22)
   P.tradeHeaders = W.SortHeaders(hf, {
     { key = "t", label = "DATE", x = 14 }, { key = "k", label = "TYPE", x = 62, dir = 1 },
@@ -183,7 +208,7 @@ local function buildSide(tab)
   }, P.tradeSort, function() P:Refresh() end)
 
   local holder = CreateFrame("Frame", nil, side)
-  holder:SetPoint("TOPLEFT", 0, -172)
+  holder:SetPoint("TOPLEFT", 0, -170)
   holder:SetPoint("BOTTOMRIGHT", 0, 40)
   P.list = W.List(holder, 30, 28, function(parent)
     local r = CreateFrame("Frame", nil, parent)
@@ -201,19 +226,19 @@ local function buildSide(tab)
   end, function(r, i)
     local e = P.recent[i]
     r.when:SetText(date("%b %d", e.t))
+    local kind = P:Kind(e)
     local sale = e.k == "sale"
-    local s = P.summary
-    -- in flips mode, a sale with nothing bought before it was farmed: not counted
-    local flipped = s and s.flipOf[e]
-    local farmed = sale and s and s.mode == "flips" and flipped == 0
-    r.kind:SetText(farmed and "Farmed" or (sale and "Sold" or "Bought"))
-    local c = farmed and C.muted or (sale and C.up or C.down)
+    local label, c = ({
+      flip = { "Flip", C.up }, farmed = { "Farmed", C.soft }, part = { "Flip+", C.up },
+      buy = { "Bought", C.down }, deal = { "Deal", C.gold },
+    })[kind][1], ({ flip = C.up, farmed = C.soft, part = C.up, buy = C.down, deal = C.gold })[kind]
+    r.kind:SetText(label)
     r.kind:SetTextColor(c[1], c[2], c[3])
     r.item:SetText((e.q and e.q > 1) and (e.i .. " x" .. e.q) or e.i)
-    local ic = farmed and C.muted or C.text
-    r.item:SetTextColor(ic[1], ic[2], ic[3])
+    r.item:SetTextColor(C.text[1], C.text[2], C.text[3])
     r.amt:SetText((sale and "+" or "-") .. FI.Coins(sale and (e.g - e.f) or e.g))
-    r.amt:SetTextColor(c[1], c[2], c[3])
+    local ac = sale and C.up or C.down
+    r.amt:SetTextColor(ac[1], ac[2], ac[3])
   end)
   P.list:SetAllPoints(holder)
 
@@ -227,7 +252,7 @@ local function buildSide(tab)
   note:SetPoint("BOTTOMLEFT", 14, 14)
   note:SetPoint("RIGHT", -14, 0)
   note:SetWordWrap(true)
-  note:SetText("From AH mail invoices, per character. Open the mailbox to update.")
+  note:SetText("From AH mail invoices, per character: open the mailbox to update. Flip = bought on the AH first. Flip+ = partly. Deal = bought from the Deals tab.")
 end
 
 function P:Build(parent)
@@ -239,79 +264,107 @@ function P:Build(parent)
   buildSide(tab)
   -- the card shrinks a little on narrow windows; the trade list takes the rest
   tab:SetScript("OnSizeChanged", function(_, w)
-    P.card:SetWidth(math.max(520, math.min(660, w - 48 - 24 - 320)))
+    P.card:SetWidth(math.max(600, math.min(700, w - 48 - 24 - 320)))
   end)
   tab.Refresh = function() P:Refresh() end
   return tab
 end
+
+-- what a trade was: flip (bought on the AH first), part (partly), farmed, buy, deal
+function P:Kind(e)
+  if e.k ~= "sale" then return e.deal and "deal" or "buy" end
+  local got = self.summary and self.summary.flipOf[e] or 0
+  local q = math.max(1, e.q or 1)
+  if got <= 0 then return "farmed" end
+  return got < q and "part" or "flip"
+end
+
+local function signed(v) return (v >= 0 and "+" or "-") .. FI.Coins(math.abs(v)) end
+local function colorOf(v) return v >= 0 and C.up or C.down end
 
 function P:Refresh()
   if not self.frame then return end
   local card = self.card
   card.goblin.Load()
   local from = since(self.period)
-  local s = FI.Ledger:Summary(from)
+  local s = FI.Ledger:Summary(from, "flips")
   self.summary = s
-  local flips = s.mode == "flips"
 
-  card.period:SetText((flips and "Flips P&L  ·  " or "P&L  ·  ") .. PERIODS[self.period].label)
-  card.bought.label:SetText(flips and "COST" or "BOUGHT")
+  card.period:SetText("P&L  ·  " .. PERIODS[self.period].label)
   card.who:SetText(("%s  ·  %s"):format(UnitName("player") or "", GetRealmName() or ""))
-  local col = s.net >= 0 and C.up or C.down
-  card.net:SetText((s.net >= 0 and "+" or "") .. FI.Money(s.net))
-  card.net:SetTextColor(col[1], col[2], col[3])
-  if s.roi then
-    card.roi:Show()
-    card.roi.text:SetText(("%s ROI"):format(FI.Percent(s.roi)))
-    card.roi:SetWidth(card.roi.text:GetStringWidth() + 22)
-    card.roi:SetBackdropColor(col[1], col[2], col[3], 1)
-    card.roi:SetBackdropBorderColor(col[1], col[2], col[3], 1)
+  local col = colorOf(s.total)
+  card.total:SetText((s.total >= 0 and "+" or "-") .. FI.Money(math.abs(s.total)))
+  card.total:SetTextColor(col[1], col[2], col[3])
+  card.split:SetText(("Flipping %s  ·  Farming %s"):format(signed(s.net), signed(s.farmed)))
+
+  -- Flipping
+  local f = card.flip
+  col = colorOf(s.net)
+  f.value:SetText((s.net >= 0 and "+" or "-") .. FI.Coins(math.abs(s.net)))
+  f.value:SetTextColor(col[1], col[2], col[3])
+  setBadge(f.badge, s.roi and (FI.Percent(s.roi) .. " ROI"), col)
+  local labels = { "SOLD FOR", "COST", "AH CUT" }
+  local values = { s.income, s.spent, s.fees }
+  for i, st in ipairs(f.stats) do st.label:SetText(labels[i]); st.value:SetText(FI.Coins(values[i])) end
+  if s.sales > 0 then
+    local best = s.best and s.best.net > 0 and ("  ·  best: |cffe6e9ee%s|r |cff3fb68b+%s|r"):format(s.best.name, FI.Money(s.best.net)) or ""
+    f.line1:SetText(("%d flip%s sold%s"):format(s.sales, s.sales == 1 and "" or "s", best))
   else
-    card.roi:Hide()
+    f.line1:SetText("No flips sold yet: buy low on the AH, sell it again.")
   end
-  card.sold.value:SetText(FI.Coins(s.income))
-  card.bought.value:SetText(FI.Coins(s.spent))
-  card.fees.value:SetText(FI.Coins(s.fees))
-  if s.best and s.best.net > 0 then
-    card.best:SetText(("Best flip: |cffe6e9ee%s|r  |cff3fb68b+%s|r"):format(s.best.name, FI.Money(s.best.net)))
-  elseif flips then
-    card.best:SetText(s.sales > 0 and ("%d flip%s sold"):format(s.sales, s.sales == 1 and "" or "s") or "No flips sold yet: buy on the AH, sell it again.")
-  else
-    card.best:SetText(("%d sales, %d purchases"):format(s.sales, s.buys))
+  local parts = {}
+  if s.dealSales > 0 then
+    parts[#parts + 1] = ("Deals tab: %d flip%s |cff%s%s|r%s"):format(s.dealSales, s.dealSales == 1 and "" or "s",
+      s.dealNet >= 0 and "3fb68b" or "f0603a", (s.dealNet >= 0 and "+" or "-") .. FI.Money(math.abs(s.dealNet)),
+      s.dealRoi and ("  (" .. FI.Percent(s.dealRoi) .. ")") or "")
   end
-  if flips then
-    local parts = {}
-    if s.holdingUnits > 0 then parts[#parts + 1] = ("Holding |cffe8b84a%s|r of flips not sold yet"):format(FI.Money(s.holding)) end
-    if s.farmedSales > 0 then parts[#parts + 1] = ("%d farmed sale%s not counted"):format(s.farmedSales, s.farmedSales == 1 and "" or "s") end
-    card.bags:SetText(#parts > 0 and table.concat(parts, "  ·  ") or "Only items you bought on the AH and sold again count.")
-  else
-    card.bags:SetText(("Bags worth |cffe8b84a%s|r at market (not sold yet)"):format(FI.Money(FI.Ledger:BagValue())))
-  end
+  if s.holdingUnits > 0 then parts[#parts + 1] = ("holding |cffe8b84a%s|r unsold"):format(FI.Money(s.holding)) end
+  f.line2:SetText(#parts > 0 and table.concat(parts, "  ·  ") or "Profit = what you sold for, minus the AH cut and what those units cost.")
+
+  -- Farming
+  local m = card.farm
+  m.value:SetText("+" .. FI.Coins(s.farmed))
+  m.value:SetTextColor(C.up[1], C.up[2], C.up[3])
+  setBadge(m.badge, nil)
+  labels = { "SOLD FOR", "AH CUT", "SALES" }
+  for i, st in ipairs(m.stats) do st.label:SetText(labels[i]) end
+  m.stats[1].value:SetText(FI.Coins(s.farmGross))
+  m.stats[2].value:SetText(FI.Coins(s.farmFees))
+  m.stats[3].value:SetText(FI.Number(s.farmedSales))
+  m.line1:SetText(s.farmTop and ("Top seller: |cffe6e9ee%s|r |cff3fb68b+%s|r"):format(s.farmTop.name, FI.Money(s.farmTop.net))
+    or "Nothing farmed and sold yet.")
+  m.line2:SetText(("Bags worth |cffe8b84a%s|r at market right now"):format(FI.Money(FI.Ledger:BagValue())))
   card.stamp:SetText(date("%B %d, %Y"))
 
   local recent = {}
+  local want = ({ Flips = { flip = true, part = true }, Farmed = { farmed = true, part = true }, Bought = { buy = true, deal = true } })[self.show]
   for _, e in ipairs(FI.Ledger:Data().entries) do
-    if e.t >= from then recent[#recent + 1] = e end
+    if e.t >= from and (not want or want[self:Kind(e)]) then recent[#recent + 1] = e end
   end
   -- in the order picked by the headers (amount: what it added or cost you)
   local st = self.tradeSort
   local get = ({
     amount = function(e) return e.k == "sale" and (e.g - e.f) or -e.g end,
-    k = function(e) return (e.k == "sale" and s.flipOf[e] == 0 and s.mode == "flips") and "farmed" or e.k end,
+    k = function(e) return P:Kind(e) end,
   })[st.sort]
   W.SortRows(recent, st.sort, st.dir, get)
   self.recent = recent
-  -- back to the top only when the period or mode changes, not when new mail arrives
-  local key = self.period .. "|" .. (s.mode or "") .. "|" .. st.sort .. st.dir
+  -- back to the top only when what's listed changes, not when new mail arrives
+  local key = self.period .. "|" .. self.show .. "|" .. st.sort .. st.dir
   if key ~= self.listKey then self.listKey = key; self.list.offset = 0 end
   self.list:SetCount(#recent)
   self.empty:SetShown(#recent == 0)
+  self.empty:SetText(#FI.Ledger:Data().entries == 0
+    and "No trades yet. Open your mailbox after selling or buying on the AH: Goonberg Terminal reads the AH invoices there."
+    or "No trades of this kind in this period.")
 end
 
 function P:Share()
-  local s = self.summary or FI.Ledger:Summary(since(self.period))
-  local parts = { ("[Goonberg] My AH %s, %s: %s%s"):format(s.mode == "flips" and "flips" or "P&L", PERIODS[self.period].label, s.net >= 0 and "+" or "", FI.Money(s.net)) }
-  if s.roi then parts[#parts + 1] = FI.Percent(s.roi) .. " ROI" end
+  local s = self.summary or FI.Ledger:Summary(since(self.period), "flips")
+  local function m(v) return (v >= 0 and "+" or "-") .. FI.Money(math.abs(v)) end
+  local parts = { ("[Goonberg] %s on the AH: %s"):format(PERIODS[self.period].label, m(s.total)) }
+  parts[#parts + 1] = ("flipping %s%s"):format(m(s.net), s.roi and (" (" .. FI.Percent(s.roi) .. " ROI)") or "")
+  parts[#parts + 1] = ("farming %s"):format(m(s.farmed))
   if s.best and s.best.net > 0 then parts[#parts + 1] = ("best flip %s"):format(s.best.name) end
   SendChatMessage(table.concat(parts, " - "), IsInGuild() and "GUILD" or "SAY")
 end

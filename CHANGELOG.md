@@ -1,5 +1,16 @@
 # Goonberg Terminal
 
+## 0.20.0
+
+- **P&L split into Flipping and Farming.**
+  - **Total made on the AH** on top: flipping profit plus farming income.
+  - **Flipping** (bought and sold on the AH): profit, ROI, sold for / cost / AH cut, flips sold and your best one, and what you're still holding.
+  - **Farming** (found, looted or crafted, then sold): income after the AH cut, sold for / AH cut / number of sales, your top seller, and what your bags are worth at market.
+  - **Deals tab tracking:** clicking a deal to find it on the AH remembers it; buying it within 3 days tags the purchase, and when you sell it the card shows "Deals tab: N flips +X (ROI)". So you can see whether the Deals tab's picks really pay.
+  - **Recent trades** are labelled Flip, Flip+ (partly bought), Farmed, Bought or Deal, with filter chips (All / Flips / Farmed / Bought).
+  - "Share in chat" sends the total with both halves.
+  - The "Flips only / All sales" switch is gone: both are always shown.
+
 ## 0.19.0
 
 - **Scroll bars** on every list (Overview, Deals, Loot, Crafting recipes, P&L trades, Chart watchlist): the thumb shows where you are and how much of the list you see. Drag it, or click above/below it to jump a page. It hides when everything fits.
