@@ -1,5 +1,18 @@
 # Goonberg Terminal
 
+## 0.13.0
+
+**Accuracy pass**
+- **% changes are never measured over the wrong period.** "24h %" now needs a price from 24-48 hours earlier (likewise for every timeframe). Before, a new item could show a "24h" change that was really 3 hours, or a "7d" change that was really 1 day. Changes are also measured back from the item's latest price, so an item last seen yesterday isn't compared across a gap.
+- **Est. sold per day is much more accurate.** It now divides by the time actually watched (scans no more than 12 hours apart) instead of calendar days, so imported Auctionator days and nights without scans no longer drag it down. This feeds tooltips, crafting, deals and the Goonberg Index weights.
+- **Deals: realistic relist price.** If other sellers are already listed under the fair value, a flip is priced at what you'd actually relist for (just under them), not the fair value.
+- **Crafting: realistic sale price.** A crafted item is valued at the lower of its market price and the cheapest listing right now, since that's what you'd have to match. Prices older than 7 days are no longer used (the recipe shows "?" until the item is seen again).
+- **Crafting overview:** "getting more / less profitable" compares like with like, and historical prices must be from within 2 days of the date.
+- **Overview "listings on AH"** only counts items from a recent scan, not leftovers from old ones.
+
+**Other**
+- Removed the 7-day trend line column from the overview; the other columns have more room.
+
 ## 0.12.2
 
 - **Deals show profit per item.** New columns: **Buy at** (cheapest listing), **Sell for** (what you get per item: after the 5% AH cut when you relist, or the full vendor price), **Per item**, **Margin**, **Units** and **Total** (every unit under the deal price).

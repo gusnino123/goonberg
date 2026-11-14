@@ -47,7 +47,7 @@ The whole market at a glance.
 - Cards: the **Goonberg Index**, est. gold traded, listings on the AH, top gainer and top loser.
 - Timeframes: **15m · 1h · 6h · 12h · 24h · 7d**. Every number on the screen follows the one you pick.
 - Filters by category (Herbs, Ore & Bars, Cloth, Leather, Enchanting, Trade Goods, Consumables, Gear, Recipes, Other), **Gainers / Losers**, and a search box.
-- Click any column header to sort; click again to flip. Each row has a 7-day trend line. Click a row to open its chart; shift-click to link it in chat.
+- Click any column header to sort; click again to flip. Click a row to open its chart; shift-click to link it in chat.
 
 ### Deals
 Listings in the latest scan you can buy and make money on:
@@ -160,7 +160,8 @@ Prices can be written `3g50s`, `3g 50s 20c`, `75s`, `20c` or just `3.5` (gold).
 ## Good to know
 
 - **Charts start empty.** Each scan adds a point, so charts fill in over your first days. Guild sync and the Auctionator import fill them much faster.
-- **Short timeframes need recent scans.** 15m, 1h and so on show "-" until there's a scan at least that old.
+- **Changes need real history.** A "24h %" is only shown when there's a price from 24 to 48 hours earlier (the same for every timeframe). With shorter history you see "-" rather than a number measured over the wrong period.
+- **Est. sold per day** only counts time actually covered by scans (yours or your guild's) no more than 12 hours apart, so gaps don't drag it down.
 - **Alerts only fire on live scans** (yours or a guildmate's), never on catch-up or imported data, which can be out of date.
 - **Auctionator is optional.** Goonberg does its own scanning; Auctionator only adds history you already have.
 - Data is saved per realm and faction, and the P&L per character.

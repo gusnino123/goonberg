@@ -127,16 +127,31 @@ local function priceAt(h, t)
   return p
 end
 
--- Market price of an item as it was at time t (nil if no data that old)
-function H.PriceAt(it, t)
-  return it and priceAt(it.h or {}, t)
+-- Market price of an item as it was at time t (nil if no data that old). With
+-- maxAge, the point must be no older than t - maxAge (no stale stand-ins).
+function H.PriceAt(it, t, maxAge)
+  if not it then return nil end
+  local h = it.h or {}
+  if not maxAge then return priceAt(h, t) end
+  local p
+  for i = 1, #h, STRIDE do
+    if h[i] > t then break end
+    if h[i + 1] > 0 and h[i] >= t - maxAge then p = h[i + 1] end
+  end
+  return p
 end
 
-local function firstPrice(h, minAge, now)
+-- Price from roughly `ago` seconds before `ref`: the last point at or before
+-- ref - ago, but no older than ref - 2*ago. Too old a point would turn a "1h change"
+-- into a "3 days change", so then there's no answer (nil) rather than a wrong one.
+local function priceAgo(h, ref, ago)
+  local t, oldest = ref - ago, ref - 2 * ago
+  local p
   for i = 1, #h, STRIDE do
-    if now - h[i] < minAge then return nil end
-    if h[i + 1] > 0 then return h[i + 1] end
+    if h[i] > t then break end
+    if h[i + 1] > 0 and h[i] >= oldest then p = h[i + 1] end
   end
+  return p
 end
 
 local function change(from, to)
@@ -144,23 +159,25 @@ local function change(from, to)
   return (to - from) / from * 100
 end
 
+H.WINDOWS = { c15 = 900, c1 = 3600, c6 = 6 * 3600, c12 = 12 * 3600, c24 = DAY, c7 = 7 * DAY }
+
 -- Everything the tooltip, overview and chart header need for one item
 function H.Stats(it, now)
   now = now or time()
   local h = it.h or {}
   local s = { price = it.mkt, min = it.min, qty = it.qty or 0, listings = it.cnt or 0, seen = it.seen }
-  -- reference prices; fall back to the oldest point when history is still short
-  local p24 = priceAt(h, now - DAY) or firstPrice(h, 3 * 3600, now)
-  local p7 = priceAt(h, now - 7 * DAY) or firstPrice(h, DAY, now)
-  s.c24 = change(p24, it.mkt)
-  s.c7 = change(p7, it.mkt)
-  -- short windows need a point at least that old (no fallback: an hour-old
-  -- change from a 10-minute-old first scan would be misleading)
-  s.c15 = change(priceAt(h, now - 900), it.mkt)
-  s.c1 = change(priceAt(h, now - 3600), it.mkt)
-  s.c6 = change(priceAt(h, now - 6 * 3600), it.mkt)
-  s.c12 = change(priceAt(h, now - 12 * 3600), it.mkt)
+  -- Changes are measured back from the item's latest price (not from "now"), so an
+  -- item last seen yesterday shows how it moved up to then, not a mix of old and new.
+  local ref = it.seen or it.imported or now
+  for key, w in pairs(H.WINDOWS) do s[key] = change(priceAgo(h, ref, w), it.mkt) end
+  s.age = now - ref
+  s.stale = s.age > 6 * 3600 -- the "current" price is more than 6 hours old
+
+  -- Est. sold: units that left the AH between two scans no more than 12 hours
+  -- apart. "Per day" divides by the time actually watched that way, so days with
+  -- no scans (or imported daily prices, which carry no sales) don't dilute it.
   local sold15, sold1, sold6, sold12, sold24, sold7 = 0, 0, 0, 0, 0, 0
+  local watched = 0
   for i = 1, #h, STRIDE do
     local age, sold = now - h[i], h[i + 3]
     if age <= 900 then sold15 = sold15 + sold end
@@ -168,13 +185,17 @@ function H.Stats(it, now)
     if age <= 6 * 3600 then sold6 = sold6 + sold end
     if age <= 12 * 3600 then sold12 = sold12 + sold end
     if age <= DAY then sold24 = sold24 + sold end
-    if age <= 7 * DAY then sold7 = sold7 + sold end
+    if age <= 7 * DAY then
+      sold7 = sold7 + sold
+      if i > STRIDE then
+        local gap = h[i] - h[i - STRIDE]
+        if gap <= 12 * 3600 then watched = watched + gap end
+      end
+    end
   end
   s.sold15, s.sold1, s.sold6, s.sold12, s.sold24, s.sold7 = sold15, sold1, sold6, sold12, sold24, sold7
-  -- days of history actually covered, for "per day" figures
-  local first = h[1]
-  local span = first and math.min(7 * DAY, now - first) or 0
-  s.soldPerDay = span >= 6 * 3600 and (sold7 / (span / DAY)) or nil
+  s.watched = watched
+  s.soldPerDay = watched >= 3 * 3600 and (sold7 / (watched / DAY)) or nil
   return s
 end
 
@@ -313,7 +334,8 @@ function H.Overview(realm, now)
       s.id = itemID
       s.cat = FI:Category(itemID)
       rows[#rows + 1] = s
-      listed = listed + s.qty
+      -- only items from a recent scan count as "on the AH now"
+      if it.seen and (realm.lastScan or 0) - it.seen < 3 * 3600 then listed = listed + s.qty end
       for k in pairs(gold) do gold[k] = gold[k] + s.price * s[k] end
     end
   end

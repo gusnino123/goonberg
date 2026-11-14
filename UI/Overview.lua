@@ -18,21 +18,19 @@ local C = FI.colors
 local H
 
 local ROWS, ROW_H = 40, 28
-local SPARK_W, SPARK_H, SPARK_N = 104, 18, 24
 
 -- Column layout. Rank and item hang off the left edge; the numbers hang off the
 -- right edge (r = offset of the column's right side), so the table can be resized.
 local COLS = {
   { key = "rank",  label = "#",          x = 34 },
   { key = "name",  label = "ITEM",       x = 44, left = true },
-  { key = "price", label = "PRICE",      r = -520, sort = true },
-  { key = "chgA",  label = "24H %",      r = -430, sort = true },
-  { key = "chg7",  label = "7D %",       r = -345, sort = true },
-  { key = "qty",   label = "LISTINGS",   r = -250, sort = true },
-  { key = "sold",  label = "EST. SOLD",  r = -140, sort = true },
-  { key = "trend", label = "7D TREND",   r = -16 },
+  { key = "price", label = "PRICE",      r = -404, sort = true },
+  { key = "chgA",  label = "24H %",      r = -314, sort = true },
+  { key = "chg7",  label = "7D %",       r = -229, sort = true },
+  { key = "qty",   label = "LISTINGS",   r = -124, sort = true },
+  { key = "sold",  label = "EST. SOLD",  r = -14, sort = true },
 }
-local NAME_RIGHT = -620 -- item names stop here, before the price column
+local NAME_RIGHT = -504 -- item names stop here, before the price column
 
 local function card(parent, title, accent)
   local b = W.Box(parent, C.panel, accent and { 0.23, 0.2, 0.16 } or C.border)
@@ -90,12 +88,6 @@ local function makeRow(parent, i)
       r.name:SetPoint("RIGHT", r, "RIGHT", NAME_RIGHT, 0)
       r.cat = W.Text(r, 10, C.muted)
       r.cat:SetPoint("LEFT", r.icon, "RIGHT", 8, 0) -- moved next to the name on update
-    elseif col.key == "trend" then
-      r.spark = CreateFrame("Frame", nil, r)
-      r.spark:SetSize(SPARK_W, SPARK_H)
-      r.spark:SetPoint("RIGHT", r, "RIGHT", col.r, 0)
-      r.sparkLines = {}
-      for k = 1, SPARK_N - 1 do r.sparkLines[k] = W.Line(r.spark, C.up, 1.5) end
     else
       local fs = W.Text(r, 12, col.key == "price" and C.gold or C.text, true)
       if col.r then fs:SetPoint("RIGHT", r, "RIGHT", col.r, 0) else fs:SetPoint("RIGHT", r, "LEFT", col.x, 0) end
@@ -124,29 +116,6 @@ local function makeRow(parent, i)
   return r
 end
 
-local function drawSpark(r, values, color)
-  local lines = r.sparkLines
-  local n = #values
-  local mn, mx = math.huge, -math.huge
-  for _, v in ipairs(values) do
-    if v < mn then mn = v end
-    if v > mx then mx = v end
-  end
-  for k = 1, #lines do
-    local l = lines[k]
-    if l and k < n then
-      local function px(i) return (i - 1) / (n - 1) * SPARK_W end
-      local function py(v) return (mx > mn) and ((v - mn) / (mx - mn) * (SPARK_H - 2) + 1) or SPARK_H / 2 end
-      l:SetColorTexture(color[1], color[2], color[3], 1)
-      l:SetStartPoint("BOTTOMLEFT", r.spark, px(k), py(values[k]))
-      l:SetEndPoint("BOTTOMLEFT", r.spark, px(k + 1), py(values[k + 1]))
-      l:Show()
-    elseif l then
-      l:Hide()
-    end
-  end
-end
-
 local function updateRow(r, i)
   local row = O.rows[i]
   r.itemID = row.id
@@ -168,12 +137,6 @@ local function updateRow(r, i)
   r.cells.chg7:SetTextColor(c7[1], c7[2], c7[3])
   r.cells.qty:SetText(FI.Number(row.qty))
   r.cells.sold:SetText(FI.Number(row[TF[O.tf].sold]))
-  local spark = row.spark
-  if not spark then
-    spark = H.Spark(FI:Realm().items[row.id], time(), 7 * 86400, SPARK_N)
-    row.spark = spark
-  end
-  if #spark >= 2 then drawSpark(r, spark, c7) else drawSpark(r, {}, c7) end
 end
 
 function O:Build(parent)

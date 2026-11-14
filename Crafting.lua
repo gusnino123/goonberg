@@ -109,12 +109,31 @@ end)
 
 -- Best price to get a reagent: the cheaper of an NPC vendor and the AH market price.
 -- Returns price, source ("vendor" | "ah") or nil when unknown.
+-- An AH price is only used if it's from the last 7 days; older ones are too stale
+-- to plan crafting around (the recipe shows "?" until the item is seen again).
+K.MAX_PRICE_AGE = 7 * 86400
+local function freshMarket(it)
+  if not it or not it.mkt then return nil end
+  local t = math.max(it.seen or 0, it.imported or 0)
+  if time() - t > K.MAX_PRICE_AGE then return nil end
+  return it.mkt, t
+end
+
 function K:ReagentPrice(itemID)
   local vendor = FI.db.vendor and FI.db.vendor[itemID]
-  local it = FI:Realm().items[itemID]
-  local ah = it and it.mkt
+  local ah = freshMarket(FI:Realm().items[itemID])
   if vendor and (not ah or vendor <= ah) then return vendor, "vendor" end
   if ah then return ah, "ah" end
+end
+
+-- What a crafted item really sells for: you'd have to match the cheapest listing,
+-- so it's the lower of the market price and the lowest price right now.
+function K:SellPrice(itemID)
+  local it = FI:Realm().items[itemID]
+  local mkt = freshMarket(it)
+  if not mkt then return nil end
+  if it.min and it.seen and time() - it.seen < 6 * 3600 then return math.min(mkt, it.min) end
+  return mkt
 end
 
 -- Profit for one recipe. Fields: cost, sell, profit, margin, missing (reagents with
@@ -128,8 +147,9 @@ function K:Evaluate(rec)
     if p then res.cost = res.cost + p * qty else res.missing = res.missing + 1 end
   end
   local it = FI:Realm().items[rec.o]
-  if it and it.mkt then
-    res.sell = it.mkt * rec.n * (1 - self.AH_CUT)
+  local unit = self:SellPrice(rec.o)
+  if unit then
+    res.sell = unit * rec.n * (1 - self.AH_CUT)
     res.profit = res.sell - res.cost
     if res.cost > 0 then res.margin = res.profit / res.cost * 100 end
     res.soldPerDay = FI.History.Stats(it, time()).soldPerDay
@@ -174,12 +194,12 @@ function K:ProfitAt(rec, t)
   for i = 1, #rec.r, 2 do
     local id, qty = rec.r[i], rec.r[i + 1]
     local vendor = FI.db.vendor and FI.db.vendor[id]
-    local ah = FI.History.PriceAt(items[id], t)
+    local ah = FI.History.PriceAt(items[id], t, 2 * 86400)
     local p = vendor and ah and math.min(vendor, ah) or vendor or ah
     if not p then return nil end
     cost = cost + p * qty
   end
-  local out = FI.History.PriceAt(items[rec.o], t)
+  local out = FI.History.PriceAt(items[rec.o], t, 2 * 86400)
   if not out then return nil end
   local profit = out * rec.n * (1 - self.AH_CUT) - cost
   return profit, cost > 0 and (profit / cost * 100) or nil
@@ -221,9 +241,11 @@ function K:Overview()
         if not p.best or r.profit > p.best.profit then p.best = r end
         if not o.best or (r.margin or 0) > (o.best.margin or 0) then o.best = r end
       end
+      -- compare like with like: both sides use market prices from the history
       local then7 = self:ProfitAt(r.rec, now - 7 * 86400)
-      if then7 then
-        o.movers[#o.movers + 1] = { row = r, delta = r.profit - then7, before = then7 }
+      local nowP = self:ProfitAt(r.rec, now)
+      if then7 and nowP then
+        o.movers[#o.movers + 1] = { row = r, delta = nowP - then7, before = then7 }
       end
     end
   end

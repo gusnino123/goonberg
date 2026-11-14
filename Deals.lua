@@ -77,7 +77,22 @@ local function evaluate(id, it, now)
     end
   end
   local fair = fairValue(id, it, now)
-  if fair then consider("Flip", fair * (1 - CUT), fair) end         -- relist: AH takes 5%
+  if fair then
+    -- Realistic relist price: fair value, unless other sellers are already listed
+    -- below it (after the cheap ones you'd buy out). Then you'd have to undercut them.
+    local relist = fair
+    if qtyKnown then
+      local dealLine = fair * (1 - CUT) / (1 + DL.FLOOR)
+      for i = 1, #levels, 2 do
+        if levels[i] >= dealLine then
+          relist = math.min(fair, levels[i] - 1)
+          break
+        end
+      end
+    end
+    consider("Flip", relist * (1 - CUT), fair)                     -- relist: AH takes 5%
+    if best and best.kind == "Flip" then best.relist = relist end
+  end
   local vendor = vendorPrice(id)
   if vendor then consider("Vendor", vendor, vendor) end             -- NPC pays in full
   if FI.Disenchant:Results(id) then

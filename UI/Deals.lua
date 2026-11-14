@@ -76,6 +76,9 @@ local function makeRow(parent)
     GameTooltip:AddDoubleLine("Buy at", FI.Money(d.price), muted[1], muted[2], muted[3], 1, 1, 1)
     if d.kind == "Flip" then
       GameTooltip:AddDoubleLine("Fair value (7-day median)", FI.Money(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
+      if d.relist and d.relist < d.ref then
+        GameTooltip:AddDoubleLine("Relist at (others list below fair)", FI.Money(d.relist), muted[1], muted[2], muted[3], 1, 1, 1)
+      end
       GameTooltip:AddDoubleLine("After 5% AH cut", FI.Money(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
     elseif d.kind == "Vendor" then
       GameTooltip:AddDoubleLine("Vendors pay (no cut)", FI.Money(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
