@@ -78,7 +78,10 @@ local function makeRow(parent)
       GameTooltip:SetItemByID(row.id)
       GameTooltip:AddLine(" ")
       GameTooltip:AddDoubleLine("Drops from", row.trash and ("Trash in " .. row.instance) or (row.boss .. ", " .. row.instance), soft[1], soft[2], soft[3], 1, 1, 1)
-      if row.trash then
+      if row.trash and row.listedChance then
+        GameTooltip:AddDoubleLine("Drop chance, per trash mob", ("%.2f%%"):format(row.chance * 100), soft[1], soft[2], soft[3], 1, 1, 1)
+        if row.drops > 0 then GameTooltip:AddDoubleLine("   Seen by you and your guild", ("%d times"):format(row.drops), soft[1], soft[2], soft[3], 0.76, 0.79, 0.83) end
+      elseif row.trash then
         GameTooltip:AddDoubleLine("Seen", ("%d times in %d looted mobs"):format(row.drops, row.kills), soft[1], soft[2], soft[3], 1, 1, 1)
       elseif row.chance then
         GameTooltip:AddDoubleLine("Drop chance", ("%.1f%%"):format(row.chance * 100), soft[1], soft[2], soft[3], 1, 1, 1)
@@ -95,7 +98,10 @@ local function makeRow(parent)
       end
       if row.price then
         GameTooltip:AddDoubleLine("AH value", FI.Money(row.price), soft[1], soft[2], soft[3], 1, 1, 1)
-        if row.perKill then GameTooltip:AddDoubleLine("Worth per kill, on average", FI.Money(row.perKill), soft[1], soft[2], soft[3], 0.25, 0.71, 0.55) end
+        if row.perKill then
+          GameTooltip:AddDoubleLine(row.trash and "Worth per trash mob, on average" or (row.object and "Worth per chest, on average" or "Worth per kill, on average"),
+            FI.Money(row.perKill), soft[1], soft[2], soft[3], 0.25, 0.71, 0.55)
+        end
       else
         GameTooltip:AddDoubleLine("AH value", "not seen on the AH", soft[1], soft[2], soft[3], 0.55, 0.58, 0.64)
       end
@@ -153,18 +159,20 @@ local function updateItemRow(r, row)
   if row.rare then tags[#tags + 1] = TAG.rare end
   r.name:SetText(row.name .. (#tags > 0 and ("   " .. table.concat(tags, "  ")) or ""))
   r.name:SetTextColor(FI:ItemQualityColor(row.id))
-  r.from:SetText(row.trash and ("Trash  ·  " .. row.instance) or (row.boss .. (row.rareSpawn and " (rare spawn)" or "") .. "  ·  " .. row.instance))
+  local where = row.trash and "Trash (any mob)" or (row.boss .. (row.rareSpawn and " (rare spawn)" or "") .. (row.object and " (chest)" or ""))
+  r.from:SetText(where .. "  ·  " .. row.instance)
   local c = r.cells
   c.req:SetText(row.req > 1 and row.req or "-")
   setColor(c.req, C.soft)
-  if row.trash then
+  if row.trash and not row.listedChance then
     c.chance:SetText(("seen %dx"):format(row.drops))
     setColor(c.chance, C.soft)
   elseif row.chance and row.drops == 0 and not row.listedChance then
     c.chance:SetText("none yet")
     setColor(c.chance, C.muted)
   elseif row.chance then
-    c.chance:SetText(row.chance >= 0.1 and ("%d%%"):format(math.floor(row.chance * 100 + 0.5)) or ("%.1f%%"):format(row.chance * 100))
+    local pct = row.chance * 100
+    c.chance:SetText(pct >= 10 and ("%d%%"):format(math.floor(pct + 0.5)) or (pct >= 1 and ("%.1f%%"):format(pct) or ("%.2f%%"):format(pct)))
     setColor(c.chance, C.text)
   else
     c.chance:SetText("not yet")

@@ -21,13 +21,17 @@ local MIN_QUALITY = 2       -- green and up
 -- Bundled loot tables
 -- ---------------------------------------------------------------------------
 local PRIOR = 20 -- a listed drop chance weighs as much as 20 kills
-LT.bosses = {}   -- creature ID -> { key, name, instance, items = {}, listed = { [item] = 0..1 }, rare }
+LT.bosses = {}   -- creature ID -> source
+LT.sources = {}  -- every boss, rare spawn and chest: { key, name, instance, items, listed = { [item] = 0..1 }, rare, object }
+LT.trash = {}    -- dungeon trash tables: { instance, items, listed }
 LT.PRIOR = PRIOR
 
 function LT:IndexBundled()
   local data = FI.LootData
   if not data then return end
   wipe(self.bosses)
+  wipe(self.sources)
+  wipe(self.trash)
   -- wings (Scarlet Monastery, Dire Maul) share one instance: keep their own names
   local perInstance = {}
   for _, dg in ipairs(data.dungeons) do perInstance[dg.instance] = (perInstance[dg.instance] or 0) + 1 end
@@ -39,11 +43,19 @@ function LT:IndexBundled()
     end
     dg.display = name
     for _, b in ipairs(dg.bosses) do
-      local npc, bossName, items, drops, rare = b[1], b[2], b[3], b[4], b[5]
+      local npc, bossName, items, drops, rare, object = b[1], b[2], b[3], b[4], b[5], b[6]
       local listed = {}
       for id, pct in pairs(drops or {}) do listed[id] = pct / 100 end
-      self.bosses[npc] = { key = "n" .. npc, npc = npc, name = bossName, instance = name, levels = dg.levels,
-        items = items, listed = listed, rare = rare and true or false }
+      local src = { key = npc > 0 and ("n" .. npc) or ("x" .. dg.key .. ":" .. bossName), npc = npc > 0 and npc or nil,
+        name = bossName, instance = name, levels = dg.levels, items = items, listed = listed,
+        rare = rare and true or false, object = object and true or false }
+      self.sources[#self.sources + 1] = src
+      if src.npc then self.bosses[npc] = src end
+    end
+    if dg.trash then
+      local listed = {}
+      for id, pct in pairs(dg.trash[2] or {}) do listed[id] = pct / 100 end
+      self.trash[#self.trash + 1] = { instance = name, items = dg.trash[1], listed = listed }
     end
   end
   self.cache = nil
@@ -299,8 +311,12 @@ function LT:Rows()
       gear = isGear(info), bracket = isGear(info) and info.bind == 2 and bracket(info.req) or nil,
       boss = src.boss, instance = src.instance, trash = src.trash,
       kills = src.kills or 0, drops = src.drops or 0, price = price,
-      onAH = it and it.qty or 0, listedChance = src.listed, rareSpawn = src.rareSpawn,
+      onAH = it and it.qty or 0, listedChance = src.listed, rareSpawn = src.rareSpawn, object = src.object,
     }
+    if r.trash and r.listedChance then
+      r.chance = r.listedChance -- per trash mob
+      if price then r.perKill = r.chance * price end
+    end
     if not r.trash then
       if r.listedChance then
         r.chance = (r.listedChance * PRIOR + r.drops) / (PRIOR + r.kills)
@@ -328,7 +344,7 @@ function LT:Rows()
       table.insert(byName[n], key)
     end
   end
-  for _, b in pairs(self.bosses) do
+  for _, b in ipairs(self.sources) do
     local e = d.enc[b.key]
     local others = byName[b.name:lower()]
     if others and (#others > 1 or others[1] ~= b.key) then
@@ -347,7 +363,7 @@ function LT:Rows()
     for _, id in ipairs(guideItems[b.name:lower()] or {}) do push(id) end
     for _, id in ipairs(items) do
       add(id, { boss = b.name, instance = b.instance, kills = e and e.k or 0, drops = e and e.d[id] or 0,
-        listed = b.listed[id], rareSpawn = b.rare })
+        listed = b.listed[id], rareSpawn = b.rare, object = b.object })
     end
     known[b.key] = true
     known["name:" .. b.name:lower()] = true
@@ -360,8 +376,22 @@ function LT:Rows()
       end
     end
   end
+  local bundledTrash = {}
+  for _, t in ipairs(self.trash) do
+    local rec = d.trash[t.instance]
+    bundledTrash[t.instance] = {}
+    for _, id in ipairs(t.items) do
+      bundledTrash[t.instance][id] = true
+      add(id, { boss = "Trash", instance = t.instance, trash = true, kills = rec and rec.k or 0,
+        drops = rec and rec.d[id] or 0, listed = t.listed[id] })
+    end
+  end
   for inst, tr in pairs(d.trash) do
-    for id, n in pairs(tr.d) do add(id, { boss = "Trash", instance = inst, trash = true, kills = tr.k, drops = n }) end
+    for id, n in pairs(tr.d) do
+      if not (bundledTrash[inst] and bundledTrash[inst][id]) then
+        add(id, { boss = "Trash", instance = inst, trash = true, kills = tr.k, drops = n })
+      end
+    end
   end
   -- Adventure Guide loot not seen drop yet
   if d.journal then
@@ -417,7 +447,8 @@ function LT:Dungeons()
       end
       dg.items = dg.items + 1
       if not r.trash then dg.bosses[r.boss] = math.max(dg.bosses[r.boss] or 0, r.kills) end
-      if r.perKill then dg.perClear = dg.perClear + r.perKill end
+      -- per clear: bosses and chests (once a run); trash chances are per mob, so not here
+      if r.perKill and not r.trash then dg.perClear = dg.perClear + r.perKill end
       if r.price and (not dg.best or r.price > dg.best.price) then dg.best = r end
     end
   end

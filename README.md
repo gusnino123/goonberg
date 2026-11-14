@@ -235,8 +235,9 @@ last time. Those days are added to your history without replacing anything you s
 Dungeon drops you can sell on the AH (Bind on Equip and unbound items only): where they drop,
 how often and what they're worth, plus what a full dungeon run is worth on average.
 
-The loot tables ship with the addon (`Loot/Data.lua`): 29 dungeons, 252 bosses and their drop
-chances, from Dungeon Codex (see Credits). Goonberg keeps refining the chances from real kills:
+The loot tables ship with the addon (`Loot/Data.lua`): 29 dungeons with their bosses, rare spawns,
+chests and trash drops, and their drop chances (trash chances are per mob), from Dungeon Codex and the
+foreverchanges.pro data it carries (see Credits). Goonberg keeps refining the chances from real kills:
 every boss corpse looted in a dungeon is one kill and its green-or-better drops are counted, and a
 listed chance weighs as much as 20 kills, so your own data takes over as it builds up. With guild sync on, guildmates' kills are shared (one short message per boss
 kill), and each kill counts once however many people looted it. Dungeons, bosses and any loot

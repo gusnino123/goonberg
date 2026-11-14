@@ -1,5 +1,14 @@
 # Goonberg Terminal
 
+## 0.18.2
+
+- **Loot tab now has every dungeon drop in the WoW Forever data, trash included.** The bundled tables only had bosses; most rare Bind on Equip drops come from trash. Added:
+  - **Trash tables for 26 dungeons** (520 items) with their drop chance per trash mob, shown as "Trash (any mob)".
+  - **Chests and other objects** (Dire Maul Tribute, Knot Thimblejack's Cache, Stratholme plans and more: 47 items), shown as "(chest)" and counted in gold per run.
+  - Checked against the full Forever data: no item is missing now. 492 blue or epic drops at 5% or less are included, 291 of them from trash.
+- Drop chances under 1% show two decimals (0.03%), so very rare drops don't read as 0.0%.
+- Gold per run counts bosses and chests only; trash chances are per mob.
+
 ## 0.18.1
 
 - **Loot tab comes pre-filled.** WoW Forever loot tables now ship with the addon: 29 dungeons (including Hall of Thanes, Ruins of Lordaeron, Excavation Site and City of Dalaran), 252 bosses, 1,426 items and 1,118 drop chances, from Dungeon Codex (AtlasLootClassic boss loot, foreverchanges.pro Forever drop chances). No need to re-run dungeons.
