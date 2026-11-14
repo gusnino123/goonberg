@@ -176,80 +176,17 @@ local function buildCenter(tab)
   end)
   tab.watchBtn = watchBtn
 
-  local tfs = W.Choice(center, { "15M", "1H", "6H", "12H", "1D", "1W", "1M", "All" }, "seg", function(v) T.tf = v; T:Refresh() end, 26)
-  -- timeframes sit on the title row, left of the watch button; the item name
-  -- stops before them so nothing overlaps on narrow windows
-  tfs:SetPoint("RIGHT", watchBtn, "LEFT", -10, 0)
-  tab.name:SetPoint("RIGHT", tfs, "LEFT", -12, 0)
-  tfs:Select(T.tf)
-  tab.tfs = tfs
+  -- (timeframes live in the chart's own top bar, so the title row never overlaps)
+  tab.name:SetPoint("RIGHT", watchBtn, "LEFT", -12, 0)
 
-  -- Chart box
-  local box = W.Box(center, C.panel, C.border)
-  box:SetPoint("TOPLEFT", PAD, -96)
-  box:SetPoint("RIGHT", center, "RIGHT", -PAD, 0)
-  box:SetHeight(PLOT_H + VOL_H + 58)
-  tab.box = box
-
-  local plot = CreateFrame("Frame", nil, box)
-  plot:SetPoint("TOPLEFT", 14, -14)
-  plot:SetPoint("RIGHT", box, "RIGHT", -AXIS_W, 0)
-  plot:SetHeight(PLOT_H)
-  tab.plot = plot
-
-  local vol = CreateFrame("Frame", nil, box)
-  vol:SetPoint("TOPLEFT", plot, "BOTTOMLEFT", 0, -10)
-  vol:SetPoint("TOPRIGHT", plot, "BOTTOMRIGHT", 0, -10)
-  vol:SetHeight(VOL_H)
-  local volLine = W.Tex(vol, C.border)
-  volLine:SetPoint("TOPLEFT"); volLine:SetPoint("TOPRIGHT"); volLine:SetHeight(1)
-  tab.vol = vol
-
-  tab.xStart = W.Text(box, 10, C.muted)
-  tab.xStart:SetPoint("TOPLEFT", vol, "BOTTOMLEFT", 0, -6)
-  local xMid = W.Text(box, 10, C.muted)
-  xMid:SetPoint("TOP", vol, "BOTTOM", 0, -6)
-  xMid:SetText("bars: est. sold")
-  local xEnd = W.Text(box, 10, C.muted)
-  xEnd:SetPoint("TOPRIGHT", vol, "BOTTOMRIGHT", 0, -6)
-  xEnd:SetText("now")
-
-  tab.emptyChart = W.Text(box, 13, C.muted)
-  tab.emptyChart:SetPoint("CENTER", plot, "CENTER")
-  tab.emptyChart:SetJustifyH("CENTER")
-  tab.emptyChart:SetWordWrap(true)
-  tab.emptyChart:SetWidth(380)
-
-  local function tex(parent) return function() return parent:CreateTexture(nil, "ARTWORK") end end
-  tab.candlePool = W.Pool(tex(plot))
-  tab.volPool = W.Pool(tex(vol))
-  tab.gridPool = W.Pool(function() local t = plot:CreateTexture(nil, "BACKGROUND"); return t end)
-  tab.labelPool = W.Pool(function() return W.Text(box, 10, C.muted, true) end)
-  tab.tagPool = W.Pool(function()
-    local f = W.Box(box, C.up, C.up)
-    f:SetHeight(18)
-    f:SetFrameLevel(plot:GetFrameLevel() + 5)
-    f.text = W.Text(f, 11, C.bg, true)
-    f.text:SetPoint("CENTER")
-    return f
-  end)
-  tab.hoverPool = W.Pool(function()
-    local h = CreateFrame("Frame", nil, plot)
-    h:EnableMouse(true)
-    h:SetScript("OnEnter", function(self)
-      local c = self.candle
-      GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
-      GameTooltip:AddLine(self.when, 1, 1, 1)
-      GameTooltip:AddDoubleLine("Open", FI.Money(c.o), 0.7, 0.7, 0.7, 1, 1, 1)
-      GameTooltip:AddDoubleLine("High", FI.Money(c.hi), 0.7, 0.7, 0.7, 1, 1, 1)
-      GameTooltip:AddDoubleLine("Low", FI.Money(c.lo), 0.7, 0.7, 0.7, 1, 1, 1)
-      GameTooltip:AddDoubleLine("Close", FI.Money(c.c), 0.7, 0.7, 0.7, 1, 1, 1)
-      GameTooltip:AddDoubleLine("Est. sold", FI.Number(c.v), 0.7, 0.7, 0.7, 1, 1, 1)
-      GameTooltip:Show()
-    end)
-    h:SetScript("OnLeave", GameTooltip_Hide)
-    return h
-  end)
+  -- Interactive chart (UI/ChartView.lua)
+  local view = FI.ChartView:Create(center, { preset = T.tf, onDraw = function(info) T:OnChartDrawn(info) end })
+  view.box:SetPoint("TOPLEFT", PAD, -96)
+  view.box:SetPoint("RIGHT", center, "RIGHT", -PAD, 0)
+  view.box:SetHeight(360)
+  tab.view = view
+  tab.box = view.box
+  local box = view.box
 
   -- Stats row
   local stats = {}
@@ -401,131 +338,29 @@ function T:FitChart()
   local tab = self.frame
   local h = tab.center:GetHeight()
   if not h or h < 200 then return end
-  local boxH = h - 100 - 62 - 16
-  local plotH = math.max(120, boxH - VOL_H - 58)
-  self.plotH = plotH
-  tab.plot:SetHeight(plotH)
-  tab.box:SetHeight(plotH + VOL_H + 58)
+  tab.box:SetHeight(math.max(240, h - 96 - 62 - 16))
 end
 
-function T:DrawChart(it)
+-- Header and stats follow whatever window the chart shows (preset, zoom or pan)
+local PRESET_LABEL = {
+  ["15M"] = "past 15 minutes", ["1H"] = "past hour", ["6H"] = "past 6 hours", ["12H"] = "past 12 hours",
+  ["1D"] = "past 24 hours", ["1W"] = "past 7 days", ["1M"] = "past 30 days", ["All"] = "all history",
+}
+function T:OnChartDrawn(info)
   local tab = self.frame
-  self:FitChart()
-  tab.candlePool:Reset(); tab.volPool:Reset(); tab.gridPool:Reset()
-  tab.labelPool:Reset(); tab.tagPool:Reset(); tab.hoverPool:Reset()
-
-  local now = time()
-  local tf = TF[self.tf]
-  local span = tf.span or H.Span(it, now)
-  local n = tf.n
-  local candles = H.Candles(it, now, span, n)
-  tab.xStart:SetText(tf.start)
-  if #candles == 0 then
-    tab.emptyChart:SetText("No price history in this timeframe yet.\nEach AH scan adds a point; charts fill in as you scan.")
-    tab.emptyChart:Show()
-    return
-  end
-  tab.emptyChart:Hide()
-
-  local plot = tab.plot
-  local PW = plot:GetWidth()
-  if not PW or PW < 10 then PW = 400 end
-  local hi, lo, vmax = -math.huge, math.huge, 0
-  for _, c in ipairs(candles) do
-    if c.hi > hi then hi = c.hi end
-    if c.lo < lo then lo = c.lo end
-    if c.v > vmax then vmax = c.v end
-  end
-  local w = FI:Realm().watch[self.itemID]
-  local lines = {}
-  if w and w.below then lines[#lines + 1] = { w.below, "ALERT " .. FI.Money(w.below) } end
-  if w and w.above then lines[#lines + 1] = { w.above, "ALERT " .. FI.Money(w.above) } end
-  for _, l in ipairs(lines) do
-    -- only stretch the scale for alerts that are reasonably close
-    if l[1] < lo and l[1] > lo * 0.6 then lo = l[1] end
-    if l[1] > hi and l[1] < hi * 1.6 then hi = l[1] end
-  end
-  if hi == lo then hi, lo = hi * 1.05, lo * 0.95 end
-  local pad = (hi - lo) * 0.08
-  hi, lo = hi + pad, math.max(0, lo - pad)
-  local PLOT_H = self.plotH or PLOT_H
-  local function y(p) return (p - lo) / (hi - lo) * PLOT_H end
-
-  -- grid + price labels
-  for k = 0, 4 do
-    local p = lo + (hi - lo) * k / 4
-    local g = tab.gridPool:Get()
-    g:SetColorTexture(C.border[1], C.border[2], C.border[3], 0.7)
-    g:ClearAllPoints()
-    g:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", 0, y(p))
-    g:SetPoint("BOTTOMRIGHT", plot, "BOTTOMRIGHT", 0, y(p))
-    g:SetHeight(1)
-    local l = tab.labelPool:Get()
-    l:ClearAllPoints()
-    l:SetPoint("LEFT", plot, "BOTTOMRIGHT", 8, y(p))
-    l:SetText(FI.Money(p))
-  end
-
-  local slot = PW / n
-  local bw = math.max(3, math.floor(slot * 0.6))
-  local start = now - span
-  for _, c in ipairs(candles) do
-    local x = c.slot * slot + slot / 2
-    local col = c.c >= c.o and C.up or C.down
-    local wick = tab.candlePool:Get()
-    wick:SetColorTexture(col[1], col[2], col[3], 1)
-    wick:ClearAllPoints()
-    wick:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", math.floor(x), y(c.lo))
-    wick:SetSize(1, math.max(1, y(c.hi) - y(c.lo)))
-    local body = tab.candlePool:Get()
-    body:SetColorTexture(col[1], col[2], col[3], 1)
-    body:ClearAllPoints()
-    body:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", math.floor(x - bw / 2 + 0.5), y(math.min(c.o, c.c)))
-    body:SetSize(bw, math.max(2, math.abs(y(c.o) - y(c.c))))
-    if c.v > 0 and vmax > 0 then
-      local v = tab.volPool:Get()
-      v:SetColorTexture(col[1], col[2], col[3], 0.4)
-      v:ClearAllPoints()
-      v:SetPoint("BOTTOMLEFT", tab.vol, "BOTTOMLEFT", math.floor(x - bw / 2 + 0.5), 0)
-      v:SetSize(bw, math.max(1, c.v / vmax * (VOL_H - 4)))
-    end
-    local hov = tab.hoverPool:Get()
-    hov:ClearAllPoints()
-    hov:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", c.slot * slot, 0)
-    hov:SetSize(math.max(2, slot), PLOT_H)
-    hov.candle = c
-    local t0 = start + c.slot * span / n
-    hov.when = date(span <= 86400 and "%a %H:%M" or "%b %d, %H:%M", t0)
-  end
-
-  local function hline(price, color, label, labelOnLeft, dark)
-    local g = tab.gridPool:Get()
-    g:SetColorTexture(color[1], color[2], color[3], 0.8)
-    g:ClearAllPoints()
-    g:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", 0, y(price))
-    g:SetPoint("BOTTOMRIGHT", plot, "BOTTOMRIGHT", 0, y(price))
-    g:SetHeight(1)
-    local tag = tab.tagPool:Get()
-    tag:ClearAllPoints()
-    tag.text:SetText(label)
-    tag:SetWidth(tag.text:GetStringWidth() + 12)
-    if labelOnLeft then
-      tag:SetPoint("LEFT", plot, "BOTTOMLEFT", 4, y(price))
-      tag:SetBackdropColor(C.bg[1], C.bg[2], C.bg[3], 1)
-      tag.text:SetTextColor(color[1], color[2], color[3])
-    else
-      tag:SetPoint("LEFT", plot, "BOTTOMRIGHT", 4, y(price))
-      tag:SetBackdropColor(color[1], color[2], color[3], 1)
-      tag.text:SetTextColor(C.bg[1], C.bg[2], C.bg[3])
-    end
-    tag:SetBackdropBorderColor(color[1], color[2], color[3], 1)
-  end
-  for _, l in ipairs(lines) do
-    if l[1] >= lo and l[1] <= hi then hline(l[1], C.gold, l[2], true) end
-  end
-  local last = candles[#candles].c
-  local first = candles[1].o
-  hline(last, last >= first and C.up or C.down, FI.Money(last), false)
+  local view = tab.view
+  self.tf = view.preset
+  local it = self.itemID and FI:Realm().items[self.itemID]
+  if not it or not it.mkt then return end
+  local label = view.customSpan and ("showing " .. FI.Duration(info.span)) or (PRESET_LABEL[view.preset] or "")
+  if info.offset and info.offset > 0 then label = label .. ", ending " .. FI.Duration(info.offset) .. " ago" end
+  local fromAtr = it.imported and (not it.seen or it.imported > it.seen)
+  tab.tfLabel:SetText(label .. "  -  " .. (fromAtr and ("from Auctionator " .. FI.Ago(it.imported)) or ("scanned " .. FI.Ago(it.seen))))
+  setChange(tab, info.change)
+  tab.stats[1].value:SetText(info.hi and info.hi > -math.huge and FI.Money(info.hi) or "-")
+  tab.stats[2].value:SetText(info.lo and info.lo < math.huge and FI.Money(info.lo) or "-")
+  tab.stats[4].label:SetText("EST. SOLD (WINDOW)")
+  tab.stats[4].value:SetText(info.sold and FI.Number(info.sold) or "-")
 end
 
 function T:DrawDepth(it)
@@ -574,7 +409,7 @@ function T:Refresh()
     self.itemID = self.itemID or defaultItem()
   end
   local id = self.itemID
-  tab.tfs:Select(self.tf)
+  self:FitChart()
   if not id then
     tab.name:SetText("No data yet")
     tab.price:SetText("")
@@ -582,8 +417,8 @@ function T:Refresh()
     tab.tfLabel:SetText("Open the Auction House and scan to start.")
     tab.icon:SetTexture(nil)
     tab.watchBtn:Hide()
-    tab.emptyChart:SetText("Open the Auction House: Goonberg Terminal scans it and starts building charts.")
-    tab.emptyChart:Show()
+    tab.view:SetItem(nil)
+    tab.view.empty:SetText("Open the Auction House: Goonberg Terminal scans it and starts building charts.")
     self:DrawDepth(nil)
     return
   end
@@ -611,7 +446,7 @@ function T:Refresh()
     tab.pill:Hide()
     tab.tfLabel:SetText("Not seen on the AH yet")
     for _, s in ipairs(tab.stats) do s.value:SetText("-") end
-    self:DrawChart({ h = {} })
+    tab.view:SetItem(id)
     self:DrawDepth(nil)
     tab.watchList:Refresh()
     return
@@ -621,38 +456,8 @@ function T:Refresh()
   local s = H.Stats(it, now)
   tab.price:SetText(FI.Money(it.mkt))
   tab.pill:Show()
-  local tfChange
-  if TF[self.tf].chg then tfChange = s[TF[self.tf].chg] else
-    local h = it.h
-    local firstP
-    local span = TF[self.tf].span or H.Span(it, now)
-    for i = 1, #h, H.STRIDE do
-      if h[i] >= now - span and h[i + 1] > 0 then firstP = h[i + 1]; break end
-    end
-    if firstP and firstP > 0 then tfChange = (it.mkt - firstP) / firstP * 100 end
-  end
-  setChange(tab, tfChange)
-  local fromAtr = it.imported and (not it.seen or it.imported > it.seen)
-  tab.tfLabel:SetText(TF[self.tf].label .. "  -  " .. (fromAtr and ("from Auctionator " .. FI.Ago(it.imported)) or ("scanned " .. FI.Ago(it.seen))))
-
-  -- High/low over the timeframe
-  local span = TF[self.tf].span or H.Span(it, now)
-  local hi, lo
-  for i = 1, #it.h, H.STRIDE do
-    local t, m = it.h[i], it.h[i + 1]
-    if t >= now - span and m > 0 then
-      if not hi or m > hi then hi = m end
-      if not lo or m < lo then lo = m end
-    end
-  end
-  tab.stats[1].value:SetText(FI.Money(hi))
-  tab.stats[2].value:SetText(FI.Money(lo))
   tab.stats[3].value:SetText(FI.Number(s.qty))
-  local soldKey = TF[self.tf].sold or "sold7"
-  tab.stats[4].label:SetText("EST. SOLD " .. ((TF[self.tf].sold and self.tf) or "7D"):upper())
-  tab.stats[4].value:SetText(FI.Number(s[soldKey]))
-
-  self:DrawChart(it)
+  tab.view:SetItem(id) -- draws, then OnChartDrawn fills the header and stats
   self:DrawDepth(it)
   tab.watchList:Refresh()
 end

@@ -4,12 +4,14 @@
 -- received are never passed on, so nothing loops. Newcomers with little history ask
 -- once at login and one guildmate whispers them up to 21 days of daily prices.
 local _, FI = ...
-local Y = { peers = {}, sessions = {} }
+local Y = { peers = {}, sessions = {}, sent = {}, greeted = {} }
 FI.Sync = Y
 local PREFIX = "GoonbergSync"
 local PROTO = "1"
-local MAX_ITEMS = 2000         -- per broadcast scan, busiest first
-local HISTORY_ITEMS = 400      -- items sent to a newcomer
+-- Kept deliberately light (Blizzard's addon policy: no harm to realm performance):
+local MAX_ITEMS = 600          -- per broadcast scan, busiest first, changed items only
+local RESEND_AFTER = 2 * 3600  -- unchanged items are re-sent at most every 2 hours
+local HISTORY_ITEMS = 250      -- items sent to a newcomer
 local HISTORY_DAYS = 21
 local MSG_MAX = 250
 local H
@@ -81,18 +83,36 @@ end
 -- ---------------------------------------------------------------------------
 -- Broadcasting your scan
 -- ---------------------------------------------------------------------------
+-- Guildmates running Goonberg we've heard from in the last day
+function Y:ActivePeers()
+  local n, now = 0, time()
+  for _, t in pairs(self.peers) do if now - t < 86400 then n = n + 1 end end
+  return n
+end
+
+-- Has this item changed enough since we last sent it to be worth sending again?
+local function changed(id, it, t)
+  local last = Y.sent[id]
+  if not last or t - last.t >= RESEND_AFTER then return true end
+  if last.mkt > 0 and math.abs(it.mkt - last.mkt) / last.mkt >= 0.02 then return true end
+  return math.abs((it.qty or 0) - last.qty) >= math.max(2, last.qty * 0.10)
+end
+
 function Y:BroadcastScan(t)
   if not canSync() then return end
+  -- nobody in the guild runs Goonberg: send nothing at all
+  if self:ActivePeers() == 0 then return end
   local realm = FI:Realm()
   local list = {}
   for id, it in pairs(realm.items) do
-    if it.seen == t and it.mkt and (it.qty or 0) > 0 then list[#list + 1] = { id, it } end
+    if it.seen == t and it.mkt and (it.qty or 0) > 0 and changed(id, it, t) then list[#list + 1] = { id, it } end
   end
   table.sort(list, function(a, b) return a[2].mkt * a[2].qty > b[2].mkt * b[2].qty end)
   local entries = {}
   for i = 1, math.min(MAX_ITEMS, #list) do
     local id, it = list[i][1], list[i][2]
     entries[#entries + 1] = table.concat({ b36(id), b36(it.mkt), b36(it.min or it.mkt), b36(it.qty), b36(it.cnt or 1) }, ",")
+    self.sent[id] = { mkt = it.mkt, qty = it.qty or 0, t = t }
   end
   if #entries == 0 then return end
   -- a newer scan replaces one that's still going out
@@ -238,7 +258,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Catch-up: everything the guild saw since you logged off
 -- ---------------------------------------------------------------------------
-local CATCHUP_ITEMS, CATCHUP_POINTS = 400, 24
+local CATCHUP_ITEMS, CATCHUP_POINTS = 250, 12
 
 function Y:RequestCatchup(since, manual)
   if not canSync() then return end
@@ -385,7 +405,12 @@ FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
     elseif kind == "Q" then if rest == PROTO then onRequest(who) end
     elseif kind == "C" then onCatchupRequest(who, rest)
     elseif kind == "R" then onResponding(rest)
-    elseif kind == "V" then -- hello
+    elseif kind == "V" then
+      -- hello: say hello back (once a day per person) so both sides know
+      if not Y.greeted[who] or time() - Y.greeted[who] > 86400 then
+        Y.greeted[who] = time()
+        send("W" .. (FI.version or ""), "WHISPER", who)
+      end
     end
   else
     if kind == "H" then onHistory(who, rest)

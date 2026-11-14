@@ -224,6 +224,7 @@ function H.Candles(it, now, span, n)
   local list, bySlot = {}, {}
   for i = 1, #h, STRIDE do
     local t, m, s = h[i], h[i + 1], h[i + 3]
+    if t > now then break end -- the window can end in the past (chart panned back)
     if t >= start then
       local slot = math.min(n - 1, math.max(0, math.floor((t - start) / span * n)))
       local c = bySlot[slot]

@@ -25,7 +25,7 @@ Type **`/goon`** in game to open it, or click the goblin under your minimap.
 
 **2. Everything works away from the AH.** Close the AH and the charts, overview, tooltips and crafting margins keep working from your saved data, anywhere in the world. Prices are as fresh as the last scan, yours or your guild's.
 
-**3. Guild sync.** Every guildmate running Goonberg shares their scans with the rest of the guild over the game's addon channel:
+**3. Guild sync.** Every guildmate running Goonberg shares their scans with the rest of the guild over the game's addon channel. It's kept light: it sends nothing unless a guildmate runs Goonberg, and after that only items whose price or quantity changed:
 - **Live:** when a guildmate scans, your prices update within minutes wherever you are, and your price alerts can fire from their scan.
 - **Catch-up:** when you log in after being away, a guildmate fills in everything they scanned while you were gone, so your charts have no gaps.
 - **New installs:** if you have little history, a guildmate sends you up to 21 days of daily prices at login.
@@ -76,10 +76,16 @@ Rare items (a world-drop epic, a pricey blue, an uncommon recipe) are only liste
 As with every deal, these are listing prices: the game doesn't show what things actually sold for.
 
 ### Chart
-- **Candlestick chart** with est. sold bars: **15M · 1H · 6H · 12H · 1D · 1W · 1M · All**. Hover a candle for open, high, low, close and sales.
-- **Market depth:** how many are listed at each price, and where the **wall** is (the big stack everyone has to buy through).
-- **Watchlist** on the left (type a name or shift-click an item to add it; right-click to remove).
-- **Price alerts** on the right: notify below or above a price (e.g. `3g50s`). When a live scan crosses it you get a pop-up, a sound, a gold flash around the screen and a chat line.
+An interactive chart, TradingView-style:
+- **Timeframes** in the chart's top bar: **15M · 1H · 6H · 12H · 1D · 1W · 1M · All**.
+- **Crosshair:** move the mouse over the chart for a crosshair with the price on the right axis and the time on the bottom. The **legend** (top left) shows that candle's open, high, low, close, change and est. sold.
+- **Zoom:** scroll the mouse wheel to zoom in and out around the cursor. **Pan:** click and drag to look back in time; **Back to now** returns to the present.
+- **Styles:** Candles, Line or Area. **MA 7/25:** two moving averages. **Usual price:** shows the item's 60-day usual price and the cheapest it typically goes for.
+- **Alerts on the chart:** **right-click** to set a price alert at that level (below the current price = "notify below", above = "notify above"). **Drag** a gold alert line to move it.
+- The header's change, high, low and est. sold follow whatever window the chart shows.
+- **Market depth** on the right: how many are listed at each price, and where the **wall** is. **Watchlist** on the left (type a name or shift-click an item to add it; right-click to remove). Alerts can also be typed in on the right.
+
+The chart is only as detailed as the scans: zoomed into an hour you'll see a few candles about 15 minutes apart.
 
 ### Crafting (`/goon2`)
 - **Recipes:** every recipe you know with cost to craft, what it sells for after the 5% AH cut, **profit**, **margin** and how fast it sells. Click a recipe to expand it: each reagent with quantity, price each, where the price came from (AH or vendor) and the line cost, then the total. Filter by profession, show **Profitable only**, sort by profit, margin or sold per day.

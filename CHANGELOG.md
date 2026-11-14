@@ -1,5 +1,20 @@
 # Goonberg Terminal
 
+## 0.15.0
+
+- **Interactive charts (TradingView-style).**
+  - Crosshair with price and time tags, and a live legend (O/H/L/C, change, est. sold).
+  - Mouse wheel zooms around the cursor; click-drag pans back in time; **Back to now** returns.
+  - Candles, Line or Area; **MA 7/25** moving averages; optional **usual price** and **typical low** lines.
+  - **Right-click** the chart to set a price alert there; **drag** an alert line to move it.
+  - The header's change, high, low and est. sold follow the window you're looking at.
+- **Fixed: chart timeframes overlapping the item name.** With 8 timeframe buttons on the title row, names got squashed and, on narrow windows, covered. The timeframes now sit in the chart's own top bar.
+- **Fixed: when looking at a past window, scans after its end were drawn into its last candle.**
+- **Lighter guild sync** (Blizzard's addon policy asks addons not to burden realm performance):
+  - Sends nothing at all unless a guildmate runs Goonberg (guildmates greet each other at login).
+  - Sends only items whose price or quantity changed since the last broadcast (unchanged ones at most every 2 hours), capped at 600 per scan. A repeat scan with unchanged prices now sends nothing.
+  - History for newcomers and catch-up send fewer items and points.
+
 ## 0.14.0
 
 - **Rare finds.** Seldom-listed items worth 5g+ that show up at least 20% under their usual price (60-day median) **and** under the cheapest they typically go for (their 10th-percentile day). The second check means items that normally swing a lot don't trigger it. Needs 3+ separate days of history; labelled **RARE** (solid, 6+ days) or **RARE?** (thin), in orange when the whole item is trending down. A new **Rare** filter on the Deals tab and its own pop-up for each new find. `/goon rare` to view and change the rules.
