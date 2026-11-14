@@ -1,17 +1,18 @@
 -- Goonberg Terminal: deal finder
 -- Looks at the latest scan for listings priced well under what the item is worth:
---   Flip       - at least N% under its 7-day fair value; relist near fair value
+--   Flip       - under its 7-day fair value; relist near fair value
 --   Vendor     - under what an NPC vendor pays for it; buy and vendor, no waiting
 --   Disenchant - gear under its estimated disenchant value
--- Profit counts every unit under the deal price (from market depth) and takes off
--- the AH's 5% cut where you'd resell on the AH.
+-- A deal must leave a margin (5%+ by default) after the AH's 5% cut where you'd
+-- resell on the AH. Total profit counts every unit under the deal price (from depth).
 local _, FI = ...
-local DL = { minDiscount = 0.30, maxAge = 3600 }
+-- margin = what you pocket per item after any AH cut, divided by what you pay
+local DL = { minMargin = 0.05, alertMargin = 0.10, maxAge = 3600 }
 FI.Deals = DL
 local CUT = 0.05
 local MIN_PROFIT = 100 -- 1s: ignore crumbs
 
-DL.FLOOR = 0.20 -- deals are found once at the loosest setting; screens filter tighter
+DL.FLOOR = 0.05 -- deals are found once at the loosest margin; screens filter tighter
 local PER_FRAME = 250
 
 -- Caches. Vendor prices never change; fair values (7-day medians) move slowly, so
@@ -54,44 +55,50 @@ local function judge(levels, worth, cutoff)
   return units, profit
 end
 
--- One item: its best deal at the loosest discount (DL.FLOOR), or nil
+-- Buy below this to make at least `margin` on each item you resell at `worth`
+local function cutoffFor(worth, margin) return worth / (1 + margin) end
+
+-- One item: its best deal at the loosest margin (DL.FLOOR), or nil
 local function evaluate(id, it, now)
   local levels, qtyKnown = listings(it)
   local cheapest = levels[1]
   -- the item can change between queuing and evaluating (a new scan landed)
   if not cheapest or not it.seen or now - it.seen > DL.maxAge then return nil end
   local best
-  local function consider(kind, worth, base, ref)
-    -- base: the value the discount applies to (nil = fixed cutoff at `worth`)
-    local cutoff = base and base * (1 - DL.FLOOR) or worth
-    if not worth or worth <= 0 or cheapest >= cutoff then return end
+  -- worth: what you get per item (after the AH cut when you resell on the AH)
+  -- ref: the headline value (fair value, vendor price, disenchant value)
+  local function consider(kind, worth, ref)
+    if not worth or worth <= 0 then return end
+    local cutoff = cutoffFor(worth, DL.FLOOR)
+    if cheapest >= cutoff then return end
     local units, profit = judge(levels, worth, cutoff)
     if profit >= MIN_PROFIT and (not best or profit > best.profit) then
-      best = { kind = kind, worth = worth, base = base, ref = ref, units = units, profit = profit }
+      best = { kind = kind, worth = worth, ref = ref, units = units, profit = profit }
     end
   end
   local fair = fairValue(id, it, now)
-  if fair then consider("Flip", fair * (1 - CUT), fair, fair) end
+  if fair then consider("Flip", fair * (1 - CUT), fair) end         -- relist: AH takes 5%
   local vendor = vendorPrice(id)
-  if vendor then consider("Vendor", vendor, nil, vendor) end
+  if vendor then consider("Vendor", vendor, vendor) end             -- NPC pays in full
   if FI.Disenchant:Results(id) then
     local de, complete = FI.Disenchant:Value(id)
-    if de and complete then consider("Disenchant", de * (1 - CUT), de * (1 - CUT), de) end
+    if de and complete then consider("Disenchant", de * (1 - CUT), de) end -- mats sold on the AH
   end
   if not best then return nil end
   best.id = id
   best.price = cheapest
   best.discount = (best.ref - cheapest) / best.ref * 100
+  best.perItem = best.worth - cheapest                    -- on the cheapest one
+  best.margin = best.perItem / cheapest * 100
   best.qtyKnown = qtyKnown
   best.levels = levels
   best.seen = it.seen
   return best
 end
 
--- Units and profit of a deal at a stricter discount (e.g. 0.30); nil if it no longer qualifies
-function DL:At(d, minDiscount)
-  if not d.base then return d.units, d.profit end -- vendor deals: any discount counts
-  local cutoff = d.base * (1 - minDiscount)
+-- Units and profit of a deal at a stricter margin (e.g. 0.20); nil if it no longer qualifies
+function DL:At(d, minMargin)
+  local cutoff = cutoffFor(d.worth, minMargin)
   if d.price >= cutoff then return nil end
   local units, profit = judge(d.levels, d.worth, cutoff)
   if profit < MIN_PROFIT then return nil end
@@ -112,11 +119,11 @@ local function candidates(realm, now, maxAge)
   return ids
 end
 
--- Applies a discount to a raw list (units and profit recomputed)
-function DL:Filter(list, minDiscount)
+-- Applies a minimum margin to a raw list (units and total profit recomputed)
+function DL:Filter(list, minMargin)
   local out = {}
   for _, d in ipairs(list) do
-    local units, profit = self:At(d, minDiscount)
+    local units, profit = self:At(d, minMargin)
     if units then
       local c = setmetatable({ units = units, profit = profit }, { __index = d })
       out[#out + 1] = c
@@ -125,7 +132,7 @@ function DL:Filter(list, minDiscount)
   return out
 end
 
--- All deals right now at self.minDiscount, in one go (commands, tests)
+-- All deals right now at self.minMargin, in one go (commands, tests)
 function DL:Find(now)
   now = now or time()
   local realm = FI:Realm()
@@ -135,7 +142,7 @@ function DL:Find(now)
     if d then finish(d, now); raw[#raw + 1] = d end
   end
   self.last = { scan = realm.lastScan, raw = raw, at = now }
-  return self:Filter(raw, self.minDiscount)
+  return self:Filter(raw, self.minMargin)
 end
 
 -- The same search spread over many frames, so a big AH never freezes the game.
@@ -184,7 +191,7 @@ end
 local function alert(raw)
   if FI.settings.dealAlerts == false then return end
   local threshold = FI.settings.dealAlertGold or 50000 -- 5g
-  local deals = DL:Filter(raw, DL.minDiscount)
+  local deals = DL:Filter(raw, DL.alertMargin)
   local seen = DL.alerted or {}
   local fresh, total, top = 0, 0, nil
   local now = {}
@@ -200,7 +207,7 @@ local function alert(raw)
   if fresh > 0 and total >= threshold then
     FI.Alerts:Toast(top.id,
       ("%d new deal%s worth %s"):format(fresh, fresh == 1 and "" or "s", FI.Money(total)),
-      ("Best: %s, %d%% under %s value. Click to view."):format(top.name, math.floor(top.discount), top.kind:lower()),
+      ("Best: %s, +%s each (%d%% margin). Click to view."):format(top.name, FI.Money(top.perItem), math.floor(top.margin)),
       function() FI.UI:Show("deals") end)
   end
 end

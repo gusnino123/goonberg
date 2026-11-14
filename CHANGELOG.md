@@ -1,5 +1,12 @@
 # Goonberg Terminal
 
+## 0.12.2
+
+- **Deals show profit per item.** New columns: **Buy at** (cheapest listing), **Sell for** (what you get per item: after the 5% AH cut when you relist, or the full vendor price), **Per item**, **Margin**, **Units** and **Total** (every unit under the deal price).
+- **Deals are judged by real margin** (profit per item after the AH cut, divided by what you pay) instead of discount. Choose **5% · 10% · 20% · 50%**; the default 5% shows every deal worth doing and hides ones the AH cut would eat.
+- Sort by **Total, Per item, Margin** or **Sold/day**. Hover a deal for the full math.
+- Deal pop-ups count deals with at least a 10% margin and show the per-item profit.
+
 ## 0.12.1
 
 - **Smoother deal alerts.** The deal search no longer freezes the game after a scan:

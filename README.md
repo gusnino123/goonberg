@@ -50,14 +50,16 @@ The whole market at a glance.
 - Click any column header to sort; click again to flip. Each row has a 7-day trend line. Click a row to open its chart; shift-click to link it in chat.
 
 ### Deals
-Listings in the latest scan priced well under what they're worth:
-- **Flip:** at least 20%, 30% or 50% (your pick) under the item's **fair value**, its median price over the last 7 days. Buy and relist.
-- **Vendor:** cheaper than what an NPC vendor pays for it. Buy and vendor it: guaranteed profit, no waiting.
-- **Disenchant:** gear cheaper than its estimated disenchant value.
+Listings in the latest scan you can buy and make money on:
+- **Flip:** cheaper than the item's **fair value** (its median price over the last 7 days). Buy and relist.
+- **Vendor:** cheaper than what an NPC vendor pays for it. Buy it, vendor it: guaranteed profit, no waiting.
+- **Disenchant:** gear cheaper than what it disenchants into.
 
-Each deal shows the lowest price, what it's worth, the discount, how many units are under the deal price, the **total profit** if you bought them all (after the 5% AH cut) and how fast it sells. Turn on **Sells daily** to skip things nobody buys. **Click** a deal to search for it on the open Auction House, **right-click** for its chart.
+Each deal shows **Buy at** (the cheapest listing), **Sell for** (what you'd get per item: after the 5% AH cut when you relist on the AH, or the full price from a vendor), **profit per item**, **margin** (profit ÷ what you pay), how many **units** are listed under the deal price and the **total** profit on all of them, plus how fast it sells.
 
-After every live scan you get a pop-up when new deals add up to 5g or more (change it with `/goon deals alert 10`).
+Pick a minimum margin of **5%, 10%, 20% or 50%** after the AH cut (5% shows everything worth doing). Turn on **Sells daily** to skip things nobody buys. Sort by total, per item, margin or sales. **Click** a deal to search for it on the open Auction House, **right-click** for its chart, hover for the full math.
+
+After every live scan you get a pop-up when new deals with a 10%+ margin add up to 5g or more (change it with `/goon deals alert 10`).
 
 Deals are only as fresh as the last scan: someone may have bought them already. Deals from a guildmate's scan know the lowest price but not how many are listed ("1+").
 

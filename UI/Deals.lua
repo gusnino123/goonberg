@@ -1,24 +1,27 @@
 -- Goonberg Terminal: deals tab
 local _, FI = ...
-local D = { kind = "All", discount = "30%", liquid = false, search = "", sort = "Profit" }
+local D = { kind = "All", margin = "5%", liquid = false, search = "", sort = "Total" }
 FI.DealsTab = D
 local W = FI.Widgets
 local C = FI.colors
 
 local ROWS, ROW_H = 40, 30
+-- BUY AT: the cheapest listing. SELL FOR: what you get per item (after the AH cut
+-- when reselling on the AH). PER ITEM / MARGIN: profit on that cheapest one.
+-- UNITS / TOTAL: every unit listed under the deal price, and the profit on all of them.
 local COLS = {
-  { key = "kind", label = "TYPE", r = -600 },
-  { key = "price", label = "LOWEST", r = -510 },
-  { key = "worth", label = "WORTH", r = -420 },
-  { key = "discount", label = "DISCOUNT", r = -340 },
-  { key = "units", label = "UNITS", r = -270 },
-  { key = "profit", label = "PROFIT", r = -170 },
-  { key = "sold", label = "SOLD/DAY", r = -90 },
-  { key = "age", label = "SEEN", r = -14 },
+  { key = "kind", label = "TYPE", r = -622 },
+  { key = "price", label = "BUY AT", r = -532 },
+  { key = "worth", label = "SELL FOR", r = -442 },
+  { key = "perItem", label = "PER ITEM", r = -362 },
+  { key = "margin", label = "MARGIN", r = -292 },
+  { key = "units", label = "UNITS", r = -232 },
+  { key = "profit", label = "TOTAL", r = -132 },
+  { key = "sold", label = "SOLD/DAY", r = -14 },
 }
-local NAME_RIGHT = -660
+local NAME_RIGHT = -690
 local KIND_COLOR = { Flip = C.gold, Vendor = C.up, Disenchant = { 0.64, 0.53, 0.96 } }
-local DISCOUNTS = { ["20%"] = 0.20, ["30%"] = 0.30, ["50%"] = 0.50 }
+local MARGINS = { ["5%"] = 0.05, ["10%"] = 0.10, ["20%"] = 0.20, ["50%"] = 0.50 }
 
 -- Type the item into the Auction House search, when the AH is open
 function D:FindOnAH(itemID)
@@ -69,10 +72,20 @@ local function makeRow(parent)
     GameTooltip:SetOwner(self, "ANCHOR_CURSOR_RIGHT")
     GameTooltip:SetItemByID(d.id)
     GameTooltip:AddLine(" ")
-    local why = d.kind == "Flip" and ("Fair value (7-day median) %s"):format(FI.Money(d.ref))
-      or d.kind == "Vendor" and ("Vendors pay %s each"):format(FI.Money(d.ref))
-      or ("Disenchants for about %s (estimate)"):format(FI.Money(d.ref))
-    GameTooltip:AddLine("|cffe8b84a" .. why .. "|r")
+    local muted = FI.colors.soft
+    GameTooltip:AddDoubleLine("Buy at", FI.Money(d.price), muted[1], muted[2], muted[3], 1, 1, 1)
+    if d.kind == "Flip" then
+      GameTooltip:AddDoubleLine("Fair value (7-day median)", FI.Money(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
+      GameTooltip:AddDoubleLine("After 5% AH cut", FI.Money(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
+    elseif d.kind == "Vendor" then
+      GameTooltip:AddDoubleLine("Vendors pay (no cut)", FI.Money(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
+    else
+      GameTooltip:AddDoubleLine("Disenchants for (estimate)", FI.Money(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
+      GameTooltip:AddDoubleLine("After 5% AH cut on the mats", FI.Money(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
+    end
+    GameTooltip:AddDoubleLine("Profit per item", ("+%s (%d%%)"):format(FI.Money(d.perItem), math.floor(d.margin)), muted[1], muted[2], muted[3], 0.25, 0.71, 0.55)
+    GameTooltip:AddDoubleLine(("Profit on all %s"):format(d.qtyKnown and d.units or "1+"), "+" .. FI.Money(d.profit), muted[1], muted[2], muted[3], 0.25, 0.71, 0.55)
+    GameTooltip:AddLine(("|cff8b95a3Seen %s.|r"):format(FI.Ago(d.seen)))
     if not d.qtyKnown then GameTooltip:AddLine("|cff8b95a3From a guild scan: only the lowest price is known.|r") end
     GameTooltip:AddLine("|cff8b95a3Click: find it on the AH. Right-click: chart. Shift-click: link.|r")
     GameTooltip:Show()
@@ -105,16 +118,16 @@ local function updateRow(r, i)
   setColor(r.cells.kind, KIND_COLOR[d.kind] or C.soft)
   r.cells.price:SetText(FI.Money(d.price))
   setColor(r.cells.price, C.gold)
-  r.cells.worth:SetText(FI.Money(d.ref))
+  r.cells.worth:SetText(FI.Money(d.worth))
   setColor(r.cells.worth, C.soft)
-  r.cells.discount:SetText(("-%d%%"):format(math.floor(d.discount + 0.5)))
-  setColor(r.cells.discount, C.up)
+  r.cells.perItem:SetText("+" .. FI.Money(d.perItem))
+  setColor(r.cells.perItem, C.up)
+  r.cells.margin:SetText(("%d%%"):format(math.floor(d.margin + 0.5)))
+  setColor(r.cells.margin, C.up)
   r.cells.units:SetText(d.qtyKnown and FI.Number(d.units) or "1+")
   r.cells.profit:SetText("+" .. FI.Money(d.profit))
   setColor(r.cells.profit, C.up)
   r.cells.sold:SetText(d.soldPerDay and FI.Number(d.soldPerDay) or "-")
-  r.cells.age:SetText((FI.Ago(d.seen):gsub(" ago", "")))
-  setColor(r.cells.age, C.muted)
 end
 
 function D:Build(parent)
@@ -127,14 +140,14 @@ function D:Build(parent)
   kinds:SetPoint("TOPLEFT", 16, -16)
   kinds:Select(self.kind)
 
-  local sortBy = W.Choice(tab, { "Profit", "Discount", "Sold/day" }, "seg", function(v) D.sort = v; D:Refresh() end, 26)
+  local sortBy = W.Choice(tab, { "Total", "Per item", "Margin", "Sold/day" }, "seg", function(v) D.sort = v; D:Refresh() end, 26)
   sortBy:SetPoint("TOPRIGHT", -16, -16)
   sortBy:Select(self.sort)
-  local disc = W.Choice(tab, { "20%", "30%", "50%" }, "seg", function(v) D.discount = v; D:Refresh() end, 26)
+  local disc = W.Choice(tab, { "5%", "10%", "20%", "50%" }, "seg", function(v) D.margin = v; D:Refresh() end, 26)
   disc:SetPoint("RIGHT", sortBy, "LEFT", -12, 0)
-  disc:Select(self.discount)
+  disc:Select(self.margin)
   local discLabel = W.Text(tab, 11, C.muted)
-  discLabel:SetText("at least")
+  discLabel:SetText("margin at least")
   discLabel:SetPoint("RIGHT", disc, "LEFT", -6, 0)
   local liquid = W.Button(tab, "Sells daily", nil, 26, "pill")
   liquid:SetPoint("RIGHT", discLabel, "LEFT", -12, 0)
@@ -198,7 +211,7 @@ function D:Refresh()
     self.footer:SetText("")
     return
   end
-  local all = FI.Deals:Filter(raw, DISCOUNTS[self.discount] or 0.30)
+  local all = FI.Deals:Filter(raw, MARGINS[self.margin] or 0.05)
   local rows, total = {}, 0
   for _, d in ipairs(all) do
     local ok = self.kind == "All" or d.kind == self.kind
@@ -211,12 +224,13 @@ function D:Refresh()
   end
   local key = self.sort
   table.sort(rows, function(a, b)
-    if key == "Discount" then return a.discount > b.discount end
+    if key == "Per item" then return a.perItem > b.perItem end
+    if key == "Margin" then return a.margin > b.margin end
     if key == "Sold/day" then return (a.soldPerDay or -1) > (b.soldPerDay or -1) end
     return a.profit > b.profit
   end)
   self.rows = rows
-  local fkey = self.kind .. self.discount .. tostring(self.liquid) .. self.search .. self.sort
+  local fkey = self.kind .. self.margin .. tostring(self.liquid) .. self.search .. self.sort
   if fkey ~= self.lastFilter then self.list.offset = 0; self.lastFilter = fkey end
   self.list:SetCount(#rows)
 
@@ -225,12 +239,12 @@ function D:Refresh()
     self.empty:SetText("Deals come from the latest scan, and listings change fast.\nOpen the Auction House (or wait for a guildmate's scan) to find deals.")
     self.empty:Show()
   elseif #rows == 0 then
-    self.empty:SetText(#all == 0 and "No deals in the latest scan. Try a smaller discount, or check back after the next scan." or "No deals match these filters.")
+    self.empty:SetText(#all == 0 and "No deals in the latest scan. Try a lower margin, or check back after the next scan." or "No deals match these filters.")
     self.empty:Show()
   else
     self.empty:Hide()
   end
-  self.footer:SetText(("%d deal%s worth |cff3fb68b+%s|r if you bought every unit  -  from the scan %s  -  click a deal to find it on the AH")
+  self.footer:SetText(("%d deal%s, |cff3fb68b+%s|r if you bought every unit  -  margins after the 5%% AH cut  -  scan %s  -  click to find on the AH")
     :format(#rows, #rows == 1 and "" or "s", FI.Money(total), FI.Ago(realm.lastScan)))
 end
 
