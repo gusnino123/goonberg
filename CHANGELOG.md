@@ -1,5 +1,14 @@
 # Goonberg Terminal
 
+## 0.18.0
+
+- **New Loot tab** (`/goon loot`): dungeon drops you can sell on the AH, where they drop, how often, and what they're worth.
+  - **Items:** each drop with the boss and dungeon it comes from, required level, drop chance, AH value, average gold per kill, and how many kills the chance is based on. Filters for **Twink gear** (Bind on Equip gear that sells for real money in its 19/29/39/49 bracket), **Rare drops** (5% or less and 5g+, or any epic), and **Recipes & mats**.
+  - **Dungeons:** what a full run is worth on average from sellable boss drops, and its most valuable drop. Click a dungeon to see its items.
+  - Only Bind on Equip and unbound items are listed; Bind on Pickup and quest items never are.
+  - **Drop chances are learned from real kills**, since WoW Forever reworked every loot table and none are published: each boss you loot in a dungeon is a kill, and its green-or-better drops are counted. Guildmates' kills arrive through guild sync, and a kill looted by several of you still counts once. Trash drops are listed per dungeon as "seen N times".
+  - Dungeons, bosses and any loot the **Adventure Guide** lists show up before anyone has seen them drop.
+
 ## 0.17.1
 
 - **P&L counts flips only (new default).** A sale only counts when you bought that item on the AH first: each sale is matched to your earlier purchases of the same item, oldest first, and its profit is what you got after the AH cut minus what those units cost. Items you farmed, crafted or looted and sold aren't counted (they show greyed as "Farmed" in Recent trades), and purchases you haven't sold yet show as "Holding". A sale this week can use stock you bought earlier.

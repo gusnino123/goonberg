@@ -352,6 +352,7 @@ local help = {
   "/goon alert <item> below|above <price>  (e.g. 3g50s)",
   "/goon alert <item> clear",
   "/goon post <item> [guild|party|raid|say]  - share a price",
+  "/goon loot  - dungeon drops worth selling: where they drop, chance and value",
   "/goon market  - which market's daily Blizzard prices you get  |  /goon market pvp|normal|rp|rppvp|auto",
   "/goon autoscan|dock|sound|tooltip on|off",
   "/goon minimap on|off|reset  - the button under the minimap",
@@ -389,6 +390,8 @@ SlashCmdList.GOONBERG = function(msg)
     FI:Print("Rare finds: at least %d%% under the usual price and under its cheapest-typical price, worth %s+, seen on %d+ days. Pop-ups %s.",
       math.floor(p * 100 + 0.5), FI.Money(g), d, st.rareAlerts == false and "off" or "on")
     if not (pct or gold or days) then FI.DealsTab.kind = "Rare"; FI.UI:Show("deals") end
+  elseif cmd == "loot" then
+    FI.UI:Show("loot")
   elseif cmd == "deals" then
     local arg = rest:lower()
     if arg == "alert on" or arg == "alert off" then

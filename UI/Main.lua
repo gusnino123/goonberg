@@ -91,14 +91,14 @@ function UI:Build()
   sub:SetText("TERMINAL")
   sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -2)
 
-  local keys = { Overview = "overview", Deals = "deals", Chart = "chart", Crafting = "craft", ["P&L"] = "pnl" }
-  self.tabLabels = { overview = "Overview", deals = "Deals", chart = "Chart", craft = "Crafting", pnl = "P&L" }
-  local tabs = W.Choice(head, { "Overview", "Deals", "Chart", "Crafting", "P&L" }, "tab", function(v) UI:Show(keys[v]) end, self.HEADER - 1)
+  local keys = { Overview = "overview", Deals = "deals", Loot = "loot", Chart = "chart", Crafting = "craft", ["P&L"] = "pnl" }
+  self.tabLabels = { overview = "Overview", deals = "Deals", loot = "Loot", chart = "Chart", craft = "Crafting", pnl = "P&L" }
+  local tabs = W.Choice(head, { "Overview", "Deals", "Loot", "Chart", "Crafting", "P&L" }, "tab", function(v) UI:Show(keys[v]) end, self.HEADER - 1)
   tabs:SetPoint("BOTTOMLEFT", head, "BOTTOMLEFT", 170, 1)
   for _, b in pairs(tabs.buttons) do b:SetWidth(b:GetWidth() + 12) end
   -- re-space after widening
   local x = 0
-  for _, name in ipairs({ "Overview", "Deals", "Chart", "Crafting", "P&L" }) do
+  for _, name in ipairs({ "Overview", "Deals", "Loot", "Chart", "Crafting", "P&L" }) do
     local b = tabs.buttons[name]
     b:ClearAllPoints(); b:SetPoint("LEFT", tabs, "LEFT", x, 0)
     x = x + b:GetWidth()
@@ -133,6 +133,7 @@ function UI:Build()
   self.tabs.overview = FI.OverviewTab:Build(body)
   self.tabs.chart = FI.ChartTab:Build(body)
   self.tabs.deals = FI.DealsTab:Build(body)
+  self.tabs.loot = FI.LootTab:Build(body)
   self.tabs.pnl = FI.PnLTab:Build(body)
   self.tabs.craft = FI.CraftTab:Build(body)
 

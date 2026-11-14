@@ -386,6 +386,36 @@ local function me()
   return name
 end
 
+-- ---------------------------------------------------------------------------
+-- Dungeon loot: one short message per boss kill, so everyone's drop chances
+-- learn from the whole guild's kills. The corpse's ID means a kill looted by five
+-- guildmates still counts once.
+-- ---------------------------------------------------------------------------
+function Y:ShareKill(guid, instance, key, boss, items)
+  if not canSync() or self:ActivePeers() == 0 then return end
+  local ids = {}
+  for _, id in ipairs(items) do ids[#ids + 1] = b36(id) end
+  local msg = table.concat({ "L" .. guid, key, boss or "", instance or "", table.concat(ids, ",") }, "^")
+  if #msg > MSG_MAX then msg = msg:sub(1, MSG_MAX):gsub(",[^,]*$", "") end
+  send(msg, "GUILD", nil, "loot")
+end
+
+local function onKill(rest)
+  local guid, key, boss, instance, ids = strsplit("^", rest)
+  if not guid or not key or key == "" then return end
+  local items = {}
+  for v in (ids or ""):gmatch("[^,]+") do
+    local id = n36(v)
+    if id and id > 0 then items[#items + 1] = id end
+  end
+  local L = FI.Loot
+  if not L then return end
+  local d = L.DB()
+  local npc = L.NpcFromGUID(guid)
+  if npc and not d.bossNpc[npc] then d.bossNpc[npc] = { key = key, name = boss, instance = instance } end
+  L:Record(guid, instance ~= "" and instance or nil, key, boss ~= "" and boss or nil, items)
+end
+
 local function shortName(full)
   return (full and full:match("^([^%-]+)")) or full
 end
@@ -405,6 +435,7 @@ FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
     elseif kind == "Q" then if rest == PROTO then onRequest(who) end
     elseif kind == "C" then onCatchupRequest(who, rest)
     elseif kind == "R" then onResponding(rest)
+    elseif kind == "L" then onKill(rest)
     elseif kind == "V" then
       -- hello: say hello back (once a day per person) so both sides know
       if not Y.greeted[who] or time() - Y.greeted[who] > 86400 then

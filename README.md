@@ -123,6 +123,7 @@ Every command starts with `/goon` (or `/goonberg`). Wherever a command takes an 
 ### Scanning and data
 | Command | What it does |
 |---|---|
+| `/goon loot` | Loot tab: dungeon drops worth selling (where, drop chance, AH value, gold per run) |
 | `/goon market` | Which market's daily Blizzard prices you get (`/goon market pvp`, `normal`, `rp`, `rppvp`, `auto`) |
 | `/goon scan` | Full Auction House scan now (the AH must be open; once per 15 minutes) |
 | `/goon import` | Pull price history from Auctionator now |
@@ -228,3 +229,18 @@ last time. Those days are added to your history without replacing anything you s
   then add its Client ID and Secret as repository secrets `BLIZZARD_CLIENT_ID` and `BLIZZARD_CLIENT_SECRET`
   (Settings > Secrets and variables > Actions). EU and other regions: add a repository variable
   `GOONBERG_REGIONS`, e.g. `us,eu`. The data lives on the `data` branch, replaced daily.
+
+## Loot tab
+
+Dungeon drops you can sell on the AH (Bind on Equip and unbound items only): where they drop,
+how often and what they're worth, plus what a full dungeon run is worth on average.
+
+WoW Forever reworked every dungeon's loot and no drop chances are published, so Goonberg learns
+them from real kills: every boss corpse looted in a dungeon is one kill and its green-or-better
+drops are counted. With guild sync on, guildmates' kills are shared (one short message per boss
+kill), and each kill counts once however many people looted it. Dungeons, bosses and any loot
+listed in the in-game Adventure Guide appear before anyone has seen them drop.
+
+- **Twink gear:** Bind on Equip gear for the 19/29/39/49 brackets that sells for at least 5g / 10g / 15g / 25g
+  (or is among the priciest drops for its bracket).
+- **Rare drops:** 5% or less over 20+ kills and worth 5g+, or any epic with an AH price.
