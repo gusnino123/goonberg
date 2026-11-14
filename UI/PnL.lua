@@ -285,7 +285,9 @@ function P:Refresh()
   end
   table.sort(recent, function(a, b) return a.t > b.t end)
   self.recent = recent
-  self.list.offset = 0
+  -- back to the top only when the period or mode changes, not when new mail arrives
+  local key = self.period .. "|" .. (s.mode or "")
+  if key ~= self.listKey then self.listKey = key; self.list.offset = 0 end
   self.list:SetCount(#recent)
   self.empty:SetShown(#recent == 0)
 end

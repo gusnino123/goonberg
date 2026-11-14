@@ -362,7 +362,14 @@ function T:Refresh()
     end)
   end
   self.rows = rows
-  self.list.offset = 0
+  -- Back to the top only when what's listed changed (view, filter, sort, search,
+  -- dungeon). Background refreshes (item info loading, new kills, a scan) keep your
+  -- place in the list.
+  local listKey = table.concat({ self.view, self.filter, self.sort, q, self.dungeon or "" }, "|")
+  if listKey ~= self.listKey then
+    self.listKey = listKey
+    self.list.offset = 0
+  end
   self.list:SetCount(#rows)
 
   local none = #all == 0

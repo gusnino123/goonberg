@@ -1,5 +1,10 @@
 # Goonberg Terminal
 
+## 0.18.3
+
+- **Fixed: the Loot list jumped back to the top while you scrolled.** It refreshes as the game loads item info in the background (and on new kills and scans), and every refresh reset the scroll. It now goes back to the top only when you change the view, a filter, the sort or the search.
+- Same fix for the P&L trade list, which jumped to the top when new AH mail was read.
+
 ## 0.18.2
 
 - **Loot tab now has every dungeon drop in the WoW Forever data, trash included.** The bundled tables only had bosses; most rare Bind on Equip drops come from trash. Added:
