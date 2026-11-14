@@ -220,14 +220,203 @@ function W.List(parent, rowCount, rowHeight, makeRow, update)
         r:Hide()
       end
     end
+    self:UpdateBar()
+  end
+  function l:ScrollTo(offset)
+    self.offset = math.max(0, math.min(math.floor(offset + 0.5), self.count - self.visible))
+    self:Refresh()
   end
   l:EnableMouseWheel(true)
   l:SetScript("OnMouseWheel", function(self, delta)
     local step = IsShiftKeyDown() and self.visible or 3
-    self.offset = math.max(0, math.min(self.offset - delta * step, self.count - self.visible))
-    self:Refresh()
+    self:ScrollTo(self.offset - delta * step)
   end)
+
+  -- Scroll bar on the right: the thumb's size is how much of the list you see, its
+  -- place is where you are. Drag it, or click the track to jump a page.
+  local bar = CreateFrame("Button", nil, l)
+  bar:SetPoint("TOPRIGHT", l, "TOPRIGHT", -3, -3)
+  bar:SetPoint("BOTTOMRIGHT", l, "BOTTOMRIGHT", -3, 3)
+  bar:SetWidth(7)
+  bar:SetFrameLevel((l:GetFrameLevel() or 1) + 10)
+  bar.track = W.Tex(bar, C.border, 0.55, "BACKGROUND")
+  bar.track:SetAllPoints()
+  local thumb = CreateFrame("Frame", nil, bar)
+  thumb:SetWidth(7)
+  thumb:SetPoint("TOP", bar, "TOP", 0, 0)
+  thumb:EnableMouse(true)
+  thumb.tex = W.Tex(thumb, C.muted, 0.9, "ARTWORK")
+  thumb.tex:SetAllPoints()
+  bar.thumb = thumb
+  l.bar = bar
+  local function travel()
+    local trackH = bar:GetHeight() or 0
+    return trackH, math.max(0, trackH - (thumb:GetHeight() or 0)), math.max(1, l.count - l.visible)
+  end
+  function l:UpdateBar()
+    if self.count <= self.visible then bar:Hide(); return end
+    bar:Show()
+    local trackH = bar:GetHeight() or 0
+    if trackH <= 0 then return end
+    thumb:SetHeight(math.max(24, trackH * self.visible / self.count))
+    local _, room, maxOff = travel()
+    thumb:ClearAllPoints()
+    thumb:SetPoint("TOP", bar, "TOP", 0, -room * math.min(1, self.offset / maxOff))
+  end
+  local function cursorY()
+    local _, y = GetCursorPosition()
+    return (y or 0) / ((bar.GetEffectiveScale and bar:GetEffectiveScale()) or 1)
+  end
+  thumb:SetScript("OnEnter", function(self) self.tex:SetColorTexture(C.soft[1], C.soft[2], C.soft[3], 1) end)
+  thumb:SetScript("OnLeave", function(self) if not bar.dragging then self.tex:SetColorTexture(C.muted[1], C.muted[2], C.muted[3], 0.9) end end)
+  thumb:SetScript("OnMouseDown", function()
+    bar.dragging = { y = cursorY(), offset = l.offset }
+  end)
+  thumb:SetScript("OnMouseUp", function()
+    bar.dragging = nil
+    thumb.tex:SetColorTexture(C.muted[1], C.muted[2], C.muted[3], 0.9)
+  end)
+  bar:SetScript("OnUpdate", function()
+    local d = bar.dragging
+    if not d then return end
+    if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then
+      bar.dragging = nil
+      thumb.tex:SetColorTexture(C.muted[1], C.muted[2], C.muted[3], 0.9)
+      return
+    end
+    local _, room, maxOff = travel()
+    if room <= 0 then return end
+    l:ScrollTo(d.offset + (d.y - cursorY()) / room * maxOff)
+  end)
+  bar:SetScript("OnClick", function()
+    -- a page towards where you clicked
+    local top = thumb:GetTop() or 0
+    local bottom = thumb:GetBottom() or 0
+    local y = cursorY()
+    if y > top then l:ScrollTo(l.offset - l.visible) elseif y < bottom then l:ScrollTo(l.offset + l.visible) end
+  end)
+  bar:Hide()
+  l:SetScript("OnSizeChanged", function(self) self:Fit(); self:UpdateBar() end)
   return l
+end
+
+-- ---------------------------------------------------------------------------
+-- Sortable column headers (click to sort, click again to reverse)
+-- ---------------------------------------------------------------------------
+function W.Chevron(parent)
+  local f = CreateFrame("Frame", nil, parent)
+  f:SetSize(8, 5)
+  f.a = W.Line(f, C.gold, 1.5)
+  f.b = W.Line(f, C.gold, 1.5)
+  function f:SetDown(down)
+    if not self.a then return end
+    if down then
+      self.a:SetStartPoint("TOPLEFT", self, 0, 0); self.a:SetEndPoint("BOTTOM", self, 0, 0)
+      self.b:SetStartPoint("BOTTOM", self, 0, 0); self.b:SetEndPoint("TOPRIGHT", self, 0, 0)
+    else
+      self.a:SetStartPoint("BOTTOMLEFT", self, 0, 0); self.a:SetEndPoint("TOP", self, 0, 0)
+      self.b:SetStartPoint("TOP", self, 0, 0); self.b:SetEndPoint("BOTTOMRIGHT", self, 0, 0)
+    end
+  end
+  return f
+end
+
+-- cols: { key, label, x = offset from the left edge | r = offset from the right edge
+--         | at = offset from the right edge for a left-aligned column, dir = 1 (A-Z) or
+--         -1 (highest first, the default), nosort = true }
+-- state: a table with .sort (key) and .dir; onChange() is called after a click.
+function W.SortHeaders(head, cols, state, onChange)
+  local hs = { buttons = {}, state = state }
+  for _, col in ipairs(cols) do
+    local b = CreateFrame("Button", nil, head)
+    b:SetHeight(head:GetHeight() > 0 and head:GetHeight() or 30)
+    b.text = W.Heading(b, col.label)
+    b.col = col
+    b.left = col.x ~= nil or col.at ~= nil
+    if col.x then
+      b:SetPoint("LEFT", head, "LEFT", col.x, 0)
+    elseif col.at then
+      b:SetPoint("LEFT", head, "RIGHT", col.at, 0)
+    else
+      b:SetPoint("RIGHT", head, "RIGHT", col.r or -14, 0)
+    end
+    b.text:SetPoint(b.left and "LEFT" or "RIGHT")
+    if not b.left then b.text:SetJustifyH("RIGHT") end
+    b:SetWidth(b.text:GetStringWidth() + 14)
+    if not col.nosort then
+      b.arrow = W.Chevron(b)
+      b.arrow:SetPoint("LEFT", b.text, "RIGHT", 4, 0)
+      b.arrow:Hide()
+      b:SetScript("OnClick", function()
+        if state.sort == col.key then
+          state.dir = -(state.dir or -1)
+        else
+          state.sort, state.dir = col.key, col.dir or -1
+        end
+        hs:Update()
+        onChange()
+      end)
+      b:SetScript("OnEnter", function(self)
+        self.text:SetTextColor(C.text[1], C.text[2], C.text[3])
+        GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+        GameTooltip:AddLine(state.sort == col.key and "Click to reverse the order" or ("Click to sort by " .. col.label:lower()), 0.76, 0.79, 0.83)
+        GameTooltip:Show()
+      end)
+      b:SetScript("OnLeave", function() hs:Update(); GameTooltip_Hide() end)
+    end
+    hs.buttons[col.key] = b
+  end
+  function hs:Update()
+    for key, b in pairs(self.buttons) do
+      local on = key == state.sort
+      local c = on and C.gold or C.muted
+      b.text:SetTextColor(c[1], c[2], c[3])
+      if b.arrow then
+        b.arrow:SetShown(on)
+        if on then b.arrow:SetDown((state.dir or -1) < 0) end
+        if not b.left then
+          -- right-aligned: make room for the arrow so it sits beside its own column
+          b.text:ClearAllPoints()
+          b.text:SetPoint("RIGHT", b, "RIGHT", on and -12 or 0, 0)
+        end
+      end
+    end
+  end
+  function hs:SetLabel(key, text)
+    local b = self.buttons[key]
+    if not b then return end
+    b.col.label = text
+    b.text:SetText(text)
+    b:SetWidth(b.text:GetStringWidth() + 14)
+  end
+  hs:Update()
+  return hs
+end
+
+-- Sorts rows by a field (or get(row) for computed values). Missing values go last
+-- either way; ties fall back to the name, so the order never jumps around.
+function W.SortRows(rows, key, dir, get)
+  dir = dir or -1
+  local function val(r)
+    if get then return get(r) end
+    return r[key]
+  end
+  local cache = {}
+  for i = 1, #rows do
+    local v = val(rows[i])
+    if type(v) == "string" then v = v:lower() end
+    if v == nil then v = false end -- (a missing value; "v == nil and false or v" would give nil back)
+    cache[rows[i]] = v
+  end
+  table.sort(rows, function(a, b)
+    local va, vb = cache[a], cache[b]
+    if va == false and vb == false then return tostring(a.name or ""):lower() < tostring(b.name or ""):lower() end
+    if va == false then return false end
+    if vb == false then return true end
+    if va == vb then return tostring(a.name or ""):lower() < tostring(b.name or ""):lower() end
+    if dir < 0 then return va > vb else return va < vb end
+  end)
+  return rows
 end
 
 -- ---------------------------------------------------------------------------

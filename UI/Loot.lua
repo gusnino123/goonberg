@@ -1,7 +1,8 @@
 -- Goonberg Terminal: Loot tab. Dungeon drops you can sell on the AH: where they
 -- drop, how often, and what they're worth.
 local _, FI = ...
-local T = { view = "Items", filter = "All", sort = "Value", search = "" }
+local T = { view = "Items", filter = "All", search = "",
+  itemSort = { sort = "price", dir = -1 }, dungeonSort = { sort = "perClear", dir = -1 } }
 FI.LootTab = T
 local W = FI.Widgets
 local C = FI.colors
@@ -211,28 +212,28 @@ end
 -- ---------------------------------------------------------------------------
 -- Build
 -- ---------------------------------------------------------------------------
+-- what each column sorts by
+local ITEM_SORT = {
+  from = function(r) return (r.instance or "") .. "/" .. (r.trash and "~" or (r.boss or "")) end,
+  value = function(r) return r.price end,
+}
+local DUNGEON_SORT = {
+  best = function(dg) return dg.best and dg.best.price end,
+  bosses = function(dg) return dg.bossCount end,
+}
+
 local function header(tbl)
   local head = W.TableHeader(tbl, 30)
   T.itemHead = CreateFrame("Frame", nil, head)
   T.itemHead:SetAllPoints()
-  local h = W.Heading(T.itemHead, "ITEM")
-  h:SetPoint("LEFT", 14, 0)
-  h = W.Heading(T.itemHead, "DROPS FROM")
-  h:SetPoint("LEFT", T.itemHead, "RIGHT", FROM_LEFT, 0)
-  for _, col in ipairs(ITEM_COLS) do
-    h = W.Heading(T.itemHead, col.label)
-    h:SetPoint("RIGHT", T.itemHead, "RIGHT", col.r, 0)
-  end
+  local cols = { { key = "name", label = "ITEM", x = 14, dir = 1 }, { key = "from", label = "DROPS FROM", at = FROM_LEFT, dir = 1 } }
+  for _, col in ipairs(ITEM_COLS) do cols[#cols + 1] = { key = col.key, label = col.label, r = col.r, dir = col.key == "req" and 1 or -1 } end
+  T.itemHeaders = W.SortHeaders(T.itemHead, cols, T.itemSort, function() T:Refresh() end)
   T.dungeonHead = CreateFrame("Frame", nil, head)
   T.dungeonHead:SetAllPoints()
-  h = W.Heading(T.dungeonHead, "DUNGEON")
-  h:SetPoint("LEFT", 14, 0)
-  h = W.Heading(T.dungeonHead, "MOST VALUABLE DROP")
-  h:SetPoint("LEFT", T.dungeonHead, "RIGHT", -280, 0)
-  for _, col in ipairs(DUNGEON_COLS) do
-    h = W.Heading(T.dungeonHead, col.label)
-    h:SetPoint("RIGHT", T.dungeonHead, "RIGHT", col.r, 0)
-  end
+  cols = { { key = "name", label = "DUNGEON", x = 14, dir = 1 }, { key = "best", label = "MOST VALUABLE DROP", at = -280 } }
+  for _, col in ipairs(DUNGEON_COLS) do cols[#cols + 1] = { key = col.key, label = col.label, r = col.r } end
+  T.dungeonHeaders = W.SortHeaders(T.dungeonHead, cols, T.dungeonSort, function() T:Refresh() end)
 end
 
 function T:Build(parent)
@@ -264,14 +265,9 @@ function T:Build(parent)
   filters:Select(self.filter)
   self.filterChoice = filters
 
-  local sortBy = W.Choice(tab, { "Value", "Per kill", "Chance" }, "seg", function(v) T.sort = v; T:Refresh() end, 26)
-  sortBy:SetPoint("TOPRIGHT", -16, -52)
-  sortBy:Select(self.sort)
-  self.sortChoice = sortBy
-  local sortLabel = W.Text(tab, 12, C.soft)
-  sortLabel:SetText("Sort by")
-  sortLabel:SetPoint("RIGHT", sortBy, "LEFT", -10, 0)
-  self.sortLabel = sortLabel
+  local hint = W.Text(tab, 11, C.muted)
+  hint:SetText("Click a column header to sort")
+  hint:SetPoint("TOPRIGHT", -18, -59)
 
   local tbl = W.Box(tab, C.panel, C.border)
   tbl:SetPoint("TOPLEFT", 16, -90)
@@ -315,8 +311,6 @@ function T:Refresh()
   self.itemHead:SetShown(not dungeons)
   self.dungeonHead:SetShown(dungeons)
   self.filterChoice:SetShown(not dungeons)
-  self.sortChoice:SetShown(not dungeons)
-  self.sortLabel:SetShown(not dungeons)
   self.dungeonChip:SetShown(not dungeons and self.dungeon ~= nil)
   if self.dungeon then
     self.dungeonChip:SetLabel(self.dungeon .. "   x")
@@ -337,10 +331,7 @@ function T:Refresh()
     for _, dg in ipairs(L:Dungeons()) do
       if matches(dg.name, q) then rows[#rows + 1] = dg end
     end
-    table.sort(rows, function(a, b)
-      if a.perClear ~= b.perClear then return a.perClear > b.perClear end
-      return a.name < b.name
-    end)
+    W.SortRows(rows, self.dungeonSort.sort, self.dungeonSort.dir, DUNGEON_SORT[self.dungeonSort.sort])
   else
     for _, r in ipairs(all) do
       local ok = true
@@ -351,21 +342,14 @@ function T:Refresh()
       if ok and q ~= "" and not (matches(r.name, q) or matches(r.boss, q) or matches(r.instance, q)) then ok = false end
       if ok then rows[#rows + 1] = r end
     end
-    local key = ({ Value = "price", ["Per kill"] = "perKill", Chance = "chance" })[self.sort]
-    table.sort(rows, function(a, b)
-      local va, vb = a[key], b[key]
-      if va == nil and vb == nil then return a.name < b.name end
-      if va == nil then return false end
-      if vb == nil then return true end
-      if va ~= vb then return va > vb end
-      return a.name < b.name
-    end)
+    W.SortRows(rows, self.itemSort.sort, self.itemSort.dir, ITEM_SORT[self.itemSort.sort])
   end
   self.rows = rows
   -- Back to the top only when what's listed changed (view, filter, sort, search,
   -- dungeon). Background refreshes (item info loading, new kills, a scan) keep your
   -- place in the list.
-  local listKey = table.concat({ self.view, self.filter, self.sort, q, self.dungeon or "" }, "|")
+  local st = dungeons and self.dungeonSort or self.itemSort
+  local listKey = table.concat({ self.view, self.filter, st.sort, st.dir, q, self.dungeon or "" }, "|")
   if listKey ~= self.listKey then
     self.listKey = listKey
     self.list.offset = 0

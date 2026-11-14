@@ -1,5 +1,17 @@
 # Goonberg Terminal
 
+## 0.19.0
+
+- **Scroll bars** on every list (Overview, Deals, Loot, Crafting recipes, P&L trades, Chart watchlist): the thumb shows where you are and how much of the list you see. Drag it, or click above/below it to jump a page. It hides when everything fits.
+- **Click any column header to sort**, click it again to reverse, everywhere:
+  - **Deals:** item, type, buy at, sell for, profit each, margin, units, total profit, sold/day (replaces the "Sort by" buttons).
+  - **Loot:** item, drops from, req, chance, AH value, per kill, kills; and in Dungeons: dungeon, most valuable drop, bosses, runs, items to sell, gold per clear (replaces the "Sort by" buttons).
+  - **Crafting:** recipe list (item, cost, sells for, profit, margin, sold/day; replaces the "Sort by" buttons), By profession, and both profitability lists.
+  - **P&L:** recent trades now have a header row (date, type, item, amount).
+  - **Chart:** the watchlist (item, price, 7-day change).
+  - The sorted column is gold with an arrow; hover a header to see what a click does.
+- The status line at the top is shorter ("Scanned 5m ago") and can no longer run into the tabs.
+
 ## 0.18.3
 
 - **Fixed: the Loot list jumped back to the top while you scrolled.** It refreshes as the game loads item info in the background (and on new kills and scans), and every refresh reset the scroll. It now goes back to the top only when you change the view, a filter, the sort or the search.

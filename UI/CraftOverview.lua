@@ -158,11 +158,14 @@ function K:BuildOverview(tab)
   profs:SetPoint("RIGHT", f, "RIGHT", -16, 0)
   profs:SetHeight(206)
   local heads = { { "RECIPES", -300 }, { "PROFITABLE", -220 }, { "MEDIAN", -140 }, { "POOL / DAY", -14 } }
-  for _, h in ipairs(heads) do
-    local fs = W.Heading(profs, h[1])
-    fs:SetPoint("TOPRIGHT", h[2], -12)
-    fs:SetJustifyH("RIGHT")
-  end
+  local hf = CreateFrame("Frame", nil, profs)
+  hf:SetPoint("TOPLEFT", 0, -3)
+  hf:SetPoint("TOPRIGHT", 0, -3)
+  hf:SetHeight(26)
+  K.profHeaders = W.SortHeaders(hf, {
+    { key = "known", label = "RECIPES", r = -300 }, { key = "profitable", label = "PROFITABLE", r = -220 },
+    { key = "medianMargin", label = "MEDIAN", r = -140 }, { key = "pool", label = "POOL / DAY", r = -14 },
+  }, K.profSort, function() K:RefreshOverview() end)
   f.profRows = {}
   for i = 1, 6 do
     local r = CreateFrame("Button", nil, profs)
@@ -209,11 +212,15 @@ function K:BuildOverview(tab)
   local down = section(f, "GETTING LESS PROFITABLE")
   down:SetPoint("TOPLEFT", up, "TOPRIGHT", 12, 0)
   down:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -16, 16)
-  for _, box in ipairs({ up, down }) do
-    local h1 = W.Heading(box, "PROFIT NOW")
-    h1:SetPoint("TOPRIGHT", -110, -12)
-    local h2 = W.Heading(box, "CHANGE")
-    h2:SetPoint("TOPRIGHT", -14, -12)
+  for _, pair in ipairs({ { up, K.upSort }, { down, K.downSort } }) do
+    local box, state = pair[1], pair[2]
+    local hf = CreateFrame("Frame", nil, box)
+    hf:SetPoint("TOPLEFT", 0, -3)
+    hf:SetPoint("TOPRIGHT", 0, -3)
+    hf:SetHeight(26)
+    box.headers = W.SortHeaders(hf, {
+      { key = "now", label = "PROFIT NOW", r = -110 }, { key = "delta", label = "CHANGE", r = -14 },
+    }, state, function() K:RefreshOverview() end)
     moverRows(box, 6)
   end
   f.up, f.down = up, down
@@ -284,9 +291,12 @@ function K:RefreshOverview()
   end
   f.chartEmpty:SetShown(not any)
 
-  -- professions
+  -- professions, in the order picked by clicking a column header
+  local profList = {}
+  for i, p in ipairs(o.profList) do profList[i] = p end
+  W.SortRows(profList, self.profSort.sort, self.profSort.dir)
   for i, r in ipairs(f.profRows) do
-    local p = o.profList[i]
+    local p = profList[i]
     if p then
       r:Show()
       r.prof = p.name
@@ -310,6 +320,9 @@ function K:RefreshOverview()
   local ups, downs = {}, {}
   for _, m in ipairs(o.movers) do if m.delta > 0 then ups[#ups + 1] = m end end
   for i = #o.movers, 1, -1 do if o.movers[i].delta < 0 then downs[#downs + 1] = o.movers[i] end end
+  local nowOf = function(m) return m.row and m.row.profit end
+  W.SortRows(ups, self.upSort.sort, self.upSort.dir, self.upSort.sort == "now" and nowOf or nil)
+  W.SortRows(downs, self.downSort.sort, self.downSort.dir, self.downSort.sort == "now" and nowOf or nil)
   fillMovers(f.up, ups)
   fillMovers(f.down, downs)
 end

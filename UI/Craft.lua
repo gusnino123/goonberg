@@ -1,6 +1,7 @@
 -- Goonberg Terminal: crafting profit screen (/goon2 or /goon craft)
 local _, FI = ...
-local K = { prof = "All", sort = "Profit", onlyProfit = false, search = "", view = "Overview" }
+local K = { prof = "All", sortState = { sort = "profit", dir = -1 }, onlyProfit = false, search = "", view = "Overview",
+  profSort = { sort = "pool", dir = -1 }, upSort = { sort = "delta", dir = -1 }, downSort = { sort = "delta", dir = 1 } }
 FI.CraftTab = K
 local W = FI.Widgets
 local C = FI.colors
@@ -341,11 +342,11 @@ function K:Build(parent)
   self.profBar:SetPoint("TOPLEFT", 16, -52)
   self.profBar:SetSize(600, 26)
 
-  local sortBy = W.Choice(tab, { "Profit", "Margin", "Sold/day" }, "seg", function(v) K.sort = v; K:Refresh() end, 26)
-  sortBy:SetPoint("TOPRIGHT", -16, -16)
-  sortBy:Select(self.sort)
   local only = W.Button(tab, "Profitable only", nil, 26, "pill")
-  only:SetPoint("RIGHT", sortBy, "LEFT", -12, 0)
+  only:SetPoint("TOPRIGHT", -16, -16)
+  local hint = W.Text(tab, 11, C.muted)
+  hint:SetText("Click a column header to sort")
+  hint:SetPoint("TOPRIGHT", -18, -59)
   only:SetScript("OnClick", function(self) K.onlyProfit = not K.onlyProfit; self:SetSelected(K.onlyProfit); K:Refresh() end)
   local search = W.EditBox(tab, 150, "Search")
   search:SetPoint("RIGHT", only, "LEFT", -12, 0)
@@ -361,13 +362,9 @@ function K:Build(parent)
   tbl:SetPoint("BOTTOMRIGHT", -16, 16)
 
   local head = W.TableHeader(tbl, 30)
-  local it = W.Heading(head, "CRAFTED ITEM")
-  it:SetPoint("LEFT", 12, 0)
-  for _, col in ipairs(COLS) do
-    local fs = W.Heading(head, col.label)
-    fs:SetPoint("RIGHT", head, "RIGHT", col.r, 0)
-    fs:SetJustifyH("RIGHT")
-  end
+  local cols = { { key = "name", label = "CRAFTED ITEM", x = 12, dir = 1 } }
+  for _, col in ipairs(COLS) do cols[#cols + 1] = { key = col.key, label = col.label, r = col.r, dir = col.key == "cost" and 1 or -1 } end
+  self.headers = W.SortHeaders(head, cols, self.sortState, function() K:Refresh() end)
 
   local holder = CreateFrame("Frame", nil, tbl)
   holder:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
@@ -387,7 +384,7 @@ function K:Build(parent)
 
   buildDetail(tab)
   self:ShowDetail(nil)
-  self.recipeParts = { self.profBar, sortBy, only, search, tbl }
+  self.recipeParts = { self.profBar, hint, only, search, tbl }
   self.detail:Hide() -- details now open in place under each recipe
   self.overview = self:BuildOverview(tab)
   tab.Refresh = function() K:Refresh() end
@@ -427,22 +424,17 @@ function K:Refresh()
     if ok and self.search ~= "" and not r.name:lower():find(self.search, 1, true) then ok = false end
     if ok then rows[#rows + 1] = r end
   end
-  local key = self.sort
-  local function val(r)
-    if not r.complete then return nil end
-    if key == "Margin" then return r.margin elseif key == "Sold/day" then return r.soldPerDay end
-    return r.profit
-  end
-  table.sort(rows, function(a, b)
-    local va, vb = val(a), val(b)
-    if va == nil and vb == nil then return a.name < b.name end
-    if va == nil then return false end
-    if vb == nil then return true end
-    if va == vb then return a.name < b.name end
-    return va > vb
-  end)
+  local st = self.sortState
+  -- profit and margin only mean something when every reagent has a price
+  local get = ({
+    profit = function(r) return r.complete and r.profit or nil end,
+    margin = function(r) return r.complete and r.margin or nil end,
+    sell = function(r) return not r.noSell and r.sell or nil end,
+    sold = function(r) return r.soldPerDay end,
+  })[st.sort]
+  W.SortRows(rows, st.sort, st.dir, get)
   self.rows = rows
-  local fkey = self.prof .. self.sort .. tostring(self.onlyProfit) .. self.search
+  local fkey = self.prof .. st.sort .. st.dir .. tostring(self.onlyProfit) .. self.search
   if fkey ~= self.lastFilter then self.list.offset = 0; self.lastFilter = fkey end
   self:BuildDisplay()
   self.list:SetCount(#self.display)

@@ -1,6 +1,6 @@
 -- Goonberg Terminal: P&L tab with a shareable card (goblin included)
 local _, FI = ...
-local P = { period = "7D" }
+local P = { period = "7D", tradeSort = { sort = "t", dir = -1 } }
 FI.PnLTab = P
 local W = FI.Widgets
 local C = FI.colors
@@ -172,8 +172,18 @@ local function buildSide(tab)
   local head = W.Heading(side, "RECENT TRADES")
   head:SetPoint("TOPLEFT", 14, -134)
 
+  -- click a header to sort the trades
+  local hf = CreateFrame("Frame", nil, side)
+  hf:SetPoint("TOPLEFT", 0, -148)
+  hf:SetPoint("TOPRIGHT", 0, -148)
+  hf:SetHeight(22)
+  P.tradeHeaders = W.SortHeaders(hf, {
+    { key = "t", label = "DATE", x = 14 }, { key = "k", label = "TYPE", x = 62, dir = 1 },
+    { key = "i", label = "ITEM", x = 110, dir = 1 }, { key = "amount", label = "AMOUNT", r = -14 },
+  }, P.tradeSort, function() P:Refresh() end)
+
   local holder = CreateFrame("Frame", nil, side)
-  holder:SetPoint("TOPLEFT", 0, -152)
+  holder:SetPoint("TOPLEFT", 0, -172)
   holder:SetPoint("BOTTOMRIGHT", 0, 40)
   P.list = W.List(holder, 30, 28, function(parent)
     local r = CreateFrame("Frame", nil, parent)
@@ -208,7 +218,7 @@ local function buildSide(tab)
   P.list:SetAllPoints(holder)
 
   P.empty = W.Text(side, 11, C.muted)
-  P.empty:SetPoint("TOPLEFT", 14, -158)
+  P.empty:SetPoint("TOPLEFT", 14, -178)
   P.empty:SetPoint("RIGHT", -14, 0)
   P.empty:SetWordWrap(true)
   P.empty:SetText("No trades yet. Open your mailbox after selling or buying on the AH: Goonberg Terminal reads the AH invoices there.")
@@ -283,10 +293,16 @@ function P:Refresh()
   for _, e in ipairs(FI.Ledger:Data().entries) do
     if e.t >= from then recent[#recent + 1] = e end
   end
-  table.sort(recent, function(a, b) return a.t > b.t end)
+  -- in the order picked by the headers (amount: what it added or cost you)
+  local st = self.tradeSort
+  local get = ({
+    amount = function(e) return e.k == "sale" and (e.g - e.f) or -e.g end,
+    k = function(e) return (e.k == "sale" and s.flipOf[e] == 0 and s.mode == "flips") and "farmed" or e.k end,
+  })[st.sort]
+  W.SortRows(recent, st.sort, st.dir, get)
   self.recent = recent
   -- back to the top only when the period or mode changes, not when new mail arrives
-  local key = self.period .. "|" .. (s.mode or "")
+  local key = self.period .. "|" .. (s.mode or "") .. "|" .. st.sort .. st.dir
   if key ~= self.listKey then self.listKey = key; self.list.offset = 0 end
   self.list:SetCount(#recent)
   self.empty:SetShown(#recent == 0)

@@ -1,6 +1,6 @@
 -- Goonberg Terminal: chart tab (watchlist, candlestick chart, market depth, alerts)
 local _, FI = ...
-local T = { tf = "1W" }
+local T = { tf = "1W", watchSort = { sort = "name", dir = 1 } }
 FI.ChartTab = T
 local W = FI.Widgets
 local C = FI.colors
@@ -61,8 +61,18 @@ local function buildWatchlist(tab)
     end
   end)
 
+  -- click a header to sort the watchlist
+  local hf = CreateFrame("Frame", nil, side)
+  hf:SetPoint("TOPLEFT", 0, -64)
+  hf:SetPoint("TOPRIGHT", 0, -64)
+  hf:SetHeight(22)
+  T.watchHeaders = W.SortHeaders(hf, {
+    { key = "name", label = "ITEM", x = 14, dir = 1 }, { key = "price", label = "PRICE", x = 110 },
+    { key = "c7", label = "7D %", r = -12 },
+  }, T.watchSort, function() T:Refresh() end)
+
   local listHolder = CreateFrame("Frame", nil, side)
-  listHolder:SetPoint("TOPLEFT", 0, -70)
+  listHolder:SetPoint("TOPLEFT", 0, -88)
   listHolder:SetPoint("BOTTOMRIGHT", 0, 0)
 
   local list = W.List(listHolder, 24, 44, function(parent)
@@ -115,7 +125,7 @@ local function buildWatchlist(tab)
   tab.watchList = list
 
   local empty = W.Text(side, 11, C.muted)
-  empty:SetPoint("TOPLEFT", 14, -82)
+  empty:SetPoint("TOPLEFT", 14, -98)
   empty:SetPoint("RIGHT", -14, 0)
   empty:SetWordWrap(true)
   empty:SetText("Add items to follow them here. Right-click an item to remove it.")
@@ -401,7 +411,16 @@ function T:Refresh()
   local tab = self.frame
   if not tab then return end
   local realm = FI:Realm()
-  self.watch = FI.Alerts:List()
+  -- the watchlist, in the order picked by its headers
+  local wrows, now = {}, time()
+  for _, wid in ipairs(FI.Alerts:List()) do
+    local wit = realm.items[wid]
+    wrows[#wrows + 1] = { id = wid, name = FI:ItemName(wid), price = wit and wit.mkt,
+      c7 = wit and wit.mkt and H.Stats(wit, now).c7 or nil }
+  end
+  W.SortRows(wrows, self.watchSort.sort, self.watchSort.dir)
+  self.watch = {}
+  for i, w in ipairs(wrows) do self.watch[i] = w.id end
   tab.watchList:SetCount(#self.watch)
   tab.watchEmpty:SetShown(#self.watch == 0)
 

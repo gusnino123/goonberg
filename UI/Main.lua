@@ -117,7 +117,9 @@ function UI:Build()
 
   local status = W.Text(head, 11, C.muted)
   status:SetPoint("RIGHT", scan, "LEFT", -12, 0)
+  status:SetPoint("LEFT", tabs, "RIGHT", 34, 0) -- never runs into the tabs: cut short instead
   status:SetJustifyH("RIGHT")
+  status:SetWordWrap(false)
   self.status = status
   local dot = W.Tex(head, C.up)
   dot:SetSize(7, 7)
@@ -188,16 +190,20 @@ function UI:UpdateStatus()
     local scans = realm.scans or 0
     local shared = realm.lastShared
     if shared and shared.t == realm.lastScan then
-      text = ("Last scan %s by %s (guild)"):format(FI.Ago(realm.lastScan), shared.from)
+      text = ("Scanned %s by %s"):format(FI.Ago(realm.lastScan), shared.from)
     else
-      text = ("Last scan %s  ·  %d scans"):format(FI.Ago(realm.lastScan), scans)
+      text = ("Scanned %s  ·  %d scans"):format(FI.Ago(realm.lastScan), scans)
     end
     local q = FI.Sync and FI.Sync:QueueLength() or 0
-    if q > 0 then text = text .. ("  ·  sharing with guild (%d)"):format(q) end
+    if q > 0 then text = text .. "  ·  sharing" end
     color = (realm.lastScan > 0 and time() - realm.lastScan < 3600) and C.up or C.muted
   end
   self.status:SetText(text)
   self.statusDot:SetColorTexture(color[1], color[2], color[3], 1)
+  -- the dot sits just left of the text, however long it is
+  local w = math.min(self.status:GetStringWidth() or 0, self.status:GetWidth() or 0)
+  self.statusDot:ClearAllPoints()
+  self.statusDot:SetPoint("RIGHT", self.status, "RIGHT", -(w + 6), 0)
 
   local b = self.scanButton
   if S.state ~= "idle" then

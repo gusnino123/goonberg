@@ -1,6 +1,6 @@
 -- Goonberg Terminal: deals tab
 local _, FI = ...
-local D = { kind = "All", margin = "5%", liquid = false, search = "", sort = "Total" }
+local D = { kind = "All", margin = "5%", liquid = false, search = "", sortState = { sort = "profit", dir = -1 } }
 FI.DealsTab = D
 local W = FI.Widgets
 local C = FI.colors
@@ -21,6 +21,12 @@ local COLS = {
   { key = "sold", label = "SOLD/DAY", r = -16 },
 }
 local NAME_RIGHT = -690
+-- what each column sorts by (columns not listed sort by the field of the same name)
+local SORT_GET = {
+  worth = function(d) return d.worth end,
+  sold = function(d) return d.soldPerDay end,
+  kind = function(d) return d.kind end,
+}
 local KIND_COLOR = { Flip = C.gold, Vendor = C.up, Disenchant = { 0.64, 0.53, 0.96 }, Rare = { 0.40, 0.68, 1.00 } }
 local MARGINS = { ["5%"] = 0.05, ["10%"] = 0.10, ["20%"] = 0.20, ["50%"] = 0.50 }
 
@@ -177,12 +183,9 @@ function D:Build(parent)
   local disc = W.Choice(tab, { "5%", "10%", "20%", "50%" }, "seg", function(v) D.margin = v; D:Refresh() end, 26)
   disc:SetPoint("LEFT", discLabel, "RIGHT", 10, 0)
   disc:Select(self.margin)
-  local sortBy = W.Choice(tab, { "Total", "Per item", "Margin", "Sold/day" }, "seg", function(v) D.sort = v; D:Refresh() end, 26)
-  sortBy:SetPoint("TOPRIGHT", -16, -52)
-  sortBy:Select(self.sort)
-  local sortLabel = W.Text(tab, 12, C.soft)
-  sortLabel:SetText("Sort by")
-  sortLabel:SetPoint("RIGHT", sortBy, "LEFT", -10, 0)
+  local hint = W.Text(tab, 11, C.muted)
+  hint:SetText("Click a column header to sort")
+  hint:SetPoint("TOPRIGHT", -18, -59)
   search:SetScript("OnTextChanged", function(self)
     if self.ph then self.ph:SetShown(self:GetText() == "") end
     D.search = self:GetText():lower()
@@ -194,13 +197,11 @@ function D:Build(parent)
   tbl:SetPoint("TOPLEFT", 16, -90)
   tbl:SetPoint("BOTTOMRIGHT", -16, 16)
   local head = W.TableHeader(tbl, 30)
-  local it = W.Heading(head, "ITEM")
-  it:SetPoint("LEFT", 12, 0)
+  local cols = { { key = "name", label = "ITEM", x = 12, dir = 1 } }
   for _, col in ipairs(COLS) do
-    local fs = W.Heading(head, col.label)
-    fs:SetPoint("RIGHT", head, "RIGHT", col.r, 0)
-    fs:SetJustifyH("RIGHT")
+    cols[#cols + 1] = { key = col.key, label = col.label, r = col.r, dir = col.key == "kind" and 1 or -1 }
   end
+  self.headers = W.SortHeaders(head, cols, self.sortState, function() D:Refresh() end)
   local holder = CreateFrame("Frame", nil, tbl)
   holder:SetPoint("TOPLEFT", head, "BOTTOMLEFT")
   holder:SetPoint("BOTTOMRIGHT", tbl, "BOTTOMRIGHT", -1, 26)
@@ -252,15 +253,10 @@ function D:Refresh()
       total = total + d.profit
     end
   end
-  local key = self.sort
-  table.sort(rows, function(a, b)
-    if key == "Per item" then return a.perItem > b.perItem end
-    if key == "Margin" then return a.margin > b.margin end
-    if key == "Sold/day" then return (a.soldPerDay or -1) > (b.soldPerDay or -1) end
-    return a.profit > b.profit
-  end)
+  local st = self.sortState
+  W.SortRows(rows, st.sort, st.dir, SORT_GET[st.sort])
   self.rows = rows
-  local fkey = self.kind .. self.margin .. tostring(self.liquid) .. self.search .. self.sort
+  local fkey = self.kind .. self.margin .. tostring(self.liquid) .. self.search .. st.sort .. st.dir
   if fkey ~= self.lastFilter then self.list.offset = 0; self.lastFilter = fkey end
   self.list:SetCount(#rows)
 
