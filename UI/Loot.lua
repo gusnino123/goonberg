@@ -1,7 +1,8 @@
 -- Goonberg Terminal: Loot tab. Dungeon drops you can sell on the AH: where they
 -- drop, how often, and what they're worth.
 local _, FI = ...
-local T = { view = "Items", filter = "All", search = "", collapsed = {},
+-- dungeon sections start closed: `expanded` holds the ones you've opened
+local T = { view = "Items", filter = "All", search = "", expanded = {},
   itemSort = { sort = "price", dir = -1 }, dungeonSort = { sort = "level", dir = 1 } }
 FI.LootTab = T
 local W = FI.Widgets
@@ -25,6 +26,14 @@ local DUNGEON_COLS = {
 local TAG = { twink = "|cffe8b84aTwink %d|r", rare = "|cff66adffRare drop|r" }
 
 local function setColor(fs, c) fs:SetTextColor(c[1], c[2], c[3]) end
+
+-- A dungeon's drops show once you click its header. While you search, or after
+-- picking a dungeon in the Dungeons view, the matching sections open by themselves
+-- (otherwise the results would be hidden).
+function T:IsOpen(g)
+  if self.expanded[g.name] then return true end
+  return (self.search or "") ~= "" or self.dungeon ~= nil
+end
 
 -- ---------------------------------------------------------------------------
 -- Rows
@@ -93,7 +102,7 @@ local function makeRow(parent)
       if row.minLevel then GameTooltip:AddDoubleLine("Levels", ("%d-%d"):format(row.minLevel, row.maxLevel or row.minLevel), soft[1], soft[2], soft[3], 1, 1, 1) end
       GameTooltip:AddDoubleLine("Drops you can sell", row.count, soft[1], soft[2], soft[3], 1, 1, 1)
       if row.perClear and row.perClear > 0 then GameTooltip:AddDoubleLine("Worth per run (bosses and chests)", FI.Money(row.perClear), soft[1], soft[2], soft[3], 0.25, 0.71, 0.55) end
-      GameTooltip:AddLine(T.collapsed[row.name] and "|cff8b95a3Click to show its drops.|r" or "|cff8b95a3Click to hide its drops.|r")
+      GameTooltip:AddLine(T:IsOpen(row) and "|cff8b95a3Click to hide its drops.|r" or "|cff8b95a3Click to show its drops.|r")
       GameTooltip:Show()
       return
     end
@@ -144,7 +153,7 @@ local function makeRow(parent)
     local row = self.row
     if not row then return end
     if row.group then
-      T.collapsed[row.name] = not T.collapsed[row.name] or nil
+      T.expanded[row.name] = not T:IsOpen(row) or nil
       T:Refresh()
       return
     end
@@ -251,7 +260,7 @@ local function updateGroupRow(r, g)
   for _, fs in pairs(r.dcells) do fs:Hide() end
   showGroup(r, true)
   r.zebra:Hide()
-  r.gArrow:SetDown(not T.collapsed[g.name])
+  if T:IsOpen(g) then r.gArrow:SetDown(true) else r.gArrow:SetRight() end
   r.gName:SetText(g.name)
   r.gLevel:SetText(g.minLevel and ("Level %d-%d"):format(g.minLevel, g.maxLevel or g.minLevel) or "")
   local parts = { ("%d item%s"):format(g.count, g.count == 1 and "" or "s") }
@@ -335,8 +344,8 @@ function T:Build(parent)
   fold:SetPoint("RIGHT", hint, "LEFT", -12, 0)
   fold:SetScript("OnClick", function()
     local anyOpen = false
-    for _, g in ipairs(T.groups or {}) do if not T.collapsed[g.name] then anyOpen = true end end
-    for _, g in ipairs(T.groups or {}) do T.collapsed[g.name] = anyOpen or nil end
+    for _, g in ipairs(T.groups or {}) do if T:IsOpen(g) then anyOpen = true end end
+    for _, g in ipairs(T.groups or {}) do T.expanded[g.name] = (not anyOpen) or nil end
     T:Refresh()
   end)
   self.collapseAll = fold
@@ -440,7 +449,7 @@ function T:Refresh()
     for _, g in ipairs(groups) do
       g.count = #g.items
       rows[#rows + 1] = g
-      if not self.collapsed[g.name] then
+      if self:IsOpen(g) then
         W.SortRows(g.items, self.itemSort.sort, self.itemSort.dir, ITEM_SORT[self.itemSort.sort])
         for _, r in ipairs(g.items) do rows[#rows + 1] = r end
       end
@@ -476,7 +485,7 @@ function T:Refresh()
       :format(items, items == 1 and "" or "s", #(self.groups or {}), #(self.groups or {}) == 1 and "" or "s",
         FI.Number(kills), (L.pendingItems or 0) > 0 and ("  ·  loading %d items"):format(L.pendingItems) or ""))
     local anyOpen = false
-    for _, g in ipairs(self.groups or {}) do if not self.collapsed[g.name] then anyOpen = true end end
+    for _, g in ipairs(self.groups or {}) do if self:IsOpen(g) then anyOpen = true end end
     self.collapseAll:SetLabel(anyOpen and "Collapse all" or "Expand all")
   end
   if self.collapseAll then self.collapseAll:SetShown(not dungeons) end

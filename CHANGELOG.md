@@ -1,5 +1,11 @@
 # Goonberg Terminal
 
+## 0.22.1
+
+- **Loot tab: every dungeon starts closed.** You see one line per dungeon (level range, item count, best drop, gold per run); click it to open its drops, click again to close. "Expand all" opens them all.
+  - While you search, or after picking a dungeon in the Dungeons view, the matching dungeons open by themselves so the results aren't hidden.
+  - Closed dungeons show a right arrow, open ones a down arrow.
+
 ## 0.22.0
 
 - **Loot tab organised by dungeon, lowest level first.** The Items view is now one section per dungeon (Ragefire Chasm and Hall of Thanes at 13-18 first, up to Upper Blackrock Spire at 59-60), each with a header showing its level range, how many sellable drops it has, its best drop and what a run is worth. Its drops are listed underneath; the column headers sort the drops inside each dungeon.

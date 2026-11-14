@@ -308,8 +308,16 @@ function W.Chevron(parent)
   f:SetSize(8, 5)
   f.a = W.Line(f, C.gold, 1.5)
   f.b = W.Line(f, C.gold, 1.5)
+  -- pointing right (a closed section): ">"
+  function f:SetRight()
+    if not self.a then return end
+    self:SetSize(5, 8)
+    self.a:SetStartPoint("TOPLEFT", self, 0, 0); self.a:SetEndPoint("RIGHT", self, 0, 0)
+    self.b:SetStartPoint("RIGHT", self, 0, 0); self.b:SetEndPoint("BOTTOMLEFT", self, 0, 0)
+  end
   function f:SetDown(down)
     if not self.a then return end
+    self:SetSize(8, 5)
     if down then
       self.a:SetStartPoint("TOPLEFT", self, 0, 0); self.a:SetEndPoint("BOTTOM", self, 0, 0)
       self.b:SetStartPoint("BOTTOM", self, 0, 0); self.b:SetEndPoint("TOPRIGHT", self, 0, 0)
