@@ -85,6 +85,56 @@ function L:ReadInbox()
   if added > 0 then FI:Fire("FI_LEDGER_CHANGED") end
 end
 
+-- ---------------------------------------------------------------------------
+-- Crafting: "You create: [item]" in chat. The recipe (from the Crafting tab's scan)
+-- says what went in; the P&L then moves the cost of those materials onto what you
+-- made, so selling it counts as a crafted flip, not a farmed sale.
+-- ---------------------------------------------------------------------------
+local function toPattern(fmt)
+  if type(fmt) ~= "string" then return nil end
+  fmt = fmt:gsub("([%(%)%.%+%-%*%?%[%]%^%$])", "%%%1")
+  fmt = fmt:gsub("%%s", "(.+)"):gsub("%%d", "(%%d+)")
+  return "^" .. fmt .. "$"
+end
+
+-- recipe that makes this item (any profession this character knows)
+function L:RecipeFor(itemID)
+  local known = FI.Crafting and FI.Crafting:CharData() or {}
+  for _, list in pairs(known) do
+    for _, rec in pairs(list) do
+      if rec.o == itemID then return rec end
+    end
+  end
+end
+
+function L:RecordCraft(itemID, qty, t)
+  local rec = self:RecipeFor(itemID)
+  if not rec or not rec.r then return false end
+  qty = math.max(1, qty or 1)
+  local crafts = math.max(1, math.floor(qty / math.max(1, rec.n or 1) + 0.5))
+  local used = {}
+  for i = 1, #rec.r, 2 do
+    local id, n = rec.r[i], rec.r[i + 1]
+    local price, source = FI.Crafting:ReagentPrice(id)
+    -- { name, count, unit price at the time, bought from a vendor }
+    used[#used + 1] = { FI:ItemName(id), n * crafts, price or 0, source == "vendor" or nil }
+  end
+  local d = self:Data()
+  d.entries[#d.entries + 1] = { t = t or time(), k = "craft", i = FI:ItemName(itemID), q = qty, r = used }
+  FI:Fire("FI_LEDGER_CHANGED")
+  return true
+end
+
+local CREATED_ONE = toPattern(_G.LOOT_ITEM_CREATED_SELF or "You create: %s.")
+local CREATED_MANY = toPattern(_G.LOOT_ITEM_CREATED_SELF_MULTIPLE or "You create: %sx%d.")
+FI:On("CHAT_MSG_LOOT", function(_, msg)
+  if type(msg) ~= "string" then return end
+  local link, n = msg:match(CREATED_MANY)
+  if not link then link = msg:match(CREATED_ONE) end
+  local id = link and tonumber(link:match("item:(%d+)"))
+  if id then L:RecordCraft(id, tonumber(n) or 1) end
+end)
+
 FI:On("MAIL_INBOX_UPDATE", function()
   FI:Debounce("ledger", 0.5, function() L:ReadInbox() end)
 end)
@@ -106,7 +156,7 @@ function L:Summary(since, mode)
 
   if mode == "all" then
     for _, e in ipairs(d.entries) do
-      if e.t >= since then
+      if e.t >= since and e.k ~= "craft" then -- crafts move no money
         local per = s.items[e.i] or { net = 0 }
         s.items[e.i] = per
         if e.k == "sale" then
@@ -129,20 +179,52 @@ function L:Summary(since, mode)
     -- the period: a sale this week can use stock bought last month
     local list = {}
     for _, e in ipairs(d.entries) do list[#list + 1] = e end
+    local ORDER = { buy = 1, craft = 2, sale = 3 }
     table.sort(list, function(x, y)
       if x.t ~= y.t then return x.t < y.t end
-      return x.k == "buy" and y.k ~= "buy"
+      return (ORDER[x.k] or 3) < (ORDER[y.k] or 3)
     end)
-    local lots = {} -- item -> { { qty, unitCost, fromDeal }, ... } oldest first
+    -- your own materials (not bought on the AH): at market price, or free
+    local ownAtMarket = (FI.settings and FI.settings.ownMats or "market") ~= "free"
+    local lots = {} -- item -> { { qty, unitCost, fromDeal, crafted }, ... } oldest first
     local farmItems = {}
     s.farmGross, s.farmFees, s.dealSales, s.dealNet, s.dealCost = 0, 0, 0, 0, 0
+    s.craftSales, s.craftNet, s.craftCost, s.crafts, s.craftCostOf, s.craftOf = 0, 0, 0, 0, {}, {}
+    local function take(name, need)
+      local cost, got = 0, 0
+      local queue = lots[name]
+      while need > 0 and queue and queue[1] do
+        local lot = queue[1]
+        local n = math.min(need, lot[1])
+        cost = cost + n * lot[2]
+        got = got + n
+        need = need - n
+        lot[1] = lot[1] - n
+        if lot[1] <= 0 then table.remove(queue, 1) end
+      end
+      return cost, got
+    end
     for _, e in ipairs(list) do
       local q = math.max(1, e.q or 1)
       if e.k == "buy" then
         lots[e.i] = lots[e.i] or {}
         table.insert(lots[e.i], { q, e.g / q, e.deal })
-      else
-        local need, cost, got, dealGot, dealCost = q, 0, 0, 0, 0
+      elseif e.k == "craft" then
+        -- bought materials at what they cost you; your own at market (or free);
+        -- vendor materials always at the vendor price
+        local cost = 0
+        for _, m in ipairs(e.r or {}) do
+          local c, got = take(m[1], m[2])
+          local own = m[2] - got
+          if own > 0 then cost = cost + own * ((m[4] or ownAtMarket) and (m[3] or 0) or 0) end
+          cost = cost + c
+        end
+        lots[e.i] = lots[e.i] or {}
+        table.insert(lots[e.i], { q, cost / q, nil, true })
+        s.craftCostOf[e] = cost
+        if e.t >= since then s.crafts = s.crafts + 1 end
+      elseif e.k == "sale" then
+        local need, cost, got, dealGot, dealCost, craftGot, craftCost = q, 0, 0, 0, 0, 0, 0
         local queue = lots[e.i]
         while need > 0 and queue and queue[1] do
           local lot = queue[1]
@@ -150,12 +232,19 @@ function L:Summary(since, mode)
           cost = cost + take * lot[2]
           got = got + take
           if lot[3] then dealGot = dealGot + take; dealCost = dealCost + take * lot[2] end
+          if lot[4] then craftGot = craftGot + take; craftCost = craftCost + take * lot[2] end
           need = need - take
           lot[1] = lot[1] - take
           if lot[1] <= 0 then table.remove(queue, 1) end
         end
         s.flipOf[e] = got
+        s.craftOf[e] = craftGot
         if e.t >= since then
+          if craftGot > 0 then
+            s.craftSales = s.craftSales + 1
+            s.craftCost = s.craftCost + craftCost
+            s.craftNet = s.craftNet + (e.g - e.f) * craftGot / q - craftCost
+          end
           local share = got / q
           if got > 0 then
             local income, fee = e.g * share, e.f * share
@@ -200,6 +289,7 @@ function L:Summary(since, mode)
     s.net = s.income - s.fees - s.spent
     if s.spent > 0 then s.roi = s.net / s.spent * 100 end
     if s.dealCost > 0 then s.dealRoi = s.dealNet / s.dealCost * 100 end
+    if s.craftCost > 0 then s.craftRoi = s.craftNet / s.craftCost * 100 end
     -- everything you made on the AH: flipping profit plus farming income
     s.total = s.net + s.farmed
   end

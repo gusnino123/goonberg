@@ -1,5 +1,12 @@
 # Goonberg Terminal
 
+## 0.21.0
+
+- **Crafting counts in the P&L.** When you craft ("You create: ..." in chat), Goonberg looks up the recipe and uses up the materials you bought on the AH (oldest first), moving their cost onto what you made. Selling it is then a **Crafted** flip with its real profit, not a "Farmed" sale, and the bought materials no longer sit in "holding".
+  - Materials you gathered yourself count at **market price** (default: profit shows whether crafting beat selling the mats) or as **free**: switch it with "Own mats in crafts" on the P&L. Vendor materials always count at the vendor price.
+  - The Flipping panel shows "Crafted: N sales +X (ROI)". Recent trades show **Made** (a craft, with what its materials cost) and **Crafted** (selling it); both appear under the Flips filter.
+  - Works for crafts made from this version on, for recipes the Crafting tab knows (open each profession window once).
+
 ## 0.20.0
 
 - **P&L split into Flipping and Farming.**
