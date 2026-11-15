@@ -1,5 +1,12 @@
 # Goonberg Terminal
 
+## 0.29.1
+
+- **"No player named ... is currently playing" spam: more safety nets.** That line appears in the chat of whoever is answering a guildmate who logged off, so a guildmate on an old version keeps seeing it even after you update. Now:
+  - Goonberg tells you, once, which guildmates run a version that still spams (before 0.28.1), and `/goon sync` lists everyone's version, old ones in red. Ask them to update.
+  - Before and during a long whispered answer it asks the server for a fresh guild roster, so someone who logged off is noticed within seconds even without guild online/offline notices.
+  - Any system message naming the guildmate being answered stops the answer and is hidden, whatever its wording (the normal "has gone offline" notice still shows).
+
 ## 0.29.0
 
 - **Deals fill in when you log in.** Goonberg asks your guild for its newest scan, and a guildmate who has one sends it to you automatically (nobody has to do anything). You no longer wait for someone to open the AH before Deals shows anything. Deals still only lists scans under an hour old, since older auctions are probably gone. Your guildmates need 0.29.0 too. `/goon sync scan` asks again.

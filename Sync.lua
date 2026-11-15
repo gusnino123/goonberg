@@ -85,6 +85,7 @@ sender:SetScript("OnUpdate", function(self, e)
   while tokens >= 1 and queue[1] do
     local m = table.remove(queue, 1)
     local to = m[2] == "WHISPER" and baseName(m[3])
+    if to and Y.RefreshRoster then Y.RefreshRoster() end
     if to and (gone[to] or offlineInGuild(to)) then
       gone[to] = true
       Y:DropWhispers(to) -- they left: drop the rest of their answer, send nothing
@@ -118,15 +119,32 @@ FI:On("CHAT_MSG_SYSTEM", function(_, msg)
     return
   end
   local back = ONLINE and msg:match(ONLINE)
-  if back then gone[strip(back)] = nil end
+  if back then gone[strip(back)] = nil; return end
+  -- (whatever the wording: a system message naming someone we whispered a moment
+  -- ago is the game saying it couldn't deliver)
+  local plain = msg:gsub("|H.-|h%[?(.-)%]?|h", "%1")
+  for name, at in pairs(whispered) do
+    if GetTime() - at < 10 and plain:find(name, 1, true) then
+      gone[name] = true
+      Y:DropWhispers(name)
+    end
+  end
 end)
 -- Hide "No player named ..." when it's about our own addon whispers (a few seconds
 -- after we sent them one); for your own typed whispers it still shows.
 if ChatFrame_AddMessageEventFilter then
   ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, msg)
-    local who = NOT_FOUND and type(msg) == "string" and msg:match(NOT_FOUND)
+    if type(msg) ~= "string" then return false end
+    local who = NOT_FOUND and msg:match(NOT_FOUND)
     who = who and strip(who)
     if who and whispered[who] and GetTime() - whispered[who] < 10 then return true end
+    -- other wordings: a system line naming someone we're whispering, while they're gone
+    local plain = msg:gsub("|H.-|h%[?(.-)%]?|h", "%1")
+    if not (ONLINE and msg:match(ONLINE)) and not (OFFLINE and msg:match(OFFLINE)) then
+      for name, at in pairs(whispered) do
+        if gone[name] and GetTime() - at < 10 and plain:find(name, 1, true) then return true end
+      end
+    end
     return false
   end)
 end
@@ -140,6 +158,7 @@ function Y:QueueLength() return #queue end
 
 -- Packs "entry;entry;..." into messages under the size limit
 local function packed(head, entries, channel, target, tag)
+  if channel == "WHISPER" and Y.RefreshRoster then Y.RefreshRoster() end
   local cur = head
   for _, e in ipairs(entries) do
     if #cur + #e + 1 > MSG_MAX then
@@ -186,7 +205,19 @@ local function scanEntries(t, keep)
   return entries, ids
 end
 
+-- Before a long whispered answer: ask the server for a fresh guild roster, so the
+-- sender sees within seconds if they log off (the online flags are otherwise old).
+local lastRoster = 0
+local function refreshRoster()
+  if GetTime() - lastRoster < 10 then return end
+  lastRoster = GetTime()
+  if C_GuildInfo and C_GuildInfo.GuildRoster then C_GuildInfo.GuildRoster()
+  elseif GuildRoster then GuildRoster() end
+end
+Y.RefreshRoster = refreshRoster
+
 local function sendScan(t, entries, channel, target, tag)
+  if channel == "WHISPER" then refreshRoster() end
   local tt = b36(t)
   send("S" .. PROTO .. ":" .. tt .. ":" .. b36(#entries), channel, target, tag)
   packed("B" .. tt .. ":", entries, channel, target, tag)
@@ -586,6 +617,7 @@ FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
     elseif kind == "R" then onResponding(rest)
     elseif kind == "L" then onKill(rest)
     elseif kind == "V" then
+      Y:NoteVersion(who, rest)
       -- hello: say hello back (once a day per person) so both sides know
       if not Y.greeted[who] or time() - Y.greeted[who] > 86400 then
         Y.greeted[who] = time()
@@ -599,6 +631,7 @@ FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
     elseif kind == "S" then if Y.wantScan then onStart("@" .. who, rest, true) end
     elseif kind == "B" then onBatch("@" .. who, rest)
     elseif kind == "E" then onEnd("@" .. who, who, rest)
+    elseif kind == "W" then Y:NoteVersion(who, rest)
     elseif kind == "K" then onCatchup(who, rest)
     elseif kind == "G" then onCatchupDone(who) end
   end
@@ -644,6 +677,29 @@ FI:On("PLAYER_LOGIN", function()
 end)
 
 -- Status for /goon sync
+-- Guildmates' Goonberg versions (from their hellos). Versions before 0.28.1 keep
+-- whispering a guildmate who logged off, which floods *their own* chat with
+-- "No player named ... is currently playing": worth telling you who to nudge.
+Y.versions = {}
+local FIXED_SPAM = "0.28.1"
+local function vnum(v)
+  local a, b, c = tostring(v or ""):match("^(%d+)%.(%d+)%.?(%d*)")
+  if not a then return nil end
+  return tonumber(a) * 10000 + tonumber(b) * 100 + (tonumber(c) or 0)
+end
+function Y:NoteVersion(who, v)
+  if not who or not v or v == "" then return end
+  self.versions[who] = v
+  local n, fixed = vnum(v), vnum(FIXED_SPAM)
+  if n and fixed and n < fixed then
+    self.warned = self.warned or {}
+    if not self.warned[who] then
+      self.warned[who] = true
+      FI:Print("%s runs Goonberg %s, which spams \"No player named ... is currently playing\" in their chat when a guildmate logs off. Ask them to update (0.28.1 or newer).", who, v)
+    end
+  end
+end
+
 function Y:Status()
   local now, n = time(), 0
   local names = {}
@@ -659,4 +715,11 @@ function Y:Status()
     FI:Print("Last guild scan: %s items from %s, %s.", FI.Number(realm.lastShared.items), realm.lastShared.from, FI.Ago(realm.lastShared.t))
   end
   if #queue > 0 then FI:Print("Sending your last scan: %d messages to go.", #queue) end
+  local vs = {}
+  for who, v in pairs(self.versions) do
+    local old = (vnum(v) or 0) < (vnum(FIXED_SPAM) or 0)
+    vs[#vs + 1] = (old and "|cfff0603a%s %s (update!)|r" or "%s %s"):format(who, v)
+  end
+  table.sort(vs)
+  if #vs > 0 then FI:Print("Versions: %s  (you: %s)", table.concat(vs, ", "), FI.version or "?") end
 end
