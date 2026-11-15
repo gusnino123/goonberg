@@ -45,6 +45,32 @@ Y.b36, Y.n36 = b36, n36
 -- Sending: a queue drained gently (the game throttles addon messages)
 -- ---------------------------------------------------------------------------
 local queue, tokens = {}, 8
+-- Whispers (history and catch-up answers go to one guildmate) must stop the moment
+-- that guildmate logs off: every whisper to someone offline makes the game print
+-- "No player named ... is currently playing", so a half-sent answer used to spam it.
+local gone = {}      -- name -> true: offline, don't whisper them
+local whispered = {} -- name -> time of our last addon whisper to them
+local function baseName(full) return full and (full:match("^([^%-]+)") or full) end
+function Y:DropWhispers(name)
+  name = baseName(name)
+  if not name then return 0 end
+  local n = 0
+  for i = #queue, 1, -1 do
+    if queue[i][2] == "WHISPER" and baseName(queue[i][3]) == name then table.remove(queue, i); n = n + 1 end
+  end
+  return n
+end
+-- the guild roster, when the game has it: is this guildmate online?
+local function offlineInGuild(name)
+  if not (IsInGuild and IsInGuild()) or not GetNumGuildMembers or not GetGuildRosterInfo then return false end
+  local total = GetNumGuildMembers()
+  if not total or total == 0 then return false end
+  for i = 1, total do
+    local full, _, _, _, _, _, _, _, online = GetGuildRosterInfo(i)
+    if full and baseName(full) == name then return not online end
+  end
+  return false -- not in the roster we have: let the game decide
+end
 local sender = CreateFrame("Frame")
 sender:Hide()
 sender.acc = 0
@@ -56,11 +82,52 @@ sender:SetScript("OnUpdate", function(self, e)
   end
   while tokens >= 1 and queue[1] do
     local m = table.remove(queue, 1)
-    tokens = tokens - 1
-    CI.SendAddonMessage(PREFIX, m[1], m[2], m[3])
+    local to = m[2] == "WHISPER" and baseName(m[3])
+    if to and (gone[to] or offlineInGuild(to)) then
+      gone[to] = true
+      Y:DropWhispers(to) -- they left: drop the rest of their answer, send nothing
+    else
+      tokens = tokens - 1
+      if to then whispered[to] = GetTime() end
+      CI.SendAddonMessage(PREFIX, m[1], m[2], m[3])
+    end
   end
   if not queue[1] then self:Hide() end
 end)
+
+-- "X has gone offline." (guild) / "No player named 'X' is currently playing."
+local function sysPattern(fmt)
+  if not fmt then return nil end
+  local p = fmt:gsub("([%(%)%.%+%-%*%?%[%]%^%$])", "%%%1"):gsub("%%s", "(.+)")
+  return "^" .. p .. "$"
+end
+local OFFLINE = sysPattern(_G.ERR_FRIEND_OFFLINE_S or "%s has gone offline.")
+local NOT_FOUND = sysPattern(_G.ERR_CHAT_PLAYER_NOT_FOUND_S or "No player named '%s' is currently playing.")
+local ONLINE = sysPattern(_G.ERR_FRIEND_ONLINE_S or "%s has come online.")
+local function strip(name) return baseName((name or ""):gsub("|H.-|h%[?(.-)%]?|h", "%1")) end
+FI:On("CHAT_MSG_SYSTEM", function(_, msg)
+  if type(msg) ~= "string" then return end
+  local who = OFFLINE and msg:match(OFFLINE)
+  if not who and NOT_FOUND then who = msg:match(NOT_FOUND) end
+  if who then
+    who = strip(who)
+    gone[who] = true
+    Y:DropWhispers(who)
+    return
+  end
+  local back = ONLINE and msg:match(ONLINE)
+  if back then gone[strip(back)] = nil end
+end)
+-- Hide "No player named ..." when it's about our own addon whispers (a few seconds
+-- after we sent them one); for your own typed whispers it still shows.
+if ChatFrame_AddMessageEventFilter then
+  ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(_, _, msg)
+    local who = NOT_FOUND and type(msg) == "string" and msg:match(NOT_FOUND)
+    who = who and strip(who)
+    if who and whispered[who] and GetTime() - whispered[who] < 10 then return true end
+    return false
+  end)
+end
 
 local function send(msg, channel, target, tag)
   queue[#queue + 1] = { msg, channel or "GUILD", target, tag }
@@ -430,6 +497,7 @@ FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
   H = H or FI.History
   local kind, rest = text:sub(1, 1), text:sub(2)
   Y.peers[who] = time()
+  gone[who] = nil -- they're online
   if channel == "GUILD" then
     if kind == "S" then onStart(who, rest)
     elseif kind == "B" then onBatch(who, rest)

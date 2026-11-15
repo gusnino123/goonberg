@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.28.1
+
+- **Fixed: "No player named ... is currently playing" spam when a guildmate logs off.** When a guildmate asks for price history (or for what they missed while offline), Goonberg answers them directly with a few hundred small messages. If they logged off partway through, every message still waiting made the game print that line, for minutes. Now the rest of their answer is dropped the moment they go offline (from the guild's "has gone offline" message, the guild roster, or the first "No player named"), and that line is hidden when it's about Goonberg's own messages. Your own typed whispers still show it.
+
 ## 0.28.0
 
 **Looks like part of the game.** Goonberg Terminal now uses WoW's own window pieces wherever the game has them, and is easier to read.
