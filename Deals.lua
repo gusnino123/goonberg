@@ -47,6 +47,7 @@ DL.DE_SELL_DAYS = 2          -- count only as many as the materials' AH sales co
 ---@field cap integer?       Disenchant: most units whose materials sell within DE_SELL_DAYS
 ---@field pace number?       Disenchant: items' worth of materials the AH takes a day (nil = unknown)
 ---@field slowest integer?   Disenchant: the material that sets that pace
+---@field mats GT.DEMatSales[]? Disenchant: each material and how fast it sells
 ---@field sdEach number?     Disenchant: spread of one item's value after the cut (std. deviation)
 
 local MIN_PROFIT = 100 -- 1s: ignore crumbs
@@ -207,11 +208,11 @@ local function evaluate(id, it, now)
     -- mats' sales cover in DE_SELL_DAYS (buying more would flood their market)
     local de, complete, parts = DE:Value(id, DL.DE_PRICE_AGE)
     if de and complete and parts and cheapest < cutoffFor(de * (1 - CUT), DL.DE_MIN_MARGIN) then
-      local pace, slowest = DE:ItemsPerDay(parts, de, now)
+      local pace, slowest, mats = DE:ItemsPerDay(parts, de, now)
       local cap = pace and math.max(1, math.floor(pace * DL.DE_SELL_DAYS + 1e-6)) -- 19.999... is 20
       consider("Disenchant", de * (1 - CUT), de, cap)
       if best and best.kind == "Disenchant" then
-        best.pace, best.slowest = pace, slowest
+        best.pace, best.slowest, best.mats = pace, slowest, mats
         best.sdEach = DE:Spread(parts) * (1 - CUT)
       end
     end

@@ -60,6 +60,12 @@ function D:FindOnAH(itemID, fromDeal)
   return ok
 end
 
+-- "0.4", "3.5", "12": small amounts keep a decimal
+local function perDay(n)
+  if n and n < 10 then return (("%.1f"):format(n):gsub("%.0$", "")) end
+  return FI.Number(n)
+end
+
 local function makeRow(parent)
   local r = CreateFrame("Button", nil, parent)
   r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -112,8 +118,21 @@ local function makeRow(parent)
     else
       GameTooltip:AddDoubleLine("Disenchants for (estimate)", FI.Coins(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
       GameTooltip:AddDoubleLine("After 5% AH cut on the mats", FI.Coins(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
+      -- each material: its chance and how many sell a day; the slowest sets the pace
+      if d.mats and d.mats[1] then
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddDoubleLine("Mats (chance)", "Sold a day", muted[1], muted[2], muted[3], muted[1], muted[2], muted[3])
+        for _, m in ipairs(d.mats) do
+          local name = FI:ItemName(m.id)
+          local left = ("%s%s  %d%%"):format(name, m.converted and " (converted)" or "", math.floor(m.chance * 100 + 0.5))
+          local right, c = perDay(m.sold), m.counts and FI.colors.text or muted
+          if not m.sold then right = "Not known yet"; if m.counts then c = C.down end
+          elseif m.id == d.slowest then right, c = right .. " (slowest)", C.down end
+          GameTooltip:AddDoubleLine(left, right, 1, 1, 1, c[1], c[2], c[3])
+        end
+      end
       if d.pace then
-        GameTooltip:AddDoubleLine("Mats the AH takes a day", ("%s items' worth"):format(FI.Number(d.pace)), muted[1], muted[2], muted[3], 1, 1, 1)
+        GameTooltip:AddDoubleLine("Mats sold a day cover", ("%s of these"):format(perDay(d.pace)), muted[1], muted[2], muted[3], 1, 1, 1)
       else
         GameTooltip:AddLine("|cffff7366How fast the mats sell isn't known yet, so every unit is counted.|r", 1, 1, 1, true)
       end
@@ -194,7 +213,7 @@ local function updateRow(r, i)
   end
   r.cells.profit:SetMoney(d.profit, true)
   setColor(r.cells.profit, C.up)
-  r.cells.sold:SetText(d.soldPerDay and FI.Number(d.soldPerDay) or "-")
+  r.cells.sold:SetText(d.soldPerDay and perDay(d.soldPerDay) or "-")
 end
 
 function D:Build(parent)

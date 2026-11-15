@@ -1,5 +1,10 @@
 # Goonberg Terminal
 
+## 0.29.2
+
+- **Disenchant deals show how fast each mat sells.** Hover a Disenchant deal to see every material, its chance, and how many sell a day. The slowest one is in orange, since it limits how many of the deal are worth buying. The Sold/Day column on these rows was already about the mats: how many of these items' worth of mats sell a day.
+- Sold/Day keeps a decimal under 10, so 0.4 no longer shows as 0.
+
 ## 0.29.1
 
 - **"No player named ... is currently playing" spam: more safety nets.** That line appears in the chat of whoever is answering a guildmate who logged off, so a guildmate on an old version keeps seeing it even after you update. Now:

@@ -317,32 +317,53 @@ local function soldPerDay(id, now)
   return v
 end
 
+---One material of a disenchant and how fast it sells (for the Deals tooltip)
+---@class GT.DEMatSales
+---@field id integer        the material as sold (the other essence size when converted)
+---@field converted boolean?
+---@field chance number
+---@field share number      part of the disenchant's value, 0-1
+---@field sold number?      sold a day on the AH (nil = not known yet)
+---@field counts boolean    carries enough value (10%+) to set the pace
+
 -- How many items' worth of materials the AH takes a day. For each material that
 -- carries real value (10%+ of it): its sales a day / how many one item gives.
 -- The slowest one sets the pace. nil while a material's sales aren't known.
+-- Third value: every priced material and its sales, most valuable first.
 ---@param parts GT.DEPart[]
 ---@param value number  what D:Value returned
 ---@param now integer?
 ---@return number? itemsPerDay
 ---@return integer? slowest  the material that sets the pace
+---@return GT.DEMatSales[] mats
 function D:ItemsPerDay(parts, value, now)
   now = now or time()
-  local pace, slowest
+  local pace, slowest, unknown = nil, nil, false
+  local mats = {}
   for _, p in ipairs(parts) do
-    if p.price and value > 0 and p.chance * p.qty * p.price / value >= 0.10 then
+    if p.price and value > 0 then
       local id, per = p.id, p.chance * p.qty
       if p.sellAs then
         -- sold as the other essence size: 3 lesser make 1 greater
         per = greaterOf[p.id] == p.sellAs and per / 3 or per * 3
         id = p.sellAs
       end
+      local share = p.chance * p.qty * p.price / value
       local sold = soldPerDay(id, now)
-      if not sold then return nil end
-      local items = sold / per
-      if not pace or items < pace then pace, slowest = items, id end
+      local counts = share >= 0.10
+      mats[#mats + 1] = { id = id, converted = p.sellAs ~= nil, chance = p.chance, share = share, sold = sold, counts = counts }
+      if counts then
+        if not sold then
+          unknown = true
+        elseif not pace or sold / per < pace then
+          pace, slowest = sold / per, id
+        end
+      end
     end
   end
-  return pace, slowest
+  table.sort(mats, function(a, b) return a.share > b.share end)
+  if unknown then return nil, nil, mats end
+  return pace, slowest, mats
 end
 
 -- Materials to watch so disenchant values stay priced (used by "/goon de watch")

@@ -40,7 +40,7 @@ read_globals = {
   "C_XMLUtil", "DoesTemplateExist", "GameFontNormal", "GameFontHighlight",
   "PanelTemplates_TabResize", "PanelTemplates_SelectTab", "PanelTemplates_DeselectTab",
   "SetPortraitTextureFromCreatureDisplayID", "MenuUtil", "CreateFont", "C_Texture", "GetFileIDFromPath",
-  "GetNumGuildMembers", "GetGuildRosterInfo", "ChatFrame_AddMessageEventFilter",
+  "GetNumGuildMembers", "GetGuildRosterInfo", "ChatFrame_AddMessageEventFilter", "C_GuildInfo", "GuildRoster",
 
   -- Player, realm, chat
   "UnitName", "UnitExists", "UnitGUID", "UnitFactionGroup", "GetRealmName", "GetCurrentRegion",
