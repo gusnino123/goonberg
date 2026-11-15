@@ -11,21 +11,23 @@ local W = FI.Widgets
 local C = FI.colors
 
 local ITEM_COLS = {
-  { key = "req", label = "REQ", r = -322 },
-  { key = "chance", label = "CHANCE", r = -258 },
-  { key = "value", label = "AH VALUE", r = -162 },
-  { key = "perKill", label = "PER KILL", r = -72 },
-  { key = "kills", label = "KILLS", r = -16 },
+  { key = "req", label = "Req", r = -322 },
+  { key = "chance", label = "Chance", r = -258 },
+  { key = "value", label = "AH Value", r = -162 },
+  { key = "perKill", label = "Per Kill", r = -72 },
+  { key = "kills", label = "Kills", r = -16 },
 }
 local FROM_LEFT, FROM_RIGHT = -620, -372 -- "drops from" column (offsets from the right)
 local LEVEL_AT = -610 -- dungeons view: level range (left-aligned, from the right)
 local DUNGEON_COLS = {
-  { key = "bosses", label = "BOSSES", r = -470 },
-  { key = "kills", label = "RUNS", r = -400 },
-  { key = "items", label = "ITEMS TO SELL", r = -300 },
-  { key = "perClear", label = "GOLD PER CLEAR", r = -16 },
+  { key = "bosses", label = "Bosses", r = -470 },
+  { key = "kills", label = "Runs", r = -400 },
+  { key = "items", label = "Items to Sell", r = -300 },
+  { key = "perClear", label = "Gold per Clear", r = -16 },
 }
-local TAG = { twink = "|cffe8b84aTwink %d|r", rare = "|cff66adffRare drop|r" }
+-- money columns (each lines its amounts up across the rows)
+local MONEY = { value = W.MoneyColumn(), perKill = W.MoneyColumn(), perClear = W.MoneyColumn() }
+local TAG = { twink = "|cffffd100Twink %d|r", rare = "|cff66adffRare drop|r" }
 
 local function setColor(fs, c) fs:SetTextColor(c[1], c[2], c[3]) end
 
@@ -43,8 +45,6 @@ end
 local function makeRow(parent)
   local r = CreateFrame("Button", nil, parent)
   r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-  r.bg = W.Tex(r, C.raised, 0, "BACKGROUND")
-  r.bg:SetAllPoints()
   local line = W.Tex(r, C.border, 0.6, "BORDER")
   line:SetPoint("BOTTOMLEFT"); line:SetPoint("BOTTOMRIGHT"); line:SetHeight(1)
   r.icon = r:CreateTexture(nil, "ARTWORK")
@@ -59,18 +59,26 @@ local function makeRow(parent)
   r.from:SetPoint("RIGHT", r, "RIGHT", FROM_RIGHT, 0)
   r.cells = {}
   for _, col in ipairs(ITEM_COLS) do
-    local fs = W.Text(r, 12, C.text, true)
-    fs:SetPoint("RIGHT", r, "RIGHT", col.r, 0)
-    fs:SetJustifyH("RIGHT")
-    r.cells[col.key] = fs
+    if MONEY[col.key] then
+      r.cells[col.key] = W.MoneyCell(r, col.r, MONEY[col.key])
+    else
+      local fs = W.Text(r, W.SIZE.cell, C.text, true)
+      fs:SetPoint("RIGHT", r, "RIGHT", col.r, 0)
+      fs:SetJustifyH("RIGHT")
+      r.cells[col.key] = fs
+    end
   end
   -- the dungeon view reuses the row with its own cells
   r.dcells = {}
   for _, col in ipairs(DUNGEON_COLS) do
-    local fs = W.Text(r, 12, C.text, true)
-    fs:SetPoint("RIGHT", r, "RIGHT", col.r, 0)
-    fs:SetJustifyH("RIGHT")
-    r.dcells[col.key] = fs
+    if MONEY[col.key] then
+      r.dcells[col.key] = W.MoneyCell(r, col.r, MONEY[col.key])
+    else
+      local fs = W.Text(r, W.SIZE.cell, C.text, true)
+      fs:SetPoint("RIGHT", r, "RIGHT", col.r, 0)
+      fs:SetJustifyH("RIGHT")
+      r.dcells[col.key] = fs
+    end
   end
   r.best = W.Text(r, 12, C.soft)
   r.best:SetPoint("LEFT", r, "RIGHT", -280, 0)
@@ -94,7 +102,6 @@ local function makeRow(parent)
   r.gInfo:SetJustifyH("RIGHT")
 
   r:SetScript("OnEnter", function(self)
-    self.bg:SetAlpha(0.5)
     local row = self.row
     if not row then return end
     GameTooltip:SetOwner(self, "ANCHOR_CURSOR_RIGHT")
@@ -103,54 +110,54 @@ local function makeRow(parent)
       GameTooltip:AddLine(row.name)
       if row.minLevel then GameTooltip:AddDoubleLine("Levels", ("%d-%d"):format(row.minLevel, row.maxLevel or row.minLevel), soft[1], soft[2], soft[3], 1, 1, 1) end
       GameTooltip:AddDoubleLine("Drops you can sell", row.count, soft[1], soft[2], soft[3], 1, 1, 1)
-      if row.perClear and row.perClear > 0 then GameTooltip:AddDoubleLine("Worth per run (bosses and chests)", FI.Money(row.perClear), soft[1], soft[2], soft[3], 0.25, 0.71, 0.55) end
-      GameTooltip:AddLine(T:IsOpen(row) and "|cff8b95a3Click to hide its drops.|r" or "|cff8b95a3Click to show its drops.|r")
+      if row.perClear and row.perClear > 0 then GameTooltip:AddDoubleLine("Worth per run (bosses and chests)", FI.Coins(row.perClear), soft[1], soft[2], soft[3], C.up[1], C.up[2], C.up[3]) end
+      GameTooltip:AddLine(T:IsOpen(row) and "|cff9e998fClick to hide its drops.|r" or "|cff9e998fClick to show its drops.|r")
       GameTooltip:Show()
       return
     end
     if self.dungeon then
       GameTooltip:AddLine(row.name)
-      GameTooltip:AddDoubleLine("Sellable drops worth, per clear", FI.Money(row.perClear), soft[1], soft[2], soft[3], 1, 1, 1)
+      GameTooltip:AddDoubleLine("Sellable drops worth, per clear", FI.Coins(row.perClear), soft[1], soft[2], soft[3], 1, 1, 1)
       if row.best then GameTooltip:AddDoubleLine("Most valuable drop", row.best.name, soft[1], soft[2], soft[3], 1, 1, 1) end
-      GameTooltip:AddLine("|cff8b95a3Average gold from Bind on Equip and unbound boss drops, at AH prices. Click to see them.|r", nil, nil, nil, true)
+      GameTooltip:AddLine("|cff9e998fAverage gold from Bind on Equip and unbound boss drops, at AH prices. Click to see them.|r", nil, nil, nil, true)
     else
       GameTooltip:SetItemByID(row.id)
       GameTooltip:AddLine(" ")
       GameTooltip:AddDoubleLine("Drops from", row.trash and ("Trash in " .. row.instance) or (row.boss .. ", " .. row.instance), soft[1], soft[2], soft[3], 1, 1, 1)
       if row.trash and row.listedChance then
         GameTooltip:AddDoubleLine("Drop chance, per trash mob", ("%.2f%%"):format(row.chance * 100), soft[1], soft[2], soft[3], 1, 1, 1)
-        if row.drops > 0 then GameTooltip:AddDoubleLine("   Seen by you and your guild", ("%d times"):format(row.drops), soft[1], soft[2], soft[3], 0.76, 0.79, 0.83) end
+        if row.drops > 0 then GameTooltip:AddDoubleLine("   Seen by you and your guild", ("%d times"):format(row.drops), soft[1], soft[2], soft[3], 0.82, 0.82, 0.82) end
       elseif row.trash then
         GameTooltip:AddDoubleLine("Seen", ("%d times in %d looted mobs"):format(row.drops, row.kills), soft[1], soft[2], soft[3], 1, 1, 1)
       elseif row.chance then
         GameTooltip:AddDoubleLine("Drop chance", ("%.1f%%"):format(row.chance * 100), soft[1], soft[2], soft[3], 1, 1, 1)
         if row.listedChance then
-          GameTooltip:AddDoubleLine("   Listed (WoW Forever loot tables)", ("%.1f%%"):format(row.listedChance * 100), soft[1], soft[2], soft[3], 0.76, 0.79, 0.83)
+          GameTooltip:AddDoubleLine("   Listed (WoW Forever loot tables)", ("%.1f%%"):format(row.listedChance * 100), soft[1], soft[2], soft[3], 0.82, 0.82, 0.82)
         end
         if row.kills > 0 then
-          GameTooltip:AddDoubleLine("   Your and your guild's kills", ("%d of %d"):format(row.drops, row.kills), soft[1], soft[2], soft[3], 0.76, 0.79, 0.83)
+          GameTooltip:AddDoubleLine("   Your and your guild's kills", ("%d of %d"):format(row.drops, row.kills), soft[1], soft[2], soft[3], 0.82, 0.82, 0.82)
         elseif row.listedChance then
-          GameTooltip:AddLine("|cff8b95a3Your kills will sharpen this as you play.|r")
+          GameTooltip:AddLine("|cff9e998fYour kills will sharpen this as you play.|r")
         end
       else
         GameTooltip:AddDoubleLine("Drop chance", "not seen drop yet", soft[1], soft[2], soft[3], 0.55, 0.58, 0.64)
       end
       if row.price then
-        GameTooltip:AddDoubleLine("AH value", FI.Money(row.price), soft[1], soft[2], soft[3], 1, 1, 1)
+        GameTooltip:AddDoubleLine("AH value", FI.Coins(row.price), soft[1], soft[2], soft[3], 1, 1, 1)
         if row.perKill then
           GameTooltip:AddDoubleLine(row.trash and "Worth per trash mob, on average" or (row.object and "Worth per chest, on average" or "Worth per kill, on average"),
-            FI.Money(row.perKill), soft[1], soft[2], soft[3], 0.25, 0.71, 0.55)
+            FI.Coins(row.perKill), soft[1], soft[2], soft[3], C.up[1], C.up[2], C.up[3])
         end
       else
         GameTooltip:AddDoubleLine("AH value", "not seen on the AH", soft[1], soft[2], soft[3], 0.55, 0.58, 0.64)
       end
-      if row.twink then GameTooltip:AddLine(("|cffe8b84aTwink gear:|r one of the priciest items for the %d bracket."):format(row.bracket), 1, 1, 1, true) end
+      if row.twink then GameTooltip:AddLine(("|cffffd100Twink gear:|r one of the priciest items for the %d bracket."):format(row.bracket), 1, 1, 1, true) end
       if row.rare then GameTooltip:AddLine("|cff66adffRare drop|r worth real gold.", 1, 1, 1, true) end
-      GameTooltip:AddLine("|cff8b95a3Click: find it on the AH. Right-click: chart. Shift-click: link.|r")
+      GameTooltip:AddLine("|cff9e998fClick: find it on the AH. Right-click: chart. Shift-click: link.|r")
     end
     GameTooltip:Show()
   end)
-  r:SetScript("OnLeave", function(self) self.bg:SetAlpha(0); GameTooltip_Hide() end)
+  r:SetScript("OnLeave", GameTooltip_Hide)
   r:SetScript("OnClick", function(self, button)
     local row = self.row
     if not row then return end
@@ -230,9 +237,9 @@ local function updateItemRow(r, row)
     c.chance:SetText("not yet")
     setColor(c.chance, C.muted)
   end
-  c.value:SetText(row.price and FI.Coins(row.price) or "-")
+  c.value:SetMoney(row.price)
   setColor(c.value, row.price and C.text or C.muted)
-  c.perKill:SetText(row.perKill and FI.Coins(row.perKill) or "-")
+  c.perKill:SetMoney(row.perKill)
   setColor(c.perKill, row.perKill and C.up or C.muted)
   c.kills:SetText(row.kills > 0 and FI.Number(row.kills) or "-")
   setColor(c.kills, C.soft)
@@ -248,7 +255,7 @@ local function updateDungeonRow(r, dg)
   c.kills:SetText(FI.Number(dg.kills))
   setColor(c.kills, C.soft)
   c.items:SetText(dg.items)
-  c.perClear:SetText(dg.perClear > 0 and FI.Coins(dg.perClear) or "-")
+  if dg.perClear > 0 then c.perClear:SetMoney(dg.perClear) else c.perClear:SetText("-") end
   setColor(c.perClear, dg.perClear > 0 and C.up or C.muted)
   r.best:SetText(dg.best and dg.best.name or "")
   if dg.best then r.best:SetTextColor(FI:ItemQualityColor(dg.best.id)) end
@@ -267,7 +274,7 @@ local function updateGroupRow(r, g)
   r.gLevel:SetText(g.minLevel and ("Level %d-%d"):format(g.minLevel, g.maxLevel or g.minLevel) or "")
   local parts = { ("%d item%s"):format(g.count, g.count == 1 and "" or "s") }
   if g.best and g.best.price then parts[#parts + 1] = "best " .. FI.Coins(g.best.price) end
-  if g.perClear and g.perClear > 0 then parts[#parts + 1] = "|cff3fb68b~" .. FI.Coins(g.perClear) .. "|r a run" end
+  if g.perClear and g.perClear > 0 then parts[#parts + 1] = "|cff66c761~" .. FI.Coins(g.perClear) .. "|r a run" end
   r.gInfo:SetText(table.concat(parts, "   ·   "))
 end
 
@@ -298,13 +305,13 @@ local function header(tbl)
   local head = W.TableHeader(tbl, 30)
   T.itemHead = CreateFrame("Frame", nil, head)
   T.itemHead:SetAllPoints()
-  local cols = { { key = "name", label = "ITEM", x = 14, dir = 1 }, { key = "from", label = "DROPS FROM", at = FROM_LEFT, dir = 1 } }
+  local cols = { { key = "name", label = "Item", x = 14, dir = 1 }, { key = "from", label = "Drops from", at = FROM_LEFT, dir = 1 } }
   for _, col in ipairs(ITEM_COLS) do cols[#cols + 1] = { key = col.key, label = col.label, r = col.r, dir = col.key == "req" and 1 or -1 } end
   T.itemHeaders = W.SortHeaders(T.itemHead, cols, T.itemSort, function() T:Refresh() end)
   T.dungeonHead = CreateFrame("Frame", nil, head)
   T.dungeonHead:SetAllPoints()
-  cols = { { key = "name", label = "DUNGEON", x = 14, dir = 1 }, { key = "level", label = "LEVEL", at = LEVEL_AT, dir = 1 },
-    { key = "best", label = "MOST VALUABLE DROP", at = -280 } }
+  cols = { { key = "name", label = "Dungeon", x = 14, dir = 1 }, { key = "level", label = "Level", at = LEVEL_AT, dir = 1 },
+    { key = "best", label = "Most Valuable Drop", at = -280 } }
   for _, col in ipairs(DUNGEON_COLS) do cols[#cols + 1] = { key = col.key, label = col.label, r = col.r } end
   T.dungeonHeaders = W.SortHeaders(T.dungeonHead, cols, T.dungeonSort, function() T:Refresh() end)
 end
@@ -333,7 +340,7 @@ function T:Build(parent)
   chip:Hide()
   self.dungeonChip = chip
 
-  local filters = W.Choice(tab, { "All", "Twink gear", "Rare drops", "Recipes & mats" }, "pill", function(v) T.filter = v; T:Refresh() end, 26)
+  local filters = W.Dropdown(tab, { { "All items", "All" }, "Twink gear", "Rare drops", "Recipes & mats" }, function(v) T.filter = v; T:Refresh() end, 140, "Show")
   filters:SetPoint("TOPLEFT", 16, -52)
   filters:Select(self.filter)
   self.filterChoice = filters
@@ -460,6 +467,9 @@ function T:Refresh()
   end
   self.grouped = not dungeons
   self.rows = rows
+  MONEY.value:Fit(rows, function(row) return not row.group and row.price end)
+  MONEY.perKill:Fit(rows, function(row) return not row.group and row.perKill end)
+  MONEY.perClear:Fit(rows, function(row) return not row.group and row.perClear end)
   -- Back to the top only when what's listed changed (view, filter, sort, search,
   -- dungeon). Background refreshes (item info loading, new kills, a scan) keep your
   -- place in the list.

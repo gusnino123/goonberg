@@ -36,6 +36,11 @@ read_globals = {
   "GetCursorPosition", "IsMouseButtonDown", "IsModifiedClick", "IsShiftKeyDown",
   "InCombatLockdown", "PlaySound", "Screenshot",
 
+  -- Blizzard templates and their helpers (the native look)
+  "C_XMLUtil", "DoesTemplateExist", "GameFontNormal", "GameFontHighlight",
+  "PanelTemplates_TabResize", "PanelTemplates_SelectTab", "PanelTemplates_DeselectTab",
+  "SetPortraitTextureFromCreatureDisplayID", "MenuUtil", "CreateFont", "C_Texture",
+
   -- Player, realm, chat
   "UnitName", "UnitExists", "UnitGUID", "UnitFactionGroup", "GetRealmName", "GetCurrentRegion",
   "GetRealZoneText", "GetInstanceInfo", "IsInGuild", "SendChatMessage", "GetTime",

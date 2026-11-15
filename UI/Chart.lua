@@ -31,7 +31,7 @@ local function buildWatchlist(tab)
   side:SetPoint("BOTTOMLEFT", 0, 0)
   side:SetWidth(LEFT_W)
 
-  local head = W.Heading(side, "WATCHLIST")
+  local head = W.Heading(side, "Watchlist")
   head:SetPoint("TOPLEFT", 14, -14)
 
   local add = W.EditBox(side, LEFT_W - 28, "Add item: name or shift-click")
@@ -55,8 +55,8 @@ local function buildWatchlist(tab)
   hf:SetPoint("TOPRIGHT", 0, -64)
   hf:SetHeight(22)
   T.watchHeaders = W.SortHeaders(hf, {
-    { key = "name", label = "ITEM", x = 14, dir = 1 }, { key = "price", label = "PRICE", x = 110 },
-    { key = "c7", label = "7D %", r = -12 },
+    { key = "name", label = "Item", x = 14, dir = 1 }, { key = "price", label = "Price", x = 110 },
+    { key = "c7", label = "7d %", r = -12 },
   }, T.watchSort, function() T:Refresh() end)
 
   local listHolder = CreateFrame("Frame", nil, side)
@@ -66,8 +66,7 @@ local function buildWatchlist(tab)
   local list = W.List(listHolder, 24, 44, function(parent)
     local r = CreateFrame("Button", nil, parent)
     r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    r.bg = W.Tex(r, C.raised, 0, "BACKGROUND")
-    r.bg:SetAllPoints()
+    r.bg = W.RowBg(r) -- the item on the chart
     r.line = W.Tex(r, C.border, 1, "BORDER")
     r.line:SetPoint("TOPLEFT"); r.line:SetPoint("TOPRIGHT"); r.line:SetHeight(1)
     r.icon = r:CreateTexture(nil, "ARTWORK")
@@ -77,13 +76,11 @@ local function buildWatchlist(tab)
     r.name = W.Text(r, 12, C.text)
     r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 8, 0)
     r.name:SetPoint("RIGHT", -60, 0)
-    r.price = W.Text(r, 12, C.gold, true)
+    r.price = W.Text(r, 12, C.text, true)
     r.price:SetPoint("BOTTOMLEFT", r.icon, "BOTTOMRIGHT", 8, 0)
     r.chg = W.Text(r, 12, C.up, true)
     r.chg:SetPoint("RIGHT", -12, 0)
     r.chg:SetJustifyH("RIGHT")
-    r:SetScript("OnEnter", function(self) if not self.on then self.bg:SetAlpha(0.5) end end)
-    r:SetScript("OnLeave", function(self) if not self.on then self.bg:SetAlpha(0) end end)
     r:SetScript("OnClick", function(self, button)
       if button == "RightButton" then FI.Alerts:Unwatch(self.itemID)
       elseif IsModifiedClick("CHATLINK") then ChatEdit_InsertLink(FI:ItemLink(self.itemID))
@@ -150,7 +147,7 @@ local function buildCenter(tab)
   name:SetPoint("RIGHT", center, "RIGHT", -150, 0)
   tab.name = name
 
-  local price = W.Text(center, 22, C.gold, true)
+  local price = W.Text(center, 22, C.text, true)
   price:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 12, -4)
   tab.price = price
 
@@ -188,7 +185,7 @@ local function buildCenter(tab)
 
   -- Stats row
   local stats = {}
-  local labels = { "HIGH", "LOW", "LISTED NOW", "EST. SOLD" }
+  local labels = { "HIGH", "LOW", "Listed Now", "Est. Sold" }
   for i = 1, 4 do
     local s = statBox(center)
     s.label:SetText(labels[i])
@@ -212,7 +209,7 @@ local function buildRight(tab)
   side:SetPoint("BOTTOMRIGHT", 0, 0)
   side:SetWidth(RIGHT_W)
 
-  local head = W.Heading(side, "MARKET DEPTH")
+  local head = W.Heading(side, "Market Depth")
   head:SetPoint("TOPLEFT", 14, -16)
   tab.listed = W.Text(side, 11, C.muted)
   tab.listed:SetPoint("TOPRIGHT", -14, -16)
@@ -234,7 +231,7 @@ local function buildRight(tab)
     bg:SetAllPoints()
     r.bar = W.Tex(r, C.down, 0.22, "BORDER")
     r.bar:SetPoint("TOPLEFT"); r.bar:SetPoint("BOTTOMLEFT")
-    r.price = W.Text(r, 12, C.gold, true)
+    r.price = W.Text(r, 12, C.text, true)
     r.price:SetPoint("LEFT", 8, 0)
     r.qty = W.Text(r, 12, C.text, true)
     r.qty:SetPoint("RIGHT", -72, 0)
@@ -254,14 +251,14 @@ local function buildRight(tab)
   box:SetPoint("BOTTOMLEFT", 14, 14)
   box:SetPoint("BOTTOMRIGHT", -14, 14)
   box:SetHeight(176)
-  local ah = W.Heading(box, "PRICE ALERTS")
+  local ah = W.Heading(box, "Price Alerts")
   ah:SetPoint("TOPLEFT", 12, -12)
 
   local function alertRow(label, dir, y)
     local fs = W.Text(box, 12, C.text)
     fs:SetText(label)
     fs:SetPoint("TOPLEFT", 12, y - 6)
-    local e = W.EditBox(box, 96, "e.g. 3g50s")
+    local e = W.EditBox(box, 96, "e.g. 3g50s", true)
     e:SetPoint("TOPRIGHT", -12, y)
     e:SetScript("OnEnterPressed", function(self)
       self:ClearFocus()
@@ -357,7 +354,7 @@ function T:OnChartDrawn(info)
   setChange(tab, info.change)
   tab.stats[1].value:SetText(info.hi and info.hi > -math.huge and FI.Coins(info.hi) or "-")
   tab.stats[2].value:SetText(info.lo and info.lo < math.huge and FI.Coins(info.lo) or "-")
-  tab.stats[4].label:SetText("EST. SOLD (WINDOW)")
+  tab.stats[4].label:SetText("Est. Sold (Window)")
   tab.stats[4].value:SetText(info.sold and FI.Number(info.sold) or "-")
 end
 
@@ -374,7 +371,7 @@ function T:DrawDepth(it)
     if p then
       cum = cum + q
       if wallI and i * 2 < wallI then below = below + q end
-      r.price:SetText(FI.Money(p))
+      r.price:SetText(FI.Coins(p))
       r.qty:SetText(FI.Number(q))
       r.cum:SetText(FI.Number(cum))
       r.bar:SetWidth(math.max(1, q / qmax * r:GetWidth()))
@@ -387,7 +384,7 @@ function T:DrawDepth(it)
   end
   tab.listed:SetText(it and it.qty and (FI.Number(it.qty) .. " listed") or "")
   if wallI and wallI > 2 and qmax >= 20 then
-    tab.wall:SetText(("Wall: |cffe8b84a%s|r at %s. Only %s below it."):format(FI.Number(qmax), FI.Money(d[wallI - 1]), FI.Number(below)))
+    tab.wall:SetText(("Wall: |cffe6e0d1%s|r at %s. Only %s below it."):format(FI.Number(qmax), FI.Coins(d[wallI - 1]), FI.Number(below)))
   elseif d and d[1] then
     tab.wall:SetText("No big wall right now.")
   else
@@ -441,9 +438,9 @@ function T:Refresh()
   tab.belowBox:SetText(w and w.below and FI.Money(w.below, true):gsub(" ", "") or "")
   tab.aboveBox:SetText(w and w.above and FI.Money(w.above, true):gsub(" ", "") or "")
   if w and (w.belowFired or w.aboveFired) then
-    tab.alertState:SetText("|cffe8b84aTriggered.|r Re-arms when the price moves back.")
+    tab.alertState:SetText("|cffffd100Triggered.|r Re-arms when the price moves back.")
   elseif w and (w.below or w.above) then
-    tab.alertState:SetText("|cff3fb68bArmed.|r")
+    tab.alertState:SetText("|cff66c761Armed.|r")
   else
     tab.alertState:SetText("No alert set for this item.")
   end
@@ -460,7 +457,7 @@ function T:Refresh()
   end
 
   local s = H.Stats(it, now)
-  tab.price:SetText(FI.Money(it.mkt))
+  tab.price:SetText(FI.Coins(it.mkt))
   tab.pill:Show()
   tab.stats[3].value:SetText(FI.Number(s.qty))
   tab.view:SetItem(id) -- draws, then OnChartDrawn fills the header and stats

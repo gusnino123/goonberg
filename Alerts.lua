@@ -164,7 +164,7 @@ function A:Check(itemID, w, it, quiet)
         if not quiet then
           local s = FI.History.Stats(it, time())
           local title = ("%s is %s your alert"):format(name, dir == "below" and "below" or "above")
-          local body = ("|c%s%s|r  -  alert at %s  -  24h %s"):format(FI.hex.gold, FI.Money(price), FI.Money(target), FI.ColoredPercent(s.c24))
+          local body = ("|c%s%s|r  -  alert at %s  -  24h %s"):format(FI.hex.gold, FI.Coins(price), FI.Coins(target), FI.ColoredPercent(s.c24))
           self:Toast(itemID, title, body)
           if FI.settings.chatAlerts then
             FI:Print("%s %s %s (lowest now %s).", FI:ItemLink(itemID) or name, dir == "below" and "dropped below" or "rose above", FI.Money(target), FI.Money(price))

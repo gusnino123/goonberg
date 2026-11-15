@@ -16,11 +16,11 @@ local C = FI.colors
 local AXIS_W, VOL_H, TOP_BAR, LEGEND_H = 72, 44, 34, 18
 local MIN_SPAN = 900
 local MA_COLORS = { { 0.40, 0.68, 1.00 }, { 0.75, 0.55, 0.98 } } -- MA 7, MA 25
-local REF_USUAL, REF_LOW = { 0.55, 0.62, 0.72 }, { 0.25, 0.71, 0.55 }
+local REF_USUAL, REF_LOW = { 0.55, 0.62, 0.72 }, { 0.25, 0.85, 0.25 }
 
 V.PRESETS = {
-  { "15M", 900 }, { "1H", 3600 }, { "6H", 6 * 3600 }, { "12H", 12 * 3600 },
-  { "1D", 86400 }, { "1W", 7 * 86400 }, { "1M", 30 * 86400 }, { "All", nil },
+  { "15M", 900, "15 min" }, { "1H", 3600, "1 hour" }, { "6H", 6 * 3600, "6 hours" }, { "12H", 12 * 3600, "12 hours" },
+  { "1D", 86400, "1 day" }, { "1W", 7 * 86400, "1 week" }, { "1M", 30 * 86400, "1 month" }, { "All", nil, "All time" },
 }
 local PRESET_SPAN = {}
 for _, p in ipairs(V.PRESETS) do PRESET_SPAN[p[1]] = p[2] end
@@ -49,12 +49,12 @@ function V:Create(parent, opts)
   view.style = "Candles"
   view.showMA, view.showRef = true, false
 
-  -- Top bar: timeframes | style | indicators | back to now
-  local tfNames = {}
-  for _, p in ipairs(V.PRESETS) do tfNames[#tfNames + 1] = p[1] end
-  view.tfChoice = W.Choice(box, tfNames, "seg", function(v) view:SetPreset(v) end, 24)
-  view.tfChoice:SetPoint("TOPLEFT", 10, -6)
-  view.styleChoice = W.Choice(box, { "Candles", "Line", "Area" }, "seg", function(v) view.style = v; view:Draw() end, 24)
+  -- Top bar: timeframes | style | indicators
+  local tfEntries = {}
+  for _, p in ipairs(V.PRESETS) do tfEntries[#tfEntries + 1] = { p[3], p[1] } end
+  view.tfChoice = W.Dropdown(box, tfEntries, function(v) view:SetPreset(v) end, 110, nil, "Custom")
+  view.tfChoice:SetPoint("TOPLEFT", 10, -5)
+  view.styleChoice = W.Dropdown(box, { "Candles", "Line", "Area" }, function(v) view.style = v; view:Draw() end, 100)
   view.styleChoice:SetPoint("LEFT", view.tfChoice, "RIGHT", 10, 0)
   view.styleChoice:Select(view.style)
   view.maBtn = W.Button(box, "MA 7/25", nil, 24, "pill")
@@ -90,7 +90,6 @@ function V:Create(parent, opts)
   box:HookScript("OnSizeChanged", function() if view.plot and view:LayoutBar() then view:Draw() end end)
 
   view.nowBtn = W.Button(box, "Back to now", nil, 24, "gold")
-  view.nowBtn:SetPoint("TOPRIGHT", -10, -6)
   view.nowBtn:SetScript("OnClick", function() view.offset = 0; view:Draw() end)
   view.nowBtn:Hide()
 
@@ -104,6 +103,10 @@ function V:Create(parent, opts)
   plot:EnableMouse(true)
   plot:EnableMouseWheel(true)
   view.plot = plot
+  -- "Back to now" only shows while you've panned back: it floats in the plot's corner
+  -- (above the crosshair) so it never crowds the toolbar buttons
+  view.nowBtn:SetPoint("BOTTOMRIGHT", plot, "BOTTOMRIGHT", -6, 6)
+  view.nowBtn:SetFrameLevel(plot:GetFrameLevel() + 10)
   view:LayoutBar()
   local vol = CreateFrame("Frame", nil, box)
   vol:SetPoint("TOPLEFT", plot, "BOTTOMLEFT", 0, -6)
@@ -274,7 +277,7 @@ function V:Draw()
     local l = self.labels:Get()
     l:ClearAllPoints()
     l:SetPoint("LEFT", plot, "BOTTOMRIGHT", 8, y(p))
-    l:SetText(FI.Money(p))
+    l:SetText(FI.Coins(p))
   end
   -- Time axis: 4 labels
   local startT = endT - span
@@ -377,16 +380,16 @@ function V:Draw()
   self.alertYs = {}
   for _, e in ipairs(extras) do
     if e[2] == "alert" then
-      hline(e[1], C.gold, "ALERT " .. FI.Money(e[1]), true)
+      hline(e[1], C.gold, "Alert " .. FI.Coins(e[1]), true)
       self.alertYs[#self.alertYs + 1] = { dir = e[3], price = e[1] }
     elseif e[2] == "usual" then
-      hline(e[1], REF_USUAL, "USUAL " .. FI.Money(e[1]), true, 0.5)
+      hline(e[1], REF_USUAL, "Usual " .. FI.Coins(e[1]), true, 0.5)
     else
-      hline(e[1], REF_LOW, "TYPICAL LOW " .. FI.Money(e[1]), true, 0.5)
+      hline(e[1], REF_LOW, "Typical Low " .. FI.Coins(e[1]), true, 0.5)
     end
   end
   local last, first = candles[#candles].c, candles[1].o
-  hline(last, last >= first and C.up or C.down, FI.Money(last), false)
+  hline(last, last >= first and C.up or C.down, FI.Coins(last), false)
 
   -- Summary for the header (and the legend when not hovering)
   local sold, wHi, wLo = 0, -math.huge, math.huge
@@ -404,18 +407,18 @@ function V:Legend(c)
   c = c or (self.data and self.data[#self.data])
   if not c then self.legend:SetText(""); return end
   local chg = c.o > 0 and (c.c - c.o) / c.o * 100 or nil
-  local col = (c.c >= c.o) and "ff3fb68b" or "fff0613a"
+  local col = (c.c >= c.o) and FI.hex.up or FI.hex.down
   local parts = {
-    ("O |c%s%s|r"):format(col, FI.Money(c.o)),
-    ("H |c%s%s|r"):format(col, FI.Money(c.hi)),
-    ("L |c%s%s|r"):format(col, FI.Money(c.lo)),
-    ("C |c%s%s|r"):format(col, FI.Money(c.c)),
+    ("O |c%s%s|r"):format(col, FI.Coins(c.o)),
+    ("H |c%s%s|r"):format(col, FI.Coins(c.hi)),
+    ("L |c%s%s|r"):format(col, FI.Coins(c.lo)),
+    ("C |c%s%s|r"):format(col, FI.Coins(c.c)),
     ("|c%s%s|r"):format(col, FI.Percent(chg)),
     ("sold %s"):format(FI.Number(c.v)),
   }
   if self.showMA and self.maNow then
-    if self.maNow[1] then parts[#parts + 1] = ("|cff66adffMA7 %s|r"):format(FI.Money(self.maNow[1])) end
-    if self.maNow[2] then parts[#parts + 1] = ("|cffbf8cfaMA25 %s|r"):format(FI.Money(self.maNow[2])) end
+    if self.maNow[1] then parts[#parts + 1] = ("|cff66adffMA7 %s|r"):format(FI.Coins(self.maNow[1])) end
+    if self.maNow[2] then parts[#parts + 1] = ("|cffbf8cfaMA25 %s|r"):format(FI.Coins(self.maNow[2])) end
   end
   self.legend:SetText(table.concat(parts, "   "))
 end
@@ -452,7 +455,7 @@ function V:UpdateCrosshair()
   self.hline:ClearAllPoints()
   self.hline:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", 0, py)
   self.hline:SetPoint("BOTTOMRIGHT", plot, "BOTTOMRIGHT", 0, py)
-  self.priceTag.text:SetText(FI.Money(self:PriceAtY(py)))
+  self.priceTag.text:SetText(FI.Coins(self:PriceAtY(py)))
   self.priceTag:SetWidth(self.priceTag.text:GetStringWidth() + 12)
   self.priceTag:ClearAllPoints()
   self.priceTag:SetPoint("LEFT", plot, "BOTTOMRIGHT", 4, py)
@@ -538,7 +541,7 @@ function V:Hook()
   plot:SetScript("OnEnter", function()
     GameTooltip:SetOwner(plot, "ANCHOR_NONE")
     GameTooltip:SetPoint("BOTTOMLEFT", plot, "TOPLEFT", 0, 4)
-    GameTooltip:AddLine("|cff8b95a3Scroll to zoom, drag to pan, right-click to set a price alert, drag an alert line to move it.|r", 1, 1, 1, true)
+    GameTooltip:AddLine("|cff9e998fScroll to zoom, drag to pan, right-click to set a price alert, drag an alert line to move it.|r", 1, 1, 1, true)
     GameTooltip:Show()
     C_Timer.After(2.5, function() if GameTooltip:GetOwner() == plot then GameTooltip_Hide() end end)
   end)

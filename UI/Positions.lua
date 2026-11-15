@@ -13,27 +13,29 @@ local C = FI.colors
 local ROW_H = 28
 local EMPTY = "No positions yet. Buy something on the AH and sell it again, or craft or disenchant it first: each chain from buy to sale shows up here with its P&L. (Open your mailbox after trading so the AH invoices get read.)"
 local COLS = {
-  { key = "last", label = "DATE", at = -636, dir = -1 },
-  { key = "status", label = "STATUS", at = -566, dir = 1 },
-  { key = "cost", label = "COST", r = -426 },
-  { key = "proceeds", label = "SOLD FOR", r = -326 },
-  { key = "held", label = "HELD (WORTH)", r = -206 },
+  { key = "last", label = "Date", at = -636, dir = -1 },
+  { key = "status", label = "Status", at = -566, dir = 1 },
+  { key = "cost", label = "Cost", r = -426 },
+  { key = "proceeds", label = "Sold for", r = -326 },
+  { key = "held", label = "Held (Worth)", r = -206 },
   { key = "realized", label = "P&L", r = -94 },
   { key = "roi", label = "ROI", r = -16 },
 }
 local CELL_R = { cost = -426, proceeds = -326, held = -206, realized = -94, roi = -16 }
+-- money columns (each lines its amounts up across the rows)
+local MONEY = { cost = W.MoneyColumn(), proceeds = W.MoneyColumn(), realized = W.MoneyColumn() }
 
 local function signed(v)
-  return ("|cff%s%s%s|r"):format(v >= 0 and "3fb68b" or "f0603a", v >= 0 and "+" or "-", FI.Money(math.abs(v)))
+  return ("|cff%s%s%s|r"):format(v >= 0 and "66c761" or "ff7366", v >= 0 and "+" or "-", FI.Coins(math.abs(v)))
 end
 local function setColor(fs, c) fs:SetTextColor(c[1], c[2], c[3]) end
-local function each(total, n) return FI.Money(math.floor(total / math.max(1, n) + 0.5)) end
+local function each(total, n) return FI.Coins(math.floor(total / math.max(1, n) + 0.5)) end
 local function key(g) return g.opened .. "|" .. g.name end
 
--- what one step says
+-- what one step says (plain labels: the money columns carry the green and red)
 local ACTIONS = {
-  buy = { "Bought", C.down }, craft = { "Crafted", C.gold }, de = { "Disenchanted", C.gold },
-  use = { "Used", C.soft }, sale = { "Sold", C.up }, vendor = { "Vendored", C.soft },
+  buy = { "Bought", C.soft }, craft = { "Crafted", C.soft }, de = { "Disenchanted", C.soft },
+  use = { "Used", C.soft }, sale = { "Sold", C.soft }, vendor = { "Vendored", C.soft },
 }
 local function describe(st)
   local e = st.e
@@ -76,8 +78,7 @@ end
 
 local function makeRow(parent)
   local r = CreateFrame("Button", nil, parent)
-  r.bg = W.Tex(r, C.raised, 0, "BACKGROUND")
-  r.bg:SetAllPoints()
+  r.bg = W.RowBg(r) -- a faint band behind each position (its steps sit under it)
   local rule = W.Tex(r, C.border, 0.6, "BORDER")
   rule:SetPoint("BOTTOMLEFT"); rule:SetPoint("BOTTOMRIGHT"); rule:SetHeight(1)
   r.bar = W.Tex(r, C.gold, 1, "BORDER")
@@ -87,19 +88,23 @@ local function makeRow(parent)
   r.name = W.Text(r, 12, C.text)
   r.name:SetPoint("LEFT", 32, 0)
   r.name:SetPoint("RIGHT", r, "RIGHT", -644, 0)
-  r.date = W.Text(r, 11, C.soft)
+  r.date = W.Text(r, 11, C.soft, true)
   r.date:SetPoint("LEFT", r, "RIGHT", -636, 0)
   r.status = W.Text(r, 11, C.soft)
   r.status:SetPoint("LEFT", r, "RIGHT", -566, 0)
   r.cells = {}
   for k, x in pairs(CELL_R) do
-    local fs = W.Text(r, 12, C.text, true)
-    fs:SetPoint("RIGHT", r, "RIGHT", x, 0)
-    fs:SetJustifyH("RIGHT")
-    r.cells[k] = fs
+    if MONEY[k] then
+      r.cells[k] = W.MoneyCell(r, x, MONEY[k])
+    else
+      local fs = W.Text(r, W.SIZE.cell, C.text, true)
+      fs:SetPoint("RIGHT", r, "RIGHT", x, 0)
+      fs:SetJustifyH("RIGHT")
+      r.cells[k] = fs
+    end
   end
   -- a step inside an open position
-  r.sDate = W.Text(r, 11, C.muted)
+  r.sDate = W.Text(r, 11, C.muted, true)
   r.sDate:SetPoint("LEFT", 40, 0)
   r.sAction = W.Text(r, 11, C.text)
   r.sAction:SetPoint("LEFT", 128, 0)
@@ -118,30 +123,29 @@ local function makeRow(parent)
   r:SetScript("OnEnter", function(self)
     local row = self.row
     if not row or row.kind ~= "pos" then return end
-    self.bg:SetAlpha(0.6)
     local g, soft = row.g, C.soft
     GameTooltip:SetOwner(self, "ANCHOR_CURSOR_RIGHT")
     GameTooltip:AddLine(g.name)
     local function line(l, v, c) c = c or C.text; GameTooltip:AddDoubleLine(l, v, soft[1], soft[2], soft[3], c[1], c[2], c[3]) end
-    line("Status", g.status == "open" and "Open" or "Closed", g.status == "open" and C.gold or C.soft)
+    line("Status", g.status == "open" and "Open" or "Closed", g.status == "open" and C.text or C.soft)
     line("Opened", date("%b %d %H:%M", g.opened))
     if g.closed then line("Closed", date("%b %d %H:%M", g.closed)) end
-    line("Cost", FI.Money(g.cost))
-    if g.own > 0 then line("  of which your own / vendor materials", FI.Money(g.own)) end
-    if g.proceeds > 0 then line("Sold for (after the AH cut)", FI.Money(g.proceeds)); line("  AH cut paid", FI.Money(g.fees)) end
-    line("Realized P&L", (g.realized >= 0 and "+" or "-") .. FI.Money(math.abs(g.realized)), g.realized >= 0 and C.up or C.down)
+    line("Cost", FI.Coins(g.cost))
+    if g.own > 0 then line("  of which your own / vendor materials", FI.Coins(g.own)) end
+    if g.proceeds > 0 then line("Sold for (after the AH cut)", FI.Coins(g.proceeds)); line("  AH cut paid", FI.Coins(g.fees)) end
+    line("Realized P&L", (g.realized >= 0 and "+" or "-") .. FI.Coins(math.abs(g.realized)), g.realized >= 0 and C.up or C.down)
     if g.roi then line("ROI on what you sold", FI.Percent(g.roi), g.roi >= 0 and C.up or C.down) end
-    if g.usedCost > 0 then line("Used yourself", FI.Money(g.usedCost)) end
+    if g.usedCost > 0 then line("Used yourself", FI.Coins(g.usedCost)) end
     if g.openUnits > 0 then
-      line("Still held", ("%d unit%s, cost %s"):format(g.openUnits, g.openUnits == 1 and "" or "s", FI.Money(g.openCost)))
-      line("Worth now (after the AH cut)", FI.Money(g.openValue), C.gold)
-      line("Unrealized", (g.unrealized >= 0 and "+" or "-") .. FI.Money(math.abs(g.unrealized)), g.unrealized >= 0 and C.up or C.down)
+      line("Still held", ("%d unit%s, cost %s"):format(g.openUnits, g.openUnits == 1 and "" or "s", FI.Coins(g.openCost)))
+      line("Worth now (after the AH cut)", FI.Coins(g.openValue))
+      line("Unrealized", (g.unrealized >= 0 and "+" or "-") .. FI.Coins(math.abs(g.unrealized)), g.unrealized >= 0 and C.up or C.down)
       if g.unpriced > 0 then GameTooltip:AddLine(("%d unit(s) have no market price yet: scan the AH."):format(g.unpriced), 0.55, 0.58, 0.64) end
     end
-    GameTooltip:AddLine(V.expanded[key(g)] and "|cff8b95a3Click to hide the steps.|r" or "|cff8b95a3Click to see each step.|r")
+    GameTooltip:AddLine(V.expanded[key(g)] and "|cff9e998fClick to hide the steps.|r" or "|cff9e998fClick to see each step.|r")
     GameTooltip:Show()
   end)
-  r:SetScript("OnLeave", function(self) self.bg:SetAlpha(self.row and self.row.kind == "pos" and 0.25 or 0); GameTooltip_Hide() end)
+  r:SetScript("OnLeave", GameTooltip_Hide)
   return r
 end
 
@@ -165,27 +169,28 @@ local function updateRow(r, i)
     local tags = {}
     if g.crafted then tags[#tags + 1] = "crafted" end
     if g.disenchanted then tags[#tags + 1] = "DE'd" end
-    if g.deal then tags[#tags + 1] = "|cffe8b84aDeals tab|r" end
-    if g.legacy then tags[#tags + 1] = "|cfff0613aold data, quantity may be off|r" end
-    r.name:SetText(g.name .. (#tags > 0 and ("  |cff8b95a3" .. table.concat(tags, " · ") .. "|r") or ""))
+    if g.deal then tags[#tags + 1] = "Deals tab" end
+    if g.legacy then tags[#tags + 1] = "|cffff7366old data, quantity may be off|r" end
+    r.name:SetText(g.name .. (#tags > 0 and ("  |cff9e998f" .. table.concat(tags, " · ") .. "|r") or ""))
     r.date:SetText(date("%b %d", g.last))
     if g.status == "open" then
-      r.status:SetText("Open"); setColor(r.status, C.gold)
+      r.status:SetText("Open"); setColor(r.status, C.text)
     else
-      r.status:SetText("Closed"); setColor(r.status, C.soft)
+      r.status:SetText("Closed"); setColor(r.status, C.muted)
     end
-    r.cells.cost:SetText(FI.Coins(g.cost)); setColor(r.cells.cost, C.text)
-    r.cells.proceeds:SetText(g.proceeds > 0 and FI.Coins(g.proceeds) or "|cff8b95a3-|r"); setColor(r.cells.proceeds, C.text)
+    r.cells.cost:SetMoney(g.cost); setColor(r.cells.cost, C.text)
+    if g.proceeds > 0 then r.cells.proceeds:SetMoney(g.proceeds) else r.cells.proceeds:SetText("|cff9e998f-|r") end
+    setColor(r.cells.proceeds, C.text)
     if g.openUnits > 0 then
-      r.cells.held:SetText(("%d · %s"):format(g.openUnits, g.unpriced >= g.openUnits and "?" or FI.Money(g.openValue)))
-      setColor(r.cells.held, C.gold)
+      r.cells.held:SetText(("%d · %s"):format(g.openUnits, g.unpriced >= g.openUnits and "?" or FI.Coins(g.openValue)))
+      setColor(r.cells.held, C.text)
     else
-      r.cells.held:SetText("|cff8b95a3-|r")
+      r.cells.held:SetText("|cff9e998f-|r")
     end
     if g.soldCost > 0 or g.proceeds > 0 then
-      r.cells.realized:SetText(signed(g.realized))
+      r.cells.realized:SetMoney(g.realized, true); setColor(r.cells.realized, g.realized >= 0 and C.up or C.down)
     else
-      r.cells.realized:SetText("|cff8b95a3-|r")
+      r.cells.realized:SetText("|cff9e998f-|r")
     end
     if g.roi then
       r.cells.roi:SetText(FI.Percent(g.roi)); setColor(r.cells.roi, g.roi >= 0 and C.up or C.down)
@@ -198,14 +203,14 @@ local function updateRow(r, i)
     r.sText:SetPoint("RIGHT", r, "RIGHT", (st.kind == "buy" or st.kind == "sale" or (st.kind == "craft" and st.own > 0)) and -500 or -340, 0)
     -- money lines up under the position's columns
     if st.kind == "buy" then
-      r.cells.cost:SetText("-" .. FI.Coins(st.cost)); setColor(r.cells.cost, C.down)
+      r.cells.cost:SetMoney(-st.cost); setColor(r.cells.cost, C.down)
     elseif st.kind == "craft" and st.own > 0 then
-      r.cells.cost:SetText("-" .. FI.Coins(st.own)); setColor(r.cells.cost, C.muted)
+      r.cells.cost:SetMoney(-st.own); setColor(r.cells.cost, C.muted)
     elseif st.kind == "use" then
-      r.cells.held:SetText(FI.Money(st.cost) .. " used"); setColor(r.cells.held, C.muted)
+      r.cells.held:SetText(FI.Coins(st.cost) .. " used"); setColor(r.cells.held, C.muted)
     elseif st.kind == "sale" then
-      r.cells.proceeds:SetText("+" .. FI.Coins(st.net)); setColor(r.cells.proceeds, C.up)
-      r.cells.realized:SetText(signed(st.net - st.cost))
+      r.cells.proceeds:SetMoney(st.net, true); setColor(r.cells.proceeds, C.up)
+      r.cells.realized:SetMoney(st.net - st.cost, true); setColor(r.cells.realized, st.net >= st.cost and C.up or C.down)
       if st.cost > 0 then
         local roi = (st.net - st.cost) / st.cost * 100
         r.cells.roi:SetText(FI.Percent(roi)); setColor(r.cells.roi, roi >= 0 and C.up or C.down)
@@ -217,10 +222,10 @@ local function updateRow(r, i)
     table.sort(held)
     r.sText:SetPoint("RIGHT", r, "RIGHT", -340, 0)
     r.sDate:SetText("now")
-    r.sAction:SetText("Holding"); setColor(r.sAction, C.gold)
-    r.sText:SetText(table.concat(held, " + ") .. ("  (cost %s)"):format(FI.Money(g.openCost)))
-    r.cells.held:SetText(FI.Money(g.openValue)); setColor(r.cells.held, C.gold)
-    r.cells.realized:SetText("|cff8b95a3" .. (g.unrealized >= 0 and "+" or "-") .. FI.Money(math.abs(g.unrealized)) .. " open|r")
+    r.sAction:SetText("Holding"); setColor(r.sAction, C.soft)
+    r.sText:SetText(table.concat(held, " + ") .. ("  (cost %s)"):format(FI.Coins(g.openCost)))
+    r.cells.held:SetText(FI.Coins(g.openValue)); setColor(r.cells.held, C.text)
+    r.cells.realized:SetText("|cff9e998f" .. (g.unrealized >= 0 and "+" or "-") .. FI.Coins(math.abs(g.unrealized)) .. " open|r")
   end
 end
 
@@ -230,20 +235,20 @@ function V:Build(parent)
   f:SetAllPoints()
   self.frame = f
 
-  local show = W.Choice(f, { "All", "Open", "Closed" }, "pill", function(v) V.show = v; V:Refresh() end, 26)
+  local show = W.Dropdown(f, { { "All positions", "All" }, "Open", "Closed" }, function(v) V.show = v; V:Refresh() end, 130, "Show")
   show:SetPoint("TOPLEFT", 200, -14)
   show:Select(self.show)
-  local periods = W.Choice(f, { "Today", "7D", "30D", "All" }, "seg", function(v)
+  local periods = W.Dropdown(f, FI.PnLTab.PERIODS, function(v)
     FI.PnLTab.period = v
     if FI.PnLTab.periodChoice then FI.PnLTab.periodChoice:Select(v) end
     V:Refresh()
-  end, 26)
+  end, 130)
   periods:SetPoint("TOPRIGHT", -16, -14)
   self.periodChoice = periods
 
   -- the numbers a trader looks at first
   self.stats = {}
-  local labels = { "REALIZED P&L", "WIN RATE", "RETURN", "OPEN POSITIONS", "BEST POSITION" }
+  local labels = { "Realized P&L", "Win Rate", "Return", "Open Positions", "Best Position" }
   for i, l in ipairs(labels) do self.stats[i] = stat(f, l) end
   f:SetScript("OnSizeChanged", function(_, w)
     local gap, n = 10, #V.stats
@@ -259,7 +264,7 @@ function V:Build(parent)
   tbl:SetPoint("TOPLEFT", 16, -132)
   tbl:SetPoint("BOTTOMRIGHT", -16, 16)
   local head = W.TableHeader(tbl, 30)
-  local cols = { { key = "name", label = "POSITION", x = 32, dir = 1 } }
+  local cols = { { key = "name", label = "Position", x = 32, dir = 1 } }
   for _, c in ipairs(COLS) do cols[#cols + 1] = c end
   self.headers = W.SortHeaders(head, cols, self.sort, function() V:Refresh() end)
   local holder = CreateFrame("Frame", nil, tbl)
@@ -330,8 +335,8 @@ function V:Refresh()
     s[3].value:SetText("-"); setColor(s[3].value, C.muted)
   end
   s[3].sub:SetText("on closed positions")
-  s[4].value:SetText(openN > 0 and FI.Coins(openValue) or "-"); setColor(s[4].value, openN > 0 and C.gold or C.muted)
-  s[4].sub:SetText(openN > 0 and ("%d open · cost %s · %s"):format(openN, FI.Money(openCost), signed(openValue - openCost)) or "nothing held")
+  s[4].value:SetText(openN > 0 and FI.Coins(openValue) or "-"); setColor(s[4].value, openN > 0 and C.text or C.muted)
+  s[4].sub:SetText(openN > 0 and ("%d open · cost %s · %s"):format(openN, FI.Coins(openCost), signed(openValue - openCost)) or "nothing held")
   s[5].value:SetText(best and signed(best.realized) or "-")
   if not best then setColor(s[5].value, C.muted) end
   s[5].sub:SetText(best and best.name or "no sales yet")
@@ -360,6 +365,9 @@ function V:Refresh()
     end
   end
   self.rows = rows
+  MONEY.cost:Fit(rows, function(row) return row.kind == "pos" and row.g.cost end)
+  MONEY.proceeds:Fit(rows, function(row) return row.kind == "pos" and row.g.proceeds end)
+  MONEY.realized:Fit(rows, function(row) return row.kind == "pos" and row.g.realized end)
   local k = P.period .. "|" .. self.show .. "|" .. st.sort .. st.dir
   if k ~= self.listKey then self.listKey = k; self.list.offset = 0 end
   self.list:SetCount(#rows)

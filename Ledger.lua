@@ -195,24 +195,49 @@ function L:RecipeFor(itemID)
   end
 end
 
+-- An item's real name, for the P&L (which matches things up by name, so a stand-in
+-- like "Item 1234" must never be saved): the game's, else the one in its link, else
+-- the one in your bags (bag links always carry it). nil when none of them know it yet.
+local function knownName(id, link)
+  if id then
+    local name, loading = FI:ItemName(id)
+    if not loading then return name end
+  end
+  local fromLink = link and link:match("%[(.-)%]")
+  if fromLink then return fromLink end
+  local c = id and L.carried
+  if c then
+    for name, i in pairs(c.ids) do if i == id then return name end end
+  end
+end
+
 -- One "You create" message is one craft, however many it made (1-3 for some recipes).
-function L:RecordCraft(itemID, qty, t, linkName)
+-- tries: how many times it waited for the game to load a material's name
+function L:RecordCraft(itemID, qty, t, linkName, tries)
   local rec = self:RecipeFor(itemID)
   if not rec or not rec.r then return false end
-  local name = FI:ItemName(itemID) or linkName
+  local name = knownName(itemID) or linkName
   if not name then return false end
+  t = t or time()
   qty = math.max(1, qty or 1)
   local used = {}
   for i = 1, #rec.r, 2 do
     local id, n = rec.r[i], rec.r[i + 1]
     local price, source = FI.Crafting:ReagentPrice(id)
-    local mat = FI:ItemName(id)
-    if not mat then return false end -- can't tell what went in yet: better not guess
+    local mat = knownName(id)
+    if not mat then
+      -- can't tell what went in yet: better not guess. Asking for the name (above)
+      -- makes the game load it, so look again shortly.
+      if (tries or 0) < 3 then
+        C_Timer.After(0.5, function() L:RecordCraft(itemID, qty, t, linkName, (tries or 0) + 1) end)
+      end
+      return false
+    end
     -- { name, count, unit price at the time, bought from a vendor }
     used[#used + 1] = { mat, n, price or 0, source == "vendor" or nil }
   end
   local d = self:Data()
-  d.entries[#d.entries + 1] = { t = t or time(), k = "craft", i = name, q = qty, r = used, v = 2 }
+  d.entries[#d.entries + 1] = { t = t, k = "craft", i = name, q = qty, r = used, v = 2 }
   -- the materials leaving your bags were this craft, not "used"
   self.craftCredit, self.craftCreditAt = self.craftCredit or {}, time()
   for _, m in ipairs(used) do self.craftCredit[m[1]] = (self.craftCredit[m[1]] or 0) + m[2] end
@@ -245,9 +270,6 @@ local CLOSES = { MERCHANT_CLOSED = "vendor", BANKFRAME_CLOSED = "bank", MAIL_CLO
   AUCTION_HOUSE_CLOSED = "ah", GUILDBANKFRAME_CLOSED = "gbank" }
 local USE_DELAY = 2 -- seconds: lets a craft's "You create" message arrive first
 
-local function nameOf(id, link)
-  return (id and FI:ItemName(id)) or (link and link:match("%[(.-)%]"))
-end
 
 -- what you're carrying and wearing, by item name
 function L:Carried()
@@ -256,7 +278,7 @@ function L:Carried()
     for bag = 0, 4 do
       for slot = 1, C_Container.GetContainerNumSlots(bag) do
         local info = C_Container.GetContainerItemInfo(bag, slot)
-        local name = info and nameOf(info.itemID, info.hyperlink)
+        local name = info and knownName(info.itemID, info.hyperlink)
         if name then
           c.bag[name] = (c.bag[name] or 0) + (info.stackCount or 1)
           c.ids[name] = info.itemID
@@ -267,7 +289,7 @@ function L:Carried()
   if GetInventoryItemID then
     for slot = 1, 19 do
       local id = GetInventoryItemID("player", slot)
-      local name = id and nameOf(id, GetInventoryItemLink and GetInventoryItemLink("player", slot))
+      local name = id and knownName(id, GetInventoryItemLink and GetInventoryItemLink("player", slot))
       if name then c.worn[name] = (c.worn[name] or 0) + 1 end
     end
   end
@@ -324,7 +346,8 @@ FI:On("CHAT_MSG_LOOT", function(_, msg)
   if not de or type(msg) ~= "string" or time() - de.t > 6 then return end
   local id, n, link = L.LootFromChat(msg)
   if not id then return end
-  local name = nameOf(id, link)
+  local name = knownName(id, link)
+  if not name then return end
   local mkt = L:PriceByName(name)
   de.out[#de.out + 1] = { name, n, mkt or 0 }
 end)
