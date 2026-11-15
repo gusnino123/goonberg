@@ -43,20 +43,25 @@ FI.version = (GetMeta and GetMeta(ADDON, "Version")) or "dev"
 FI.GetItemInfo = (C_Item and C_Item.GetItemInfo) or GetItemInfo
 FI.GetItemInfoInstant = (C_Item and C_Item.GetItemInfoInstant) or GetItemInfoInstant
 
+-- Text colors: the game's gold for headings, labels and what's selected; a warm off-white
+-- for values (pure white on black glares over a long session); greys for the rest. Green
+-- and red are a touch softer than pure, so a column of them stays easy on the eyes.
+-- See-through blacks for panels, so the window's background shows through.
+-- A 4th value is the color's alpha.
 FI.colors = {
-  gold   = { 0.91, 0.72, 0.29 },
-  up     = { 0.25, 0.71, 0.55 },
-  down   = { 0.94, 0.38, 0.23 },
-  text   = { 0.90, 0.91, 0.93 },
-  soft   = { 0.76, 0.79, 0.83 },
-  muted  = { 0.55, 0.58, 0.64 },
-  bg     = { 0.055, 0.067, 0.086 },
-  side   = { 0.071, 0.086, 0.110 },
-  panel  = { 0.082, 0.102, 0.129 },
-  raised = { 0.110, 0.137, 0.176 },
-  border = { 0.137, 0.165, 0.200 },
+  gold   = { 1.00, 0.82, 0.00 }, -- the game's gold (NORMAL_FONT_COLOR)
+  up     = { 0.40, 0.78, 0.38 },
+  down   = { 1.00, 0.45, 0.40 },
+  text   = { 0.90, 0.88, 0.82 },
+  soft   = { 0.74, 0.72, 0.68 },
+  muted  = { 0.62, 0.60, 0.56 },
+  bg     = { 0.00, 0.00, 0.00, 0.60 },
+  side   = { 0.00, 0.00, 0.00, 0.35 },
+  panel  = { 0.00, 0.00, 0.00, 0.45 },
+  raised = { 0.17, 0.17, 0.17 },
+  border = { 0.29, 0.27, 0.24 },
 }
-FI.hex = { gold = "ffe8b84a", up = "ff3fb68b", down = "fff0613a", muted = "ff8b95a3", text = "ffe6e9ee" }
+FI.hex = { gold = "ffffd100", up = "ff66c761", down = "ffff7366", muted = "ff9e998f", soft = "ffbdb8ad", text = "ffe6e0d1" }
 
 -- ---------------------------------------------------------------------------
 -- Events: a tiny dispatcher so every module can listen to game and own events
@@ -124,7 +129,7 @@ end
 -- ---------------------------------------------------------------------------
 function FI:Print(msg, ...)
   if select("#", ...) > 0 then msg = msg:format(...) end
-  DEFAULT_CHAT_FRAME:AddMessage("|cffe8b84aGoonberg Terminal|r: " .. tostring(msg))
+  DEFAULT_CHAT_FRAME:AddMessage("|cffffd100Goonberg Terminal|r: " .. tostring(msg))
 end
 
 ---"3g 50s" from copper; `full` always shows every unit ("3g 50s 00c").
@@ -154,17 +159,19 @@ function FI.Money(copper, full)
   return neg and ("-" .. out) or out
 end
 
--- The same amount with the unit letters in coin colours (gold, silver, copper), the
--- way the game shows money. The digits keep the text's own colour. For display only:
--- chat messages and edit boxes use FI.Money.
-local COIN = { g = "|cffffd100g|r", s = "|cffc7c7cfs|r", c = "|cffeda55fc|r" }
+-- The same amount with coin icons, the way the bags and the AH show money
+-- ("34 [gold] 20 [silver] 49 [copper]", no zero padding). For the screen only: chat
+-- messages, chat prints and edit boxes keep FI.Money's letters.
+local function coinIcon(name) return "|TInterface\\MoneyFrame\\UI-" .. name .. "Icon:0:0:2:0|t" end
+FI.COIN = { g = coinIcon("Gold"), s = coinIcon("Silver"), c = coinIcon("Copper") }
 ---@param copper number?
 ---@param full boolean?
 ---@return string
 function FI.Coins(copper, full)
   local out = FI.Money(copper, full)
   if out == "-" then return out end
-  return (out:gsub("(%d)([gsc])", function(d, u) return d .. COIN[u] end))
+  out = out:gsub(" 0(%d)", " %1")
+  return (out:gsub("(%d)([gsc])", function(d, u) return d .. FI.COIN[u] end))
 end
 
 ---@param n number?
@@ -190,7 +197,7 @@ function FI.ChangeColor(v)
 end
 
 function FI.ColoredPercent(v)
-  if not v then return "|cff8b95a3-|r" end
+  if not v then return "|c" .. FI.hex.muted .. "-|r" end
   return ("|c%s%s|r"):format(v >= 0 and FI.hex.up or FI.hex.down, FI.Percent(v))
 end
 
@@ -242,8 +249,11 @@ end
 -- ---------------------------------------------------------------------------
 local pendingNames = {}
 
+-- While the game is still loading an item it returns "Item <id>" and true; anything
+-- that keeps the name should look it up again once FI_ITEM_LOADED fires.
 ---@param itemID integer
----@return string
+---@return string name
+---@return boolean? loading
 function FI:ItemName(itemID)
   local name = FI.GetItemInfo(itemID)
   if name then
@@ -263,7 +273,7 @@ function FI:ItemName(itemID)
       FI:Fire("FI_ITEM_LOADED", itemID)
     end)
   end
-  return "Item " .. itemID
+  return "Item " .. itemID, true
 end
 
 function FI:ItemIcon(itemID)
@@ -712,6 +722,8 @@ SlashCmdList.GOONBERG = function(msg)
     end
     FI:SetMinimapButton(onOff(arg, FI.settings.minimapButton))
     FI:Print("Minimap button is now %s.", FI.settings.minimapButton and "shown" or "hidden")
+  elseif cmd == "layout" then
+    FI.UI:CheckLayout()
   elseif cmd == "autoscan" or cmd == "dock" or cmd == "sound" or cmd == "tooltip" then
     local key = cmd == "autoscan" and "autoScan" or cmd
     FI.settings[key] = onOff(rest:lower(), FI.settings[key])

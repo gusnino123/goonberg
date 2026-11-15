@@ -18,18 +18,18 @@ end
 
 local function showTooltip(self)
   GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-  GameTooltip:AddLine("|cffe8b84aGoonberg Terminal|r")
+  GameTooltip:AddLine("|cffffd100Goonberg Terminal|r")
   local realm = FI:Realm()
   local level = FI.History.IndexLevel(realm)
   if level then
     local ch = FI.History.IndexChange(realm, time(), 86400)
-    GameTooltip:AddDoubleLine("Goonberg Index", ("%.1f  %s"):format(level, FI.ColoredPercent(ch)), 0.76, 0.79, 0.83, 1, 1, 1)
+    GameTooltip:AddDoubleLine("Goonberg Index", ("%.1f  %s"):format(level, FI.ColoredPercent(ch)), 0.82, 0.82, 0.82, 1, 1, 1)
   end
-  GameTooltip:AddDoubleLine("Last scan", FI.Ago(realm.lastScan), 0.76, 0.79, 0.83, 1, 1, 1)
+  GameTooltip:AddDoubleLine("Last scan", FI.Ago(realm.lastScan), 0.82, 0.82, 0.82, 1, 1, 1)
   GameTooltip:AddLine(" ")
-  GameTooltip:AddLine("|cff8b95a3Click|r open or close the terminal", 1, 1, 1)
-  GameTooltip:AddLine("|cff8b95a3Right-click|r your P&L", 1, 1, 1)
-  GameTooltip:AddLine("|cff8b95a3Drag|r move this button", 1, 1, 1)
+  GameTooltip:AddLine("|cff9e998fClick|r open or close the terminal", 1, 1, 1)
+  GameTooltip:AddLine("|cff9e998fRight-click|r your P&L", 1, 1, 1)
+  GameTooltip:AddLine("|cff9e998fDrag|r move this button", 1, 1, 1)
   GameTooltip:Show()
 end
 

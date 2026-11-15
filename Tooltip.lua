@@ -62,14 +62,14 @@ local function addLines(tooltip, itemID)
     age = "not seen on the AH"
   end
   tooltip:AddLine(" ")
-  tooltip:AddDoubleLine("|cffe8b84aGoonberg|r" .. (count > 1 and ("  |cff8b95a3x%d|r"):format(count) or ""),
-    age and ("|cff8b95a3%s|r"):format(age) or "")
+  tooltip:AddDoubleLine("|cffffd100Goonberg|r" .. (count > 1 and ("  |cff9e998fx%d|r"):format(count) or ""),
+    age and ("|cff9e998f%s|r"):format(age) or "")
 
   local function line(label, key, value, prefix)
     local r, g, b = soft[1], soft[2], soft[3]
     local vr, vg, vb = 1, 1, 1
     if best == key then r, g, b = up[1], up[2], up[3]; vr, vg, vb = up[1], up[2], up[3] end
-    local text = value and ((prefix or "") .. FI.Coins(value * count)) or "|cff8b95a3-|r"
+    local text = value and ((prefix or "") .. FI.Coins(value * count)) or "|cff9e998f-|r"
     tooltip:AddDoubleLine(label, text, r, g, b, vr, vg, vb)
   end
   line("Vendor", "vendor", vendor)
@@ -77,7 +77,7 @@ local function addLines(tooltip, itemID)
   if de then
     local oldest = deParts and FI.Disenchant:OldestPrice(deParts)
     local old = oldest and time() - oldest > 86400
-    line(old and ("Disenchant |cff8b95a3(mats %s)|r"):format(FI.Ago(oldest)) or "Disenchant", "de", de, "~")
+    line(old and ("Disenchant |cff9e998f(mats %s)|r"):format(FI.Ago(oldest)) or "Disenchant", "de", de, "~")
   end
 
   if shift then
@@ -86,8 +86,8 @@ local function addLines(tooltip, itemID)
     end
     if it and market then
       local st = FI.History.Stats(it, time())
-      if count > 1 then detail("Market, each", FI.Money(market)) end
-      if st.min then detail("Lowest now", FI.Money(st.min))
+      if count > 1 then detail("Market, each", FI.Coins(market)) end
+      if st.min then detail("Lowest now", FI.Coins(st.min))
       elseif it.seen and it.seen == realm.lastScan then detail("Lowest now", "none listed") end
       if st.c7 then detail("7 day change", FI.ColoredPercent(st.c7)) end
       if st.soldPerDay then detail("Est. sold / day", FI.Number(st.soldPerDay)) end
@@ -96,15 +96,15 @@ local function addLines(tooltip, itemID)
       for _, p in ipairs(deParts) do
         local qty = p.qty % 1 == 0 and tostring(p.qty) or ("%.1f"):format(p.qty)
         local pct = p.chance < 0.01 and ("%.1f"):format(p.chance * 100) or math.floor(p.chance * 100 + 0.5)
-        local priceAge = p.t and time() - p.t > 86400 and (" |cff8b95a3(" .. FI.Ago(p.t) .. ")|r") or ""
+        local priceAge = p.t and time() - p.t > 86400 and (" |cff9e998f(" .. FI.Ago(p.t) .. ")|r") or ""
         detail(("%s%%  %s x%s%s"):format(pct, FI:ItemName(p.id), qty, p.converted and " (3:1 essence)" or ""),
-          p.price and (FI.Money(p.price * p.qty) .. priceAge) or "no price")
+          p.price and (FI.Coins(p.price * p.qty) .. priceAge) or "no price")
       end
       if not deComplete then detail("Some materials have no AH price yet", "") end
       local n = FI.Disenchant:Samples(itemID)
       if n > 0 then detail(("Odds include %d of your disenchants"):format(n), "") end
     end
-    tooltip:AddLine("|cff8b95a3Green pays the most after the 5% AH cut.|r")
+    tooltip:AddLine("|cff9e998fGreen pays the most after the 5% AH cut.|r")
   end
   tooltip.fiLastItem, tooltip.fiLastAdded = itemID, GetTime()
   tooltip:Show()

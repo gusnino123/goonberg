@@ -254,7 +254,7 @@ local function finish(d, now)
     local it = FI:Realm().items[d.id]
     d.soldPerDay = it and FI.History.Stats(it, now).soldPerDay
   end
-  d.name = FI:ItemName(d.id)
+  d.name, d.loading = FI:ItemName(d.id)
 end
 
 local function candidates(realm, now, maxAge)
@@ -371,15 +371,15 @@ local function alert(raw)
     if bestRare then
       FI.Alerts:Toast(bestRare.id,
         ("Rare find: %s"):format(bestRare.name),
-        ("%s, %d%% under its usual %s (seen %d days). Click to view."):format(FI.Money(bestRare.price), math.floor(bestRare.under), FI.Money(bestRare.ref), bestRare.days),
+        ("%s, %d%% under its usual %s (seen %d days). Click to view."):format(FI.Coins(bestRare.price), math.floor(bestRare.under), FI.Coins(bestRare.ref), bestRare.days),
         function() FI.DealsTab.kind = "Rare"; FI.UI:Show("deals") end)
       return
     end
   end
   if top and fresh > 0 and total >= threshold then
     FI.Alerts:Toast(top.id,
-      ("%d new deal%s worth %s"):format(fresh, fresh == 1 and "" or "s", FI.Money(total)),
-      ("Best: %s, +%s each (%d%% margin). Click to view."):format(top.name, FI.Money(top.perItem), math.floor(top.margin)),
+      ("%d new deal%s worth %s"):format(fresh, fresh == 1 and "" or "s", FI.Coins(total)),
+      ("Best: %s, +%s each (%d%% margin). Click to view."):format(top.name, FI.Coins(top.perItem), math.floor(top.margin)),
       function() FI.UI:Show("deals") end)
   end
 end

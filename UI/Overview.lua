@@ -5,14 +5,16 @@ local _, FI = ...
 local O = { cat = "All", move = "All", tf = "24h", sort = "sold", dir = -1, search = "" }
 -- Timeframes: which change and sales figures each one uses
 local TF = {
-  ["15m"] = { chg = "c15", sold = "sold15", win = 900, label = "15M", long = "past 15 minutes" },
-  ["1h"] = { chg = "c1", sold = "sold1", win = 3600, label = "1H", long = "past hour" },
-  ["6h"] = { chg = "c6", sold = "sold6", win = 6 * 3600, label = "6H", long = "past 6 hours" },
-  ["12h"] = { chg = "c12", sold = "sold12", win = 12 * 3600, label = "12H", long = "past 12 hours" },
-  ["24h"] = { chg = "c24", sold = "sold24", win = 86400, label = "24H", long = "past 24 hours" },
-  ["7d"] = { chg = "c7", sold = "sold7", win = 7 * 86400, label = "7D", long = "past 7 days" },
+  ["15m"] = { chg = "c15", sold = "sold15", win = 900, label = "15m", long = "past 15 minutes" },
+  ["1h"] = { chg = "c1", sold = "sold1", win = 3600, label = "1h", long = "past hour" },
+  ["6h"] = { chg = "c6", sold = "sold6", win = 6 * 3600, label = "6h", long = "past 6 hours" },
+  ["12h"] = { chg = "c12", sold = "sold12", win = 12 * 3600, label = "12h", long = "past 12 hours" },
+  ["24h"] = { chg = "c24", sold = "sold24", win = 86400, label = "24h", long = "past 24 hours" },
+  ["7d"] = { chg = "c7", sold = "sold7", win = 7 * 86400, label = "7d", long = "past 7 days" },
 }
-local TF_ORDER = { "15m", "1h", "6h", "12h", "24h", "7d" }
+local TF_ENTRIES = {
+  { "15 min", "15m" }, { "1 hour", "1h" }, { "6 hours", "6h" }, { "12 hours", "12h" }, { "24 hours", "24h" }, { "7 days", "7d" },
+}
 O.TF = TF
 FI.OverviewTab = O
 local W = FI.Widgets
@@ -25,14 +27,15 @@ local ROWS, ROW_H = 40, 28
 -- right edge (r = offset of the column's right side), so the table can be resized.
 local COLS = {
   { key = "rank",  label = "#",          x = 34 },
-  { key = "name",  label = "ITEM",       x = 44, left = true },
-  { key = "price", label = "PRICE",      r = -404, sort = true },
-  { key = "chgA",  label = "24H %",      r = -314, sort = true },
-  { key = "chg7",  label = "7D %",       r = -229, sort = true },
-  { key = "qty",   label = "LISTINGS",   r = -124, sort = true },
-  { key = "sold",  label = "EST. SOLD",  r = -14, sort = true },
+  { key = "name",  label = "Item",       x = 44, left = true },
+  { key = "price", label = "Price",      r = -404, sort = true },
+  { key = "chgA",  label = "24h %",      r = -314, sort = true },
+  { key = "chg7",  label = "7d %",       r = -229, sort = true },
+  { key = "qty",   label = "Listings",   r = -124, sort = true },
+  { key = "sold",  label = "Est. Sold",  r = -14, sort = true },
 }
 local NAME_RIGHT = -504 -- item names stop here, before the price column
+local PRICE = W.MoneyColumn()
 
 local function card(parent, title, accent)
   local b = W.Box(parent, C.panel, accent and { 0.23, 0.2, 0.16 } or C.border)
@@ -73,8 +76,6 @@ end
 local function makeRow(parent, i)
   local r = CreateFrame("Button", nil, parent)
   r:RegisterForClicks("LeftButtonUp")
-  r.bg = W.Tex(r, C.raised, 0, "BACKGROUND")
-  r.bg:SetAllPoints()
   local line = W.Tex(r, C.border, 0.6, "BORDER")
   line:SetPoint("BOTTOMLEFT"); line:SetPoint("BOTTOMRIGHT"); line:SetHeight(1)
 
@@ -90,8 +91,10 @@ local function makeRow(parent, i)
       r.name:SetPoint("RIGHT", r, "RIGHT", NAME_RIGHT, 0)
       r.cat = W.Text(r, 10, C.muted)
       r.cat:SetPoint("LEFT", r.icon, "RIGHT", 8, 0) -- moved next to the name on update
+    elseif col.key == "price" then
+      r.cells.price = W.MoneyCell(r, col.r, PRICE)
     else
-      local fs = W.Text(r, 12, C.text, true)
+      local fs = W.Text(r, W.SIZE.cell, C.text, true)
       if col.r then fs:SetPoint("RIGHT", r, "RIGHT", col.r, 0) else fs:SetPoint("RIGHT", r, "LEFT", col.x, 0) end
       fs:SetJustifyH("RIGHT")
       if col.key == "rank" then fs:SetTextColor(C.muted[1], C.muted[2], C.muted[3]) end
@@ -100,13 +103,12 @@ local function makeRow(parent, i)
   end
 
   r:SetScript("OnEnter", function(self)
-    self.bg:SetAlpha(0.6)
     GameTooltip:SetOwner(self, "ANCHOR_CURSOR_RIGHT")
     GameTooltip:SetItemByID(self.itemID)
-    GameTooltip:AddLine("|cff8b95a3Click to open the chart. Shift-click to link.|r")
+    GameTooltip:AddLine("|cff9e998fClick to open the chart. Shift-click to link.|r")
     GameTooltip:Show()
   end)
-  r:SetScript("OnLeave", function(self) self.bg:SetAlpha(0); GameTooltip_Hide() end)
+  r:SetScript("OnLeave", GameTooltip_Hide)
   r:SetScript("OnClick", function(self)
     if IsModifiedClick("CHATLINK") then
       local link = FI:ItemLink(self.itemID)
@@ -123,6 +125,7 @@ local function updateRow(r, i)
   r.itemID = row.id
   r.cells.rank:SetText(i)
   r.icon:SetTexture(FI:ItemIcon(row.id))
+  if row.loading then row.name, row.loading = FI:ItemName(row.id); row.lname = nil end
   r.name:SetText(row.name)
   r.name:SetTextColor(FI:ItemQualityColor(row.id))
   r.cat:ClearAllPoints()
@@ -130,7 +133,7 @@ local function updateRow(r, i)
   r.cat:SetPoint("LEFT", r.name, "LEFT", math.min(r.name:GetStringWidth(), room) + 8, 0)
   r.cat:SetShown(r.name:GetStringWidth() + 70 < room)
   r.cat:SetText(row.cat)
-  r.cells.price:SetText(FI.Coins(row.price))
+  r.cells.price:SetMoney(row.price)
   local aKey = O:ColAKey()
   local cA, c7 = FI.ChangeColor(row[aKey]), FI.ChangeColor(row.c7)
   r.cells.chgA:SetText(FI.Percent(row[aKey]))
@@ -152,11 +155,11 @@ function O:Build(parent)
 
   -- Summary cards
   local cards = {
-    card(tab, "GOONBERG INDEX", true),
-    card(tab, "EST. GOLD TRADED"),
-    card(tab, "LISTINGS ON AH"),
-    card(tab, "TOP GAINER"),
-    card(tab, "TOP LOSER"),
+    card(tab, "Goonberg Index", true),
+    card(tab, "Est. Gold Traded"),
+    card(tab, "Listings on AH"),
+    card(tab, "Top Gainer"),
+    card(tab, "Top Loser"),
   }
   self.cards = cards
   cards[1]:SetPoint("TOPLEFT", 16, -16)
@@ -166,31 +169,28 @@ function O:Build(parent)
     for i = 1, 5 do cards[i]:SetWidth(each) end
   end)
 
-  -- Category filter
-  local cats = W.Choice(tab, FI.categories, "pill", function(v) O.cat = v; O:Refresh() end, 26)
-  cats:SetPoint("TOPLEFT", 16, -108)
-  cats:Select(self.cat)
-
-  -- Search, movers, timeframe
+  -- Search on the left; category, movers and time frame dropdowns on the right
   local search = W.EditBox(tab, 240, "Search items")
-  search:SetPoint("TOPLEFT", 16, -142)
-  search:SetScript("OnTextChanged", function(self)
-    if self.ph then self.ph:SetShown(self:GetText() == "") end
+  search:SetPoint("TOPLEFT", 16, -108)
+  search:HookScript("OnTextChanged", function(self)
     O.search = self:GetText():lower()
     FI:Debounce("ovsearch", 0.2, function() O:Refresh() end)
   end)
   search:SetScript("OnEnterPressed", search.ClearFocus)
 
-  local tfs = W.Choice(tab, TF_ORDER, "seg", function(v) O.tf = v; O:Refresh() end, 26)
-  tfs:SetPoint("TOPRIGHT", -16, -142)
+  local tfs = W.Dropdown(tab, TF_ENTRIES, function(v) O.tf = v; O:Refresh() end, 110, "Time frame")
+  tfs:SetPoint("TOPRIGHT", -16, -108)
   tfs:Select(self.tf)
-  local moves = W.Choice(tab, { "All", "Gainers", "Losers" }, "seg", function(v) O.move = v; O:Refresh() end, 26)
-  moves:SetPoint("RIGHT", tfs, "LEFT", -12, 0)
+  local moves = W.Dropdown(tab, { { "Gainers & losers", "All" }, "Gainers", "Losers" }, function(v) O.move = v; O:Refresh() end, 140)
+  moves:SetPoint("RIGHT", tfs, "LEFT", -16, 0)
   moves:Select(self.move)
+  local cats = W.Dropdown(tab, FI.categories, function(v) O.cat = v; O:Refresh() end, 130, "Category")
+  cats:SetPoint("RIGHT", moves, "LEFT", -16, 0)
+  cats:Select(self.cat)
 
   -- Table
   local tbl = W.Box(tab, C.panel, C.border)
-  tbl:SetPoint("TOPLEFT", 16, -178)
+  tbl:SetPoint("TOPLEFT", 16, -144)
   tbl:SetPoint("BOTTOMRIGHT", -16, 16)
 
   local head = W.TableHeader(tbl, 30)
@@ -246,7 +246,7 @@ end
 function O:UpdateHeaders()
   for _, b in ipairs(self.headers) do
     local on = b.col.key == self.sort
-    local c = on and C.gold or C.muted
+    local c = on and C.gold or C.soft
     b.text:SetTextColor(c[1], c[2], c[3])
     if b.arrow then
       b.arrow:SetShown(on)
@@ -258,10 +258,10 @@ function O:UpdateHeaders()
       end
     end
     if b.col.key == "sold" then
-      b.text:SetText("EST. SOLD " .. TF[self.tf].label)
+      b.text:SetText("Est. Sold " .. TF[self.tf].label)
       b:SetWidth(b.text:GetStringWidth() + 2)
     elseif b.col.key == "chgA" then
-      b.text:SetText((self.tf == "7d" and "24H" or TF[self.tf].label) .. " %")
+      b.text:SetText((self.tf == "7d" and "24h" or TF[self.tf].label) .. " %")
       b:SetWidth(b.text:GetStringWidth() + 2)
     end
   end
@@ -296,7 +296,7 @@ function O:Refresh()
   local ich = H.IndexChange(realm, now, tf.win)
   setCard(self.cards[1], level and ("%.1f"):format(level) or "-", ich and FI.Percent(ich) or "", ich,
     ("Top %d items by gold traded"):format(H.INDEX_SIZE))
-  setCard(self.cards[2], FI.Money(data.gold[tf.sold] or 0), nil, nil, tf.long .. ", estimated")
+  setCard(self.cards[2], FI.Coins(data.gold[tf.sold] or 0), nil, nil, tf.long .. ", estimated")
   setCard(self.cards[3], FI.Number(data.listed), nil, nil, ("%s items tracked"):format(FI.Number(#data.rows)))
 
   local key = tf.chg
@@ -324,7 +324,8 @@ function O:Refresh()
       ok = v and not s.thin and ((self.move == "Gainers" and v > 0) or (self.move == "Losers" and v < 0))
     end
     if ok then
-      s.name = s.name or FI:ItemName(s.id) -- looked up once per scan, not every refresh
+      -- looked up once per scan, not every refresh (again if the game was still loading it)
+      if not s.name or s.loading then s.name, s.loading = FI:ItemName(s.id); s.lname = nil end
       if self.search ~= "" then
         s.lname = s.lname or s.name:lower()
         if not s.lname:find(self.search, 1, true) then ok = false end
@@ -354,6 +355,7 @@ function O:Refresh()
     if dir < 0 then return va > vb else return va < vb end
   end)
   self.rows = rows
+  PRICE:Fit(rows, "price")
   if self.lastFilter ~= (self.cat .. self.move .. self.tf .. self.sort .. self.dir .. self.search) then
     self.list.offset = 0
     self.lastFilter = self.cat .. self.move .. self.tf .. self.sort .. self.dir .. self.search

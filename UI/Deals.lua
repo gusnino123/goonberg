@@ -13,14 +13,14 @@ local ROWS, ROW_H = 40, 30
 -- UNITS / TOTAL: every unit listed under the deal price, and the profit on all of them.
 -- right edges, evenly spaced by each column's width (money columns get the most room)
 local COLS = {
-  { key = "kind", label = "TYPE", r = -594 },
-  { key = "price", label = "BUY AT", r = -498 },
-  { key = "worth", label = "SELL FOR", r = -402 },
-  { key = "perItem", label = "PROFIT EACH", r = -310 },
-  { key = "margin", label = "MARGIN", r = -246 },
-  { key = "units", label = "UNITS", r = -186 },
-  { key = "profit", label = "TOTAL PROFIT", r = -86 },
-  { key = "sold", label = "SOLD/DAY", r = -16 },
+  { key = "kind", label = "Type", r = -594 },
+  { key = "price", label = "Buy at", r = -498 },
+  { key = "worth", label = "Sell for", r = -402 },
+  { key = "perItem", label = "Profit Each", r = -310 },
+  { key = "margin", label = "Margin", r = -246 },
+  { key = "units", label = "Units", r = -186 },
+  { key = "profit", label = "Total Profit", r = -86 },
+  { key = "sold", label = "Sold/Day", r = -16 },
 }
 local NAME_RIGHT = -690
 -- what each column sorts by (columns not listed sort by the field of the same name)
@@ -29,12 +29,17 @@ local SORT_GET = {
   sold = function(d) return d.soldPerDay end,
   kind = function(d) return d.kind end,
 }
-local KIND_COLOR = { Flip = C.gold, Vendor = C.up, Disenchant = { 0.64, 0.53, 0.96 }, Rare = { 0.40, 0.68, 1.00 } }
+-- money columns (each lines its amounts up across the rows)
+local MONEY = { price = W.MoneyColumn(), worth = W.MoneyColumn(), perItem = W.MoneyColumn(), profit = W.MoneyColumn() }
 local MARGINS = { ["5%"] = 0.05, ["10%"] = 0.10, ["20%"] = 0.20, ["50%"] = 0.50 }
 
 -- Type the item into the Auction House search, when the AH is open
 function D:FindOnAH(itemID, fromDeal)
-  local name = FI:ItemName(itemID)
+  local name, loading = FI:ItemName(itemID)
+  if loading then
+    FI:Print("Still loading that item's name. Try again in a moment.")
+    return false
+  end
   -- buying it next counts as a Deals-tab flip in the P&L
   if fromDeal then FI.Ledger:MarkDeal(name) end
   local ok = false
@@ -58,8 +63,6 @@ end
 local function makeRow(parent)
   local r = CreateFrame("Button", nil, parent)
   r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-  r.bg = W.Tex(r, C.raised, 0, "BACKGROUND")
-  r.bg:SetAllPoints()
   local line = W.Tex(r, C.border, 0.6, "BORDER")
   line:SetPoint("BOTTOMLEFT"); line:SetPoint("BOTTOMRIGHT"); line:SetHeight(1)
   r.icon = r:CreateTexture(nil, "ARTWORK")
@@ -71,76 +74,79 @@ local function makeRow(parent)
   r.name:SetPoint("RIGHT", r, "RIGHT", NAME_RIGHT, 0)
   r.cells = {}
   for _, col in ipairs(COLS) do
-    local fs = W.Text(r, 12, C.text, col.key ~= "kind")
-    fs:SetPoint("RIGHT", r, "RIGHT", col.r, 0)
-    fs:SetJustifyH("RIGHT")
-    r.cells[col.key] = fs
+    if MONEY[col.key] then
+      r.cells[col.key] = W.MoneyCell(r, col.r, MONEY[col.key])
+    else
+      local fs = W.Text(r, col.key == "kind" and 12 or W.SIZE.cell, C.text, col.key ~= "kind")
+      fs:SetPoint("RIGHT", r, "RIGHT", col.r, 0)
+      fs:SetJustifyH("RIGHT")
+      r.cells[col.key] = fs
+    end
   end
   r:SetScript("OnEnter", function(self)
-    self.bg:SetAlpha(0.5)
     local d = self.deal
     if not d then return end
     GameTooltip:SetOwner(self, "ANCHOR_CURSOR_RIGHT")
     GameTooltip:SetItemByID(d.id)
     GameTooltip:AddLine(" ")
     local muted = FI.colors.soft
-    GameTooltip:AddDoubleLine("Buy at", FI.Money(d.price), muted[1], muted[2], muted[3], 1, 1, 1)
+    GameTooltip:AddDoubleLine("Buy at", FI.Coins(d.price), muted[1], muted[2], muted[3], 1, 1, 1)
     if d.kind == "Rare" then
-      GameTooltip:AddDoubleLine("Usual price (60-day median)", FI.Money(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
-      GameTooltip:AddDoubleLine("Cheapest it typically goes for", FI.Money(d.typicalLow), muted[1], muted[2], muted[3], 1, 1, 1)
-      GameTooltip:AddDoubleLine("Under its usual price", ("%d%%"):format(math.floor(d.under)), muted[1], muted[2], muted[3], 0.25, 0.71, 0.55)
+      GameTooltip:AddDoubleLine("Usual price (60-day median)", FI.Coins(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
+      GameTooltip:AddDoubleLine("Cheapest it typically goes for", FI.Coins(d.typicalLow), muted[1], muted[2], muted[3], 1, 1, 1)
+      GameTooltip:AddDoubleLine("Under its usual price", ("%d%%"):format(math.floor(d.under)), muted[1], muted[2], muted[3], C.up[1], C.up[2], C.up[3])
       GameTooltip:AddDoubleLine("Seen on", ("%d days (%s)"):format(d.days, d.confidence), muted[1], muted[2], muted[3], 1, 1, 1)
       if d.relist and d.relist < d.ref then
-        GameTooltip:AddDoubleLine("Relist at (others list below usual)", FI.Money(d.relist), muted[1], muted[2], muted[3], 1, 1, 1)
+        GameTooltip:AddDoubleLine("Relist at (others list below usual)", FI.Coins(d.relist), muted[1], muted[2], muted[3], 1, 1, 1)
       end
-      GameTooltip:AddDoubleLine("After 5% AH cut", FI.Money(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
-      if d.trendDown then GameTooltip:AddLine("|cfff0613aTrending down: its 14-day price is well under its 60-day one.|r") end
+      GameTooltip:AddDoubleLine("After 5% AH cut", FI.Coins(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
+      if d.trendDown then GameTooltip:AddLine("|cffff7366Trending down: its 14-day price is well under its 60-day one.|r") end
     elseif d.kind == "Flip" then
-      GameTooltip:AddDoubleLine("Market value (14-day)", FI.Money(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
+      GameTooltip:AddDoubleLine("Market value (14-day)", FI.Coins(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
       if d.relist and d.relist < d.ref then
-        GameTooltip:AddDoubleLine("Relist at (others list below fair)", FI.Money(d.relist), muted[1], muted[2], muted[3], 1, 1, 1)
+        GameTooltip:AddDoubleLine("Relist at (others list below fair)", FI.Coins(d.relist), muted[1], muted[2], muted[3], 1, 1, 1)
       end
-      GameTooltip:AddDoubleLine("After 5% AH cut", FI.Money(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
+      GameTooltip:AddDoubleLine("After 5% AH cut", FI.Coins(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
     elseif d.kind == "Vendor" then
-      GameTooltip:AddDoubleLine("Vendors pay (no cut)", FI.Money(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
+      GameTooltip:AddDoubleLine("Vendors pay (no cut)", FI.Coins(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
     else
-      GameTooltip:AddDoubleLine("Disenchants for (estimate)", FI.Money(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
-      GameTooltip:AddDoubleLine("After 5% AH cut on the mats", FI.Money(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
+      GameTooltip:AddDoubleLine("Disenchants for (estimate)", FI.Coins(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
+      GameTooltip:AddDoubleLine("After 5% AH cut on the mats", FI.Coins(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
       if d.pace then
         GameTooltip:AddDoubleLine("Mats the AH takes a day", ("%s items' worth"):format(FI.Number(d.pace)), muted[1], muted[2], muted[3], 1, 1, 1)
       else
-        GameTooltip:AddLine("|cfff0613aHow fast the mats sell isn't known yet, so every unit is counted.|r", 1, 1, 1, true)
+        GameTooltip:AddLine("|cffff7366How fast the mats sell isn't known yet, so every unit is counted.|r", 1, 1, 1, true)
       end
     end
-    GameTooltip:AddDoubleLine("Profit per item", ("+%s (%d%%)"):format(FI.Money(d.perItem), math.floor(d.margin)), muted[1], muted[2], muted[3], 0.25, 0.71, 0.55)
+    GameTooltip:AddDoubleLine("Profit per item", ("+%s (%d%%)"):format(FI.Coins(d.perItem), math.floor(d.margin)), muted[1], muted[2], muted[3], C.up[1], C.up[2], C.up[3])
     local capped = d.qtyKnown and d.listed and d.listed > d.units
     local allLabel = capped and ("Profit on the %d counted"):format(d.units) or ("Profit on all %s"):format(d.qtyKnown and d.units or "1+")
-    GameTooltip:AddDoubleLine(allLabel, "+" .. FI.Money(d.profit), muted[1], muted[2], muted[3], 0.25, 0.71, 0.55)
+    GameTooltip:AddDoubleLine(allLabel, "+" .. FI.Coins(d.profit), muted[1], muted[2], muted[3], C.up[1], C.up[2], C.up[3])
     if d.kind == "Disenchant" then
       -- disenchanting is luck: the range you'd land in 8 times out of 10
       if d.sdEach and d.qtyKnown and d.units >= 5 then
         local spread = 1.28 * d.sdEach * math.sqrt(d.units)
         local lo, hi = d.profit - spread, d.profit + spread
-        local function signed(v) return (v >= 0 and "+" or "") .. FI.Money(v) end
+        local function signed(v) return (v >= 0 and "+" or "") .. FI.Coins(v) end
         local c = lo < 0 and FI.colors.down or FI.colors.up
         GameTooltip:AddDoubleLine("Likely (8 times in 10)", signed(lo) .. " to " .. signed(hi), muted[1], muted[2], muted[3], c[1], c[2], c[3])
       end
       if capped then
-        GameTooltip:AddLine(("|cfff0613aOnly %d of the %d listed are counted: mats from more would take over %d days to sell.|r")
+        GameTooltip:AddLine(("|cffff7366Only %d of the %d listed are counted: mats from more would take over %d days to sell.|r")
           :format(d.units, d.listed, FI.Deals.DE_SELL_DAYS), 1, 1, 1, true)
       end
       local n = FI.Disenchant:Samples(d.id)
-      GameTooltip:AddLine(n > 0 and ("|cff8b95a3Odds: the disenchanting table plus %d of your own disenchants of this kind of gear.|r"):format(n)
-        or "|cff8b95a3Odds: the disenchanting table. Your own disenchants refine them.|r", 1, 1, 1, true)
-      GameTooltip:AddLine(("|cff8b95a3Disenchant deals need a %d%%+ margin and mats priced in the last day.|r")
+      GameTooltip:AddLine(n > 0 and ("|cff9e998fOdds: the disenchanting table plus %d of your own disenchants of this kind of gear.|r"):format(n)
+        or "|cff9e998fOdds: the disenchanting table. Your own disenchants refine them.|r", 1, 1, 1, true)
+      GameTooltip:AddLine(("|cff9e998fDisenchant deals need a %d%%+ margin and mats priced in the last day.|r")
         :format(FI.Deals.DE_MIN_MARGIN * 100), 1, 1, 1, true)
     end
-    GameTooltip:AddLine(("|cff8b95a3Seen %s.|r"):format(FI.Ago(d.seen)))
-    if not d.qtyKnown then GameTooltip:AddLine("|cff8b95a3From a guild scan: only the lowest price is known.|r") end
-    GameTooltip:AddLine("|cff8b95a3Click: find it on the AH. Right-click: chart. Shift-click: link.|r")
+    GameTooltip:AddLine(("|cff9e998fSeen %s.|r"):format(FI.Ago(d.seen)))
+    if not d.qtyKnown then GameTooltip:AddLine("|cff9e998fFrom a guild scan: only the lowest price is known.|r") end
+    GameTooltip:AddLine("|cff9e998fClick: find it on the AH. Right-click: chart. Shift-click: link.|r")
     GameTooltip:Show()
   end)
-  r:SetScript("OnLeave", function(self) self.bg:SetAlpha(0); GameTooltip_Hide() end)
+  r:SetScript("OnLeave", GameTooltip_Hide)
   r:SetScript("OnClick", function(self, button)
     local d = self.deal
     if not d then return end
@@ -167,15 +173,17 @@ local function updateRow(r, i)
   -- rare finds: "RARE?" when only a few days back the usual price; orange when the
   -- whole item is trending down (cheap because the market is falling)
   r.cells.kind:SetText(d.kind == "Rare" and ("Rare" .. (d.confidence == "Thin" and "?" or "")) or d.kind)
-  setColor(r.cells.kind, (d.kind == "Rare" and d.trendDown) and C.down or (KIND_COLOR[d.kind] or C.soft))
-  r.cells.price:SetText(FI.Coins(d.price))
+  -- the type is a plain label; only a rare find on a falling market is flagged
+  setColor(r.cells.kind, (d.kind == "Rare" and d.trendDown) and C.down or C.soft)
+  r.cells.price:SetMoney(d.price)
   setColor(r.cells.price, C.text)
-  r.cells.worth:SetText(FI.Coins(d.worth))
+  r.cells.worth:SetMoney(d.worth)
   setColor(r.cells.worth, C.soft)
-  r.cells.perItem:SetText("+" .. FI.Coins(d.perItem))
-  setColor(r.cells.perItem, C.up)
+  -- one green per row (the total): the eye goes straight to it
+  r.cells.perItem:SetMoney(d.perItem, true)
+  setColor(r.cells.perItem, C.text)
   r.cells.margin:SetText(("%d%%"):format(math.floor(d.margin + 0.5)))
-  setColor(r.cells.margin, C.up)
+  setColor(r.cells.margin, C.text)
   -- disenchant deals capped by how fast the mats sell: counted / listed, in orange
   if d.qtyKnown and d.listed and d.listed > d.units then
     r.cells.units:SetText(FI.Number(d.units) .. "/" .. FI.Number(d.listed))
@@ -184,7 +192,7 @@ local function updateRow(r, i)
     r.cells.units:SetText(d.qtyKnown and FI.Number(d.units) or "1+")
     setColor(r.cells.units, C.text)
   end
-  r.cells.profit:SetText("+" .. FI.Coins(d.profit))
+  r.cells.profit:SetMoney(d.profit, true)
   setColor(r.cells.profit, C.up)
   r.cells.sold:SetText(d.soldPerDay and FI.Number(d.soldPerDay) or "-")
 end
@@ -195,7 +203,7 @@ function D:Build(parent)
   self.frame = tab
   self.rows = {}
 
-  local kinds = W.Choice(tab, { "All", "Rare", "Flip", "Vendor", "Disenchant" }, "pill", function(v) D.kind = v; D:Refresh() end, 26)
+  local kinds = W.Dropdown(tab, { { "All deals", "All" }, "Rare", "Flip", "Vendor", "Disenchant" }, function(v) D.kind = v; D:Refresh() end, 130, "Type")
   self.kindChoice = kinds
   kinds:SetPoint("TOPLEFT", 16, -16)
   kinds:Select(self.kind)
@@ -209,33 +217,26 @@ function D:Build(parent)
     self:Refresh()
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
     GameTooltip:AddLine("Sells daily")
-    GameTooltip:AddLine("Only items with at least 1 estimated sale a day, so you can sell them again.", 0.76, 0.79, 0.83, true)
-    GameTooltip:AddLine("Disenchants: the AH takes the mats from at least 1 item a day.", 0.76, 0.79, 0.83, true)
+    GameTooltip:AddLine("Only items with at least 1 estimated sale a day, so you can sell them again.", 0.82, 0.82, 0.82, true)
+    GameTooltip:AddLine("Disenchants: the AH takes the mats from at least 1 item a day.", 0.82, 0.82, 0.82, true)
     GameTooltip:Show()
   end)
   liquid:SetScript("OnLeave", function(self) self:Refresh(); GameTooltip_Hide() end)
 
-  local discLabel = W.Text(tab, 12, C.soft)
-  discLabel:SetText("Minimum margin")
-  discLabel:SetPoint("TOPLEFT", 16, -59)
-  local disc = W.Choice(tab, { "5%", "10%", "20%", "50%" }, "seg", function(v) D.margin = v; D:Refresh() end, 26)
-  disc:SetPoint("LEFT", discLabel, "RIGHT", 10, 0)
+  local disc = W.Dropdown(tab, { "5%", "10%", "20%", "50%" }, function(v) D.margin = v; D:Refresh() end, 80, "Minimum margin")
+  disc:SetPoint("LEFT", kinds, "RIGHT", 24, 0)
   disc:Select(self.margin)
-  local hint = W.Text(tab, 11, C.muted)
-  hint:SetText("Click a column header to sort")
-  hint:SetPoint("TOPRIGHT", -18, -59)
-  search:SetScript("OnTextChanged", function(self)
-    if self.ph then self.ph:SetShown(self:GetText() == "") end
+  search:HookScript("OnTextChanged", function(self)
     D.search = self:GetText():lower()
     FI:Debounce("dealsearch", 0.2, function() D:Refresh() end)
   end)
   search:SetScript("OnEnterPressed", search.ClearFocus)
 
   local tbl = W.Box(tab, C.panel, C.border)
-  tbl:SetPoint("TOPLEFT", 16, -90)
+  tbl:SetPoint("TOPLEFT", 16, -54)
   tbl:SetPoint("BOTTOMRIGHT", -16, 16)
   local head = W.TableHeader(tbl, 30)
-  local cols = { { key = "name", label = "ITEM", x = 12, dir = 1 } }
+  local cols = { { key = "name", label = "Item", x = 12, dir = 1 } }
   for _, col in ipairs(COLS) do
     cols[#cols + 1] = { key = col.key, label = col.label, r = col.r, dir = col.key == "kind" and 1 or -1 }
   end
@@ -280,6 +281,10 @@ function D:Refresh()
     self.footer:SetText("")
     return
   end
+  -- names the game hadn't loaded when the deals were found
+  for _, d in ipairs(raw) do
+    if d.loading then d.name, d.loading = FI:ItemName(d.id) end
+  end
   local all = FI.Deals:Filter(raw, MARGINS[self.margin] or 0.05)
   local rows, total = {}, 0
   for _, d in ipairs(all) do
@@ -294,6 +299,7 @@ function D:Refresh()
   local st = self.sortState
   W.SortRows(rows, st.sort, st.dir, SORT_GET[st.sort])
   self.rows = rows
+  for k, col in pairs(MONEY) do col:Fit(rows, k) end
   local fkey = self.kind .. self.margin .. tostring(self.liquid) .. self.search .. st.sort .. st.dir
   if fkey ~= self.lastFilter then self.list.offset = 0; self.lastFilter = fkey end
   self.list:SetCount(#rows)
@@ -308,8 +314,13 @@ function D:Refresh()
   else
     self.empty:Hide()
   end
-  self.footer:SetText(("%d deal%s  ·  |cff3fb68b+%s|r if you bought every unit  ·  profits are after the 5%% AH cut  ·  scanned %s  ·  click a row to find it on the AH")
-    :format(#rows, #rows == 1 and "" or "s", FI.Money(total), FI.Ago(realm.lastScan)))
+  self.footer:SetText(("%d deal%s  ·  |cff66c761+%s|r if you bought every unit  ·  profits are after the 5%% AH cut  ·  scanned %s  ·  click a row to find it on the AH, a header to sort")
+    :format(#rows, #rows == 1 and "" or "s", FI.Coins(total), FI.Ago(realm.lastScan)))
 end
 
 FI:On("FI_DEALS_READY", function() if D.frame and D.frame:IsShown() then D:Refresh() end end)
+FI:On("FI_ITEM_LOADED", function()
+  FI:Debounce("dealNames", 0.5, function()
+    if D.frame and D.frame:IsShown() then D:Refresh() end
+  end)
+end)

@@ -4,6 +4,8 @@ local _, FI = ...
 ---@class GT.PnLTab
 local P = { period = "7D", show = "All", view = "Summary", tradeSort = { sort = "t", dir = -1 } }
 FI.PnLTab = P
+-- the period dropdown on P&L and Positions: { text shown, value }
+P.PERIODS = { "Today", { "Last 7 days", "7D" }, { "Last 30 days", "30D" }, { "All time", "All" } }
 local W = FI.Widgets
 local C = FI.colors
 local DAY = 86400
@@ -78,11 +80,12 @@ local function panel(card, title, sub)
   f.sub:SetPoint("LEFT", f.title, "RIGHT", 8, 0)
   f.value = W.Text(f, 24, C.up, true)
   f.value:SetPoint("TOPLEFT", 14, -34)
-  f.badge = W.Box(f, C.up, C.up)
+  -- the return on what you spent, as colored text after the amount
+  f.badge = CreateFrame("Frame", nil, f)
   f.badge:SetHeight(20)
   f.badge:SetPoint("LEFT", f.value, "RIGHT", 10, 0)
-  f.badge.text = W.Text(f.badge, 11, C.bg, true)
-  f.badge.text:SetPoint("CENTER")
+  f.badge.text = W.Text(f.badge, 13, C.up, true)
+  f.badge.text:SetPoint("LEFT")
   f.stats = {}
   for i = 1, 3 do
     local st = CreateFrame("Frame", nil, f)
@@ -118,10 +121,17 @@ local function setBadge(b, text, col)
   if not text then b:Hide(); return end
   b:Show()
   b.text:SetText(text)
-  b:SetWidth(b.text:GetStringWidth() + 18)
-  b:SetBackdropColor(col[1], col[2], col[3], 1)
-  b:SetBackdropBorderColor(col[1], col[2], col[3], 1)
+  b.text:SetTextColor(col[1], col[2], col[3])
+  b:SetWidth(b.text:GetStringWidth() + 2)
 end
+
+-- Is this game file there? (true when the client can't say)
+local function hasFile(path)
+  if not GetFileIDFromPath then return true end
+  return GetFileIDFromPath(path) ~= nil
+end
+local GOLD_EDGE = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border"
+local ALERT_ICON = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
 
 local function buildCard(tab)
   local card = W.Box(tab, C.side, C.gold)
@@ -129,8 +139,16 @@ local function buildCard(tab)
   card:SetPoint("TOPLEFT", 24, -52)
   P.card = card
 
-  local band = W.Tex(card, C.gold, 1, "BORDER")
-  band:SetPoint("TOPLEFT", 1, -1); band:SetPoint("TOPRIGHT", -1, -1); band:SetHeight(4)
+  if card.edge and hasFile(GOLD_EDGE) then
+    -- the game's gold dialog frame (like a quest reward or a gold popup)
+    card:SetBackdrop({ bgFile = W.WHITE, insets = { left = 5, right = 5, top = 5, bottom = 5 } })
+    card:SetBackdropColor(C.side[1], C.side[2], C.side[3], C.side[4] or 1)
+    card.edge:SetBackdrop({ edgeFile = GOLD_EDGE, edgeSize = 24 })
+    card.edge:SetBackdropBorderColor(1, 1, 1, 1)
+  elseif not card.edge then
+    local band = W.Tex(card, C.gold, 1, "BORDER")
+    band:SetPoint("TOPLEFT", 1, -1); band:SetPoint("TOPRIGHT", -1, -1); band:SetHeight(4)
+  end
 
   local brand = W.Text(card, 13, C.gold)
   brand:SetText("GOONBERG TERMINAL")
@@ -141,7 +159,7 @@ local function buildCard(tab)
   card.who = W.Text(card, 15, C.text)
   card.who:SetPoint("TOPLEFT", 26, -50)
 
-  local totalLabel = W.Heading(card, "TOTAL MADE ON THE AH")
+  local totalLabel = W.Heading(card, "Total Made on the AH")
   totalLabel:SetPoint("TOPLEFT", 26, -88)
   card.total = W.Text(card, 40, C.up, true)
   card.total:SetPoint("TOPLEFT", 24, -104)
@@ -154,16 +172,16 @@ local function buildCard(tab)
   card.goblin:SetSize(220, 186)
   card.split:SetPoint("RIGHT", card.goblin, "LEFT", -10, 0)
 
-  card.flip = panel(card, "FLIPPING", "bought and sold on the AH")
+  card.flip = panel(card, "Flipping", "bought and sold on the AH")
   card.flip:SetPoint("TOPLEFT", 16, -196)
   card.flip:SetPoint("BOTTOMRIGHT", card, "BOTTOM", -6, 46)
-  card.farm = panel(card, "FARMING", "found, looted or crafted, then sold")
+  card.farm = panel(card, "Farming", "found, looted or crafted, then sold")
   local function explain(f, title, lines)
     f:EnableMouse(true)
     f:SetScript("OnEnter", function(self)
       GameTooltip:SetOwner(self, "ANCHOR_TOP")
       GameTooltip:AddLine(title)
-      for _, l in ipairs(lines) do GameTooltip:AddLine(l, 0.76, 0.79, 0.83, true) end
+      for _, l in ipairs(lines) do GameTooltip:AddLine(l, 0.82, 0.82, 0.82, true) end
       GameTooltip:Show()
     end)
     f:SetScript("OnLeave", GameTooltip_Hide)
@@ -190,12 +208,19 @@ local function buildCard(tab)
   mark:SetJustifyH("RIGHT")
 end
 
+-- what a trade's type says in the list (a plain label: the amount carries the color)
+local KINDS = {
+  flip = "Flip", farmed = "Farmed", part = "Flip+", crafted = "Crafted", buy = "Bought", deal = "Deal",
+  made = "Made", used = "Used", de = "DE'd", vendor = "Vendor",
+}
+P.amountColumn = W.MoneyColumn()
+
 local function buildSide(tab)
   local side = W.Box(tab, C.panel, C.border)
   side:SetPoint("TOPLEFT", P.card, "TOPRIGHT", 24, 0)
   side:SetPoint("BOTTOMRIGHT", -24, 24)
 
-  local periods = W.Choice(side, { "Today", "7D", "30D", "All" }, "seg", function(v) P.period = v; P:Refresh() end, 26)
+  local periods = W.Dropdown(side, P.PERIODS, function(v) P.period = v; P:Refresh() end, 130)
   periods:SetPoint("TOPLEFT", 14, -14)
   periods:Select(P.period)
   P.periodChoice = periods
@@ -208,32 +233,27 @@ local function buildSide(tab)
   shot:SetScript("OnClick", function() if Screenshot then Screenshot() end end)
 
   -- materials you gathered yourself, when you craft with them
-  local ownLabel = W.Text(side, 11, C.soft)
-  ownLabel:SetText("Your own mats count as")
-  ownLabel:SetPoint("TOPLEFT", 14, -98)
-  local own = W.Choice(side, { "Market price", "Free" }, "seg", function(v)
+  local own = W.Dropdown(side, { "Market price", "Free" }, function(v)
     FI.settings.ownMats = (v == "Free") and "free" or "market"
     P:Refresh()
-  end, 22)
-  own:SetPoint("LEFT", ownLabel, "RIGHT", 8, 0)
+  end, 120, "Your own mats count as")
+  own:SetPoint("TOPLEFT", 14, -91)
   own:Select(FI.settings and FI.settings.ownMats == "free" and "Free" or "Market price")
-  for v, b in pairs(own.buttons) do
-    b:HookScript("OnEnter", function(self)
-      GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
-      GameTooltip:AddLine(v == "Free" and "Your own materials cost nothing" or "Your own materials at market price")
-      GameTooltip:AddLine(v == "Free" and "A crafted item's profit is everything above what you actually spent on materials."
-        or "Counts what you'd have got selling your gathered materials instead, so the profit shows whether crafting beat selling the mats.", 0.76, 0.79, 0.83, true)
-      GameTooltip:AddLine("Bought materials always count at what you paid; vendor materials at the vendor price.", 0.55, 0.58, 0.64, true)
-      GameTooltip:Show()
-    end)
-    b:HookScript("OnLeave", GameTooltip_Hide)
-  end
+  own:SetTooltip(function(tip)
+    tip:AddLine("Your own materials, when you craft with them")
+    tip:AddLine("Market price: counts what you'd have got selling your gathered materials instead, so the profit shows whether crafting beat selling the mats.", 0.82, 0.82, 0.82, true)
+    tip:AddLine("Free: they cost nothing, so a crafted item's profit is everything above what you actually spent on materials.", 0.82, 0.82, 0.82, true)
+    tip:AddLine("Bought materials always count at what you paid; vendor materials at the vendor price.", 0.55, 0.58, 0.64, true)
+  end)
   P.ownChoice = own
 
-  local head = W.Heading(side, "TRADES  ·  hover one for details")
+  local head = W.Heading(side, "Trades")
   head:SetPoint("TOPLEFT", 14, -132)
-  local show = W.Choice(side, { "All", "Flips", "Farmed", "Bought", "Used" }, "pill", function(v) P.show = v; P:Refresh() end, 22)
-  show:SetPoint("TOPLEFT", 14, -148)
+  local hint = W.Text(side, W.SIZE.hint, C.muted)
+  hint:SetPoint("LEFT", head, "RIGHT", 8, 0)
+  hint:SetText("hover one for details")
+  local show = W.Dropdown(side, { { "All trades", "All" }, "Flips", "Farmed", "Bought", "Used" }, function(v) P.show = v; P:Refresh() end, 120, "Show")
+  show:SetPoint("TOPLEFT", 14, -147)
   show:Select(P.show)
 
   -- click a header to sort the trades
@@ -242,30 +262,40 @@ local function buildSide(tab)
   hf:SetPoint("TOPRIGHT", 0, -178)
   hf:SetHeight(22)
   P.tradeHeaders = W.SortHeaders(hf, {
-    { key = "t", label = "DATE", x = 14 }, { key = "k", label = "TYPE", x = 62, dir = 1 },
-    { key = "i", label = "ITEM", x = 110, dir = 1 }, { key = "amount", label = "AMOUNT", r = -14 },
+    { key = "t", label = "Date", x = 14 }, { key = "k", label = "Type", x = 62, dir = 1 },
+    { key = "i", label = "Item", x = 110, dir = 1 }, { key = "amount", label = "Amount", r = -14 },
   }, P.tradeSort, function() P:Refresh() end)
+  -- what each type means, under the Type header's own tooltip
+  P.tradeHeaders.buttons.k:HookScript("OnEnter", function()
+    local soft = C.soft
+    GameTooltip:AddLine(" ")
+    for _, l in ipairs({
+      { "Flip", "a sale of what you bought on the AH first" }, { "Flip+", "a sale, only part of it bought first" },
+      { "Crafted", "a sale of what you crafted" }, { "Farmed", "a sale of what you didn't buy" },
+      { "Vendor", "sold to a vendor" }, { "Bought", "a buy on the AH" }, { "Deal", "a buy from the Deals tab" },
+      { "Made", "a craft" }, { "Used", "used it yourself" }, { "DE'd", "disenchanted" },
+    }) do
+      GameTooltip:AddDoubleLine(l[1], l[2], 1, 1, 1, soft[1], soft[2], soft[3])
+    end
+    GameTooltip:Show()
+  end)
 
   local holder = CreateFrame("Frame", nil, side)
   holder:SetPoint("TOPLEFT", 0, -202)
-  holder:SetPoint("BOTTOMRIGHT", 0, 54)
+  holder:SetPoint("BOTTOMRIGHT", 0, 10)
   P.list = W.List(holder, 30, 28, function(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:EnableMouse(true)
-    r.hl = W.Tex(r, C.raised, 0, "BACKGROUND")
-    r.hl:SetAllPoints()
-    r:SetScript("OnEnter", function(self) self.hl:SetAlpha(0.7); if self.e then P:TradeTooltip(self, self.e) end end)
-    r:SetScript("OnLeave", function(self) self.hl:SetAlpha(0); GameTooltip_Hide() end)
-    r.when = W.Text(r, 10, C.muted)
+    r:SetScript("OnEnter", function(self) if self.e then P:TradeTooltip(self, self.e) end end)
+    r:SetScript("OnLeave", GameTooltip_Hide)
+    r.when = W.Text(r, 11, C.muted, true)
     r.when:SetPoint("LEFT", 14, 0)
-    r.kind = W.Text(r, 11, C.up)
+    r.kind = W.Text(r, 11, C.soft)
     r.kind:SetPoint("LEFT", 62, 0)
     r.item = W.Text(r, 11, C.text)
     r.item:SetPoint("LEFT", 110, 0)
-    r.item:SetWidth(110)
-    r.amt = W.Text(r, 11, C.text, true)
-    r.amt:SetPoint("RIGHT", -14, 0)
-    r.amt:SetJustifyH("RIGHT")
+    r.item:SetPoint("RIGHT", -76, 0) -- stops before the amount
+    r.amt = W.MoneyCell(r, -14, P.amountColumn, 12)
     return r
   end, function(r, i)
     local e = P.recent[i]
@@ -273,14 +303,7 @@ local function buildSide(tab)
     r.when:SetText(date("%b %d", e.t))
     local kind = P:Kind(e)
     local sale = e.k == "sale" or e.k == "vendor"
-    local KINDS = {
-      flip = { "Flip", C.up }, farmed = { "Farmed", C.soft }, part = { "Flip+", C.up }, crafted = { "Crafted", C.up },
-      buy = { "Bought", C.down }, deal = { "Deal", C.gold }, made = { "Made", C.gold }, used = { "Used", C.soft }, de = { "DE'd", C.gold },
-      vendor = { "Vendor", C.soft },
-    }
-    local c = KINDS[kind][2]
-    r.kind:SetText(KINDS[kind][1])
-    r.kind:SetTextColor(c[1], c[2], c[3])
+    r.kind:SetText(KINDS[kind])
     r.item:SetText((e.q and e.q > 1) and (e.i .. " x" .. e.q) or e.i)
     r.item:SetTextColor(C.text[1], C.text[2], C.text[3])
     if kind == "made" or kind == "used" or kind == "de" then
@@ -290,10 +313,10 @@ local function buildSide(tab)
       if kind == "used" and s and (s.usedOf[e] or 0) ~= (e.q or 1) then
         r.item:SetText((s.usedOf[e] or 0) > 1 and (e.i .. " x" .. s.usedOf[e]) or e.i)
       end
-      r.amt:SetText(cost and FI.Coins(cost) or "")
+      if cost then r.amt:SetMoney(cost) else r.amt:SetText("") end
       r.amt:SetTextColor(C.muted[1], C.muted[2], C.muted[3])
     else
-      r.amt:SetText((sale and "+" or "-") .. FI.Coins(sale and (e.g - e.f) or e.g))
+      r.amt:SetMoney(sale and (e.g - e.f) or -e.g, true)
       local ac = sale and C.up or C.down
       r.amt:SetTextColor(ac[1], ac[2], ac[3])
     end
@@ -306,11 +329,6 @@ local function buildSide(tab)
   P.empty:SetWordWrap(true)
   P.empty:SetText("No trades yet. Open your mailbox after selling or buying on the AH: Goonberg Terminal reads the AH invoices there.")
 
-  local note = W.Text(side, 10, C.muted)
-  note:SetPoint("BOTTOMLEFT", 14, 14)
-  note:SetPoint("RIGHT", -14, 0)
-  note:SetWordWrap(true)
-  note:SetText("Flip: bought on the AH first. Made: a craft. Crafted: sold after crafting. Deal: from the Deals tab. Used: used it yourself. DE'd: disenchanted.")
 end
 
 function P:Build(parent)
@@ -328,7 +346,7 @@ function P:Build(parent)
       GameTooltip:SetOwner(btn, "ANCHOR_BOTTOM")
       GameTooltip:AddLine(v == "Summary" and "Your P&L card and recent trades" or "Positions: every buy-to-sale chain")
       GameTooltip:AddLine(v == "Summary" and "Totals for flipping and farming, ready to share."
-        or "What you bought and at what price, what you crafted or disenchanted it into, what it sold for, and the P&L.", 0.76, 0.79, 0.83, true)
+        or "What you bought and at what price, what you crafted or disenchanted it into, what it sold for, and the P&L.", 0.82, 0.82, 0.82, true)
       GameTooltip:Show()
     end)
     b:HookScript("OnLeave", GameTooltip_Hide)
@@ -351,17 +369,27 @@ function P:Build(parent)
   fresh:SetScript("OnEnter", function(f)
     GameTooltip:SetOwner(f, "ANCHOR_BOTTOM")
     GameTooltip:AddLine("Where these numbers come from")
-    GameTooltip:AddLine("Every AH sale and purchase sends you a mail with an invoice. Goonberg Terminal reads those when you open a mailbox, so trades since then show up after your next visit.", 0.76, 0.79, 0.83, true)
+    GameTooltip:AddLine("Every AH sale and purchase sends you a mail with an invoice. Goonberg Terminal reads those when you open a mailbox, so trades since then show up after your next visit.", 0.82, 0.82, 0.82, true)
     GameTooltip:AddLine("Crafts, disenchants, vendor sales and things you use are tracked as they happen.", 0.55, 0.58, 0.64, true)
     GameTooltip:Show()
   end)
   fresh:SetScript("OnLeave", GameTooltip_Hide)
   -- trades saved before the quantity fix
-  local note = W.Box(summary, C.raised, C.down)
+  -- an alert icon and a line of text, like the game's own warnings
+  local note = CreateFrame("Frame", nil, summary)
   note:SetPoint("TOPLEFT", 200, -12)
   note:SetHeight(30)
+  if hasFile(ALERT_ICON) then
+    note.icon = note:CreateTexture(nil, "ARTWORK")
+    note.icon:SetTexture(ALERT_ICON)
+  else
+    note.icon = W.Text(note, 16, C.down)
+    note.icon:SetText("!")
+  end
+  note.icon:SetSize(18, 18)
+  note.icon:SetPoint("LEFT", 0, 0)
   note.text = W.Text(note, 11, C.text)
-  note.text:SetPoint("LEFT", 12, 0)
+  note.text:SetPoint("LEFT", note.icon, "RIGHT", 6, 0)
   note.hide = W.Button(note, "Leave them out", nil, 22, "pill")
   note.hide:SetPoint("LEFT", note.text, "RIGHT", 10, 0)
   note.hide:SetScript("OnClick", function()
@@ -372,7 +400,7 @@ function P:Build(parent)
   note.hide:HookScript("OnEnter", function(b)
     GameTooltip:SetOwner(b, "ANCHOR_BOTTOM")
     GameTooltip:AddLine("Trades saved before version 0.25")
-    GameTooltip:AddLine("Older versions read the wrong number from the AH mail, so these stacks were saved as 1 item. Their profit can be wrong. Mail still in your mailbox gets fixed automatically.", 0.76, 0.79, 0.83, true)
+    GameTooltip:AddLine("Older versions read the wrong number from the AH mail, so these stacks were saved as 1 item. Their profit can be wrong. Mail still in your mailbox gets fixed automatically.", 0.82, 0.82, 0.82, true)
     GameTooltip:AddLine("Leaving them out hides them from every P&L number (they aren't deleted; click again to bring them back).", 0.55, 0.58, 0.64, true)
     GameTooltip:Show()
   end)
@@ -392,7 +420,7 @@ local function tip(l, v, c)
   c = c or C.text
   GameTooltip:AddDoubleLine(l, v, soft[1], soft[2], soft[3], c[1], c[2], c[3])
 end
-local function money(v) return FI.Money(math.floor((v or 0) + 0.5)) end
+local function money(v) return FI.Coins(math.floor((v or 0) + 0.5)) end
 local function signedMoney(v) return (v >= 0 and "+" or "-") .. money(math.abs(v)) end
 
 -- Hovering a trade: what happened, in plain words, with the numbers behind it
@@ -492,7 +520,7 @@ function P:Refresh()
       or ("%d trade%s from before 0.25 may have the wrong quantity"):format(old, old == 1 and "" or "s"))
     note.hide:SetLabel(FI.settings.pnlHideOld and "Show them" or "Leave them out")
     note.hide:SetWidth(note.hide.label:GetStringWidth() + 24)
-    note:SetWidth(note.text:GetStringWidth() + note.hide:GetWidth() + 34)
+    note:SetWidth(18 + 6 + note.text:GetStringWidth() + 10 + note.hide:GetWidth())
   end
   local last = FI.Ledger:Data().lastInbox
   if last then
@@ -512,7 +540,7 @@ function P:Refresh()
   card.period:SetText("P&L  ·  " .. PERIODS[self.period].label)
   card.who:SetText(("%s  ·  %s"):format(UnitName("player") or "", GetRealmName() or ""))
   local col = colorOf(s.total)
-  card.total:SetText((s.total >= 0 and "+" or "-") .. FI.Money(math.abs(s.total)))
+  card.total:SetText((s.total >= 0 and "+" or "-") .. FI.Coins(math.abs(s.total)))
   card.total:SetTextColor(col[1], col[2], col[3])
   card.split:SetText(("Flipping %s  ·  Farming %s"):format(signed(s.net), signed(s.farmed)))
 
@@ -522,18 +550,18 @@ function P:Refresh()
   f.value:SetText((s.net >= 0 and "+" or "-") .. FI.Coins(math.abs(s.net)))
   f.value:SetTextColor(col[1], col[2], col[3])
   setBadge(f.badge, s.roi and (FI.Percent(s.roi) .. " ROI"), col)
-  local labels = { "SOLD FOR", "COST", "AH CUT" }
+  local labels = { "Sold for", "Cost", "AH Cut" }
   local values = { s.income, s.spent, s.fees }
   for i, st in ipairs(f.stats) do st.label:SetText(labels[i]); st.value:SetText(FI.Coins(values[i])) end
   if s.sales > 0 then
-    local best = s.best and s.best.net > 0 and ("  ·  best: |cffe6e9ee%s|r |cff3fb68b+%s|r"):format(s.best.name, FI.Money(s.best.net)) or ""
+    local best = s.best and s.best.net > 0 and ("  ·  best: |cffe6e0d1%s|r |cff66c761+%s|r"):format(s.best.name, FI.Coins(s.best.net)) or ""
     f.line1:SetText(("%d flip%s sold%s"):format(s.sales, s.sales == 1 and "" or "s", best))
   else
     f.line1:SetText("No flips sold yet: buy low on the AH, sell it again.")
   end
   -- line 2: crafted and Deals-tab results; line 3: what you used yourself and still hold
   local function res(v, roi)
-    return ("|cff%s%s|r%s"):format(v >= 0 and "3fb68b" or "f0603a", (v >= 0 and "+" or "-") .. FI.Money(math.abs(v)),
+    return ("|cff%s%s|r%s"):format(v >= 0 and "66c761" or "ff7366", (v >= 0 and "+" or "-") .. FI.Coins(math.abs(v)),
       roi and ("  (" .. FI.Percent(roi) .. ")") or "")
   end
   local lines, results = {}, {}
@@ -547,8 +575,8 @@ function P:Refresh()
   end
   if #results > 0 then lines[#lines + 1] = table.concat(results, "  ·  ") end
   local parts = {}
-  if s.uses > 0 then parts[#parts + 1] = ("Used yourself |cffaab4c0%s|r"):format(FI.Money(s.used)) end
-  if s.holdingUnits > 0 then parts[#parts + 1] = ("holding |cffe8b84a%s|r unsold"):format(FI.Money(s.holding)) end
+  if s.uses > 0 then parts[#parts + 1] = ("Used yourself |cffaab4c0%s|r"):format(FI.Coins(s.used)) end
+  if s.holdingUnits > 0 then parts[#parts + 1] = ("holding |cffe6e0d1%s|r unsold"):format(FI.Coins(s.holding)) end
   if #parts > 0 then lines[#lines + 1] = table.concat(parts, "  ·  ") end
   if #lines == 0 then lines[1] = "Profit = what you sold for, minus the AH cut and what those units cost." end
   f.line2:SetText(lines[1])
@@ -559,18 +587,18 @@ function P:Refresh()
   m.value:SetText("+" .. FI.Coins(s.farmed))
   m.value:SetTextColor(C.up[1], C.up[2], C.up[3])
   setBadge(m.badge, nil)
-  labels = { "SOLD FOR", "AH CUT", "SALES" }
+  labels = { "Sold for", "AH Cut", "Sales" }
   for i, st in ipairs(m.stats) do st.label:SetText(labels[i]) end
   m.stats[1].value:SetText(FI.Coins(s.farmGross))
   m.stats[2].value:SetText(FI.Coins(s.farmFees))
   m.stats[3].value:SetText(FI.Number(s.farmedSales))
-  m.line1:SetText(s.farmTop and ("Top seller: |cffe6e9ee%s|r |cff3fb68b+%s|r"):format(s.farmTop.name, FI.Money(s.farmTop.net))
+  m.line1:SetText(s.farmTop and ("Top seller: |cffe6e0d1%s|r |cff66c761+%s|r"):format(s.farmTop.name, FI.Coins(s.farmTop.net))
     or "Nothing farmed and sold yet.")
   if (s.ownMatsSold or 0) > 0 then
-    m.line2:SetText(("incl. |cff3fb68b+%s|r from your own mats in crafts you sold"):format(FI.Money(s.ownMatsSold)))
-    m.line3:SetText(("Bags worth |cffe8b84a%s|r at market right now"):format(FI.Money(FI.Ledger:BagValue())))
+    m.line2:SetText(("incl. |cff66c761+%s|r from your own mats in crafts you sold"):format(FI.Coins(s.ownMatsSold)))
+    m.line3:SetText(("Bags worth |cffe6e0d1%s|r at market right now"):format(FI.Coins(FI.Ledger:BagValue())))
   else
-    m.line2:SetText(("Bags worth |cffe8b84a%s|r at market right now"):format(FI.Money(FI.Ledger:BagValue())))
+    m.line2:SetText(("Bags worth |cffe6e0d1%s|r at market right now"):format(FI.Coins(FI.Ledger:BagValue())))
     m.line3:SetText("")
   end
   card.stamp:SetText(date("%B %d, %Y"))
@@ -596,6 +624,7 @@ function P:Refresh()
   })[st.sort]
   W.SortRows(recent, st.sort, st.dir, get)
   self.recent = recent
+  P.amountColumn:Fit(recent, function(e) return e.g end)
   -- back to the top only when what's listed changes, not when new mail arrives
   local key = self.period .. "|" .. self.show .. "|" .. st.sort .. st.dir
   if key ~= self.listKey then self.listKey = key; self.list.offset = 0 end

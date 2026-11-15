@@ -17,11 +17,11 @@ local AXIS_W, VOL_H, TOP_BAR, LEGEND_H = 72, 44, 34, 18
 local MIN_SPAN = 3 * 3600
 local CANDLE_PX = 8 -- target width of one candle (body + gap)
 local MA_COLORS = { { 0.40, 0.68, 1.00 }, { 0.75, 0.55, 0.98 } } -- MA 7, MA 25
-local REF_USUAL, REF_LOW = { 0.55, 0.62, 0.72 }, { 0.25, 0.71, 0.55 }
+local REF_USUAL, REF_LOW = { 0.55, 0.62, 0.72 }, { 0.25, 0.85, 0.25 }
 
 V.PRESETS = {
-  { "15M", 900 }, { "1H", 3600 }, { "6H", 6 * 3600 }, { "12H", 12 * 3600 },
-  { "1D", 86400 }, { "1W", 7 * 86400 }, { "1M", 30 * 86400 }, { "All", nil },
+  { "15M", 900, "15 min" }, { "1H", 3600, "1 hour" }, { "6H", 6 * 3600, "6 hours" }, { "12H", 12 * 3600, "12 hours" },
+  { "1D", 86400, "1 day" }, { "1W", 7 * 86400, "1 week" }, { "1M", 30 * 86400, "1 month" }, { "All", nil, "All time" },
 }
 local PRESET_SPAN = {}
 for _, p in ipairs(V.PRESETS) do PRESET_SPAN[p[1]] = p[2] end
@@ -70,21 +70,20 @@ function V:Create(parent, opts)
   view.style = "Candles"
   view.showMA, view.showRef = true, false
 
-  -- Top bar: timeframes | style | indicators | back to now
-  local tfNames = {}
-  for _, p in ipairs(V.PRESETS) do tfNames[#tfNames + 1] = p[1] end
-  view.tfChoice = W.Choice(box, tfNames, "seg", function(v) view:SetPreset(v) end, 24)
-  view.tfChoice:SetPoint("TOPLEFT", 10, -6)
-  view.styleChoice = W.Choice(box, { "Candles", "Line", "Area" }, "seg", function(v) view.style = v; view:Draw() end, 24)
+  -- Top bar: timeframes | style | indicators
+  local tfEntries = {}
+  for _, p in ipairs(V.PRESETS) do tfEntries[#tfEntries + 1] = { p[3], p[1] } end
+  view.tfChoice = W.Dropdown(box, tfEntries, function(v) view:SetPreset(v) end, 110, nil, "Custom")
+  view.tfChoice:SetPoint("TOPLEFT", 10, -5)
+  view.styleChoice = W.Dropdown(box, { "Candles", "Line", "Area" }, function(v) view.style = v; view:Draw() end, 100)
   view.styleChoice:SetPoint("LEFT", view.tfChoice, "RIGHT", 10, 0)
   view.styleChoice:Select(view.style)
-  view.maBtn = W.Button(box, "MA 7/25", nil, 24, "pill")
+  view.maBtn = W.Toggle(box, "MA 7/25", function(on) view.showMA = on; view:Draw() end)
   view.maBtn:SetPoint("LEFT", view.styleChoice, "RIGHT", 10, 0)
-  view.maBtn:SetScript("OnClick", function(self) view.showMA = not view.showMA; self:SetSelected(view.showMA); view:Draw() end)
-  view.maBtn:SetSelected(view.showMA)
-  view.refBtn = W.Button(box, "Usual price", nil, 24, "pill")
+  view.maBtn:SetOn(view.showMA)
+  view.refBtn = W.Toggle(box, "Usual price", function(on) view.showRef = on; view:Draw() end)
   view.refBtn:SetPoint("LEFT", view.maBtn, "RIGHT", 6, 0)
-  view.refBtn:SetScript("OnClick", function(self) view.showRef = not view.showRef; self:SetSelected(view.showRef); view:Draw() end)
+  view.refBtn:SetOn(view.showRef)
   -- One toolbar row when it fits; on a narrow chart the chart style and indicator
   -- buttons move to a second row instead of running off the edge.
   function view:LayoutBar()
@@ -111,7 +110,6 @@ function V:Create(parent, opts)
   box:HookScript("OnSizeChanged", function() if view.plot and view:LayoutBar() then view:Draw() end end)
 
   view.nowBtn = W.Button(box, "Back to now", nil, 24, "gold")
-  view.nowBtn:SetPoint("TOPRIGHT", -10, -6)
   view.nowBtn:SetScript("OnClick", function() view.offset = 0; view:Draw() end)
   view.nowBtn:Hide()
 
@@ -131,6 +129,10 @@ function V:Create(parent, opts)
   local canvas = CreateFrame("Frame", nil, plot)
   canvas:SetAllPoints()
   view.canvas = canvas
+  -- "Back to now" only shows while you've panned back: it floats in the plot's corner
+  -- (above the crosshair) so it never crowds the toolbar buttons
+  view.nowBtn:SetPoint("BOTTOMRIGHT", plot, "BOTTOMRIGHT", -6, 6)
+  view.nowBtn:SetFrameLevel(plot:GetFrameLevel() + 10)
   view:LayoutBar()
   local vol = CreateFrame("Frame", nil, box)
   vol:SetPoint("TOPLEFT", plot, "BOTTOMLEFT", 0, -6)
@@ -164,7 +166,7 @@ function V:Create(parent, opts)
   view.slotText = W.Text(box, 10, C.muted)
   view.slotText:SetPoint("BOTTOMRIGHT", -14, 4)
   view.tags = W.Pool(function()
-    local f = W.Box(box, C.up, C.up)
+    local f = W.Box(box, C.up, C.up, nil, true)
     f:SetHeight(18)
     f:SetFrameLevel(plot:GetFrameLevel() + 5)
     f.text = W.Text(f, 11, C.bg, true)
@@ -178,12 +180,12 @@ function V:Create(parent, opts)
   over:SetFrameLevel(plot:GetFrameLevel() + 8)
   view.vline = over:CreateTexture(nil, "OVERLAY"); setTex(view.vline, C.muted, 0.7); view.vline:SetWidth(1)
   view.hline = over:CreateTexture(nil, "OVERLAY"); setTex(view.hline, C.muted, 0.7); view.hline:SetHeight(1)
-  view.priceTag = W.Box(box, C.raised, C.muted)
+  view.priceTag = W.Box(box, C.raised, C.muted, nil, true)
   view.priceTag:SetHeight(18)
   view.priceTag:SetFrameLevel(plot:GetFrameLevel() + 9)
   view.priceTag.text = W.Text(view.priceTag, 11, C.text, true)
   view.priceTag.text:SetPoint("CENTER")
-  view.timeTag = W.Box(box, C.raised, C.muted)
+  view.timeTag = W.Box(box, C.raised, C.muted, nil, true)
   view.timeTag:SetHeight(18)
   view.timeTag:SetFrameLevel(plot:GetFrameLevel() + 9)
   view.timeTag.text = W.Text(view.timeTag, 10, C.text)
@@ -321,7 +323,7 @@ function V:Draw()
     local l = self.labels:Get()
     l:ClearAllPoints()
     l:SetPoint("LEFT", plot, "BOTTOMRIGHT", 8, y(p))
-    l:SetText(FI.Money(p))
+    l:SetText(FI.Coins(p))
   end
   -- Time axis: labels on round times (midnight, 6:00...), sliding with the chart
   local tick = TICKS[#TICKS]
@@ -444,19 +446,19 @@ function V:Draw()
   self.alertYs = {}
   for _, e in ipairs(extras) do
     if e[2] == "alert" then
-      hline(e[1], C.gold, "ALERT " .. FI.Money(e[1]), true)
+      hline(e[1], C.gold, "Alert " .. FI.Coins(e[1]), true)
       self.alertYs[#self.alertYs + 1] = { dir = e[3], price = e[1] }
     elseif e[2] == "usual" then
-      hline(e[1], REF_USUAL, "USUAL " .. FI.Money(e[1]), true, 0.5)
+      hline(e[1], REF_USUAL, "Usual " .. FI.Coins(e[1]), true, 0.5)
     else
-      hline(e[1], REF_LOW, "TYPICAL LOW " .. FI.Money(e[1]), true, 0.5)
+      hline(e[1], REF_LOW, "Typical Low " .. FI.Coins(e[1]), true, 0.5)
     end
   end
   local vis = {}
   for _, c in ipairs(candles) do if c.t + slot > startT and c.t < endT then vis[#vis + 1] = c end end
   if #vis == 0 then vis = candles end
   local last, first = vis[#vis].c, vis[1].o
-  hline(last, last >= first and C.up or C.down, FI.Money(last), false)
+  hline(last, last >= first and C.up or C.down, FI.Coins(last), false)
 
   -- Summary for the header (and the legend when not hovering)
   local sold, wHi, wLo = 0, -math.huge, math.huge
@@ -477,18 +479,18 @@ function V:Legend(c)
   end
   if not c then self.legend:SetText(""); return end
   local chg = c.o > 0 and (c.c - c.o) / c.o * 100 or nil
-  local col = (c.c >= c.o) and "ff3fb68b" or "fff0613a"
+  local col = (c.c >= c.o) and FI.hex.up or FI.hex.down
   local parts = {
-    ("O |c%s%s|r"):format(col, FI.Money(c.o)),
-    ("H |c%s%s|r"):format(col, FI.Money(c.hi)),
-    ("L |c%s%s|r"):format(col, FI.Money(c.lo)),
-    ("C |c%s%s|r"):format(col, FI.Money(c.c)),
+    ("O |c%s%s|r"):format(col, FI.Coins(c.o)),
+    ("H |c%s%s|r"):format(col, FI.Coins(c.hi)),
+    ("L |c%s%s|r"):format(col, FI.Coins(c.lo)),
+    ("C |c%s%s|r"):format(col, FI.Coins(c.c)),
     ("|c%s%s|r"):format(col, FI.Percent(chg)),
     ("sold %s"):format(FI.Number(c.v)),
   }
   if self.showMA and self.maNow then
-    if self.maNow[1] then parts[#parts + 1] = ("|cff66adffMA7 %s|r"):format(FI.Money(self.maNow[1])) end
-    if self.maNow[2] then parts[#parts + 1] = ("|cffbf8cfaMA25 %s|r"):format(FI.Money(self.maNow[2])) end
+    if self.maNow[1] then parts[#parts + 1] = ("|cff66adffMA7 %s|r"):format(FI.Coins(self.maNow[1])) end
+    if self.maNow[2] then parts[#parts + 1] = ("|cffbf8cfaMA25 %s|r"):format(FI.Coins(self.maNow[2])) end
   end
   self.legend:SetText(table.concat(parts, "   "))
 end
@@ -531,7 +533,7 @@ function V:UpdateCrosshair(force)
   self.hline:ClearAllPoints()
   self.hline:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", 0, py)
   self.hline:SetPoint("BOTTOMRIGHT", plot, "BOTTOMRIGHT", 0, py)
-  self.priceTag.text:SetText(FI.Money(self:PriceAtY(py)))
+  self.priceTag.text:SetText(FI.Coins(self:PriceAtY(py)))
   self.priceTag:SetWidth(self.priceTag.text:GetStringWidth() + 12)
   self.priceTag:ClearAllPoints()
   self.priceTag:SetPoint("LEFT", plot, "BOTTOMRIGHT", 4, py)

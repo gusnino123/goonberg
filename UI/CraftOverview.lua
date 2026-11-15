@@ -37,8 +37,7 @@ local function moverRows(box, count)
     r:SetHeight(28)
     r:SetPoint("TOPLEFT", 1, -34 - (i - 1) * 30)
     r:SetPoint("RIGHT", -1, 0)
-    r.bg = W.Tex(r, C.raised, 0, "BACKGROUND")
-    r.bg:SetAllPoints()
+    W.RowHover(r)
     r.icon = r:CreateTexture(nil, "ARTWORK")
     r.icon:SetSize(20, 20)
     r.icon:SetPoint("LEFT", 13, 0)
@@ -52,8 +51,6 @@ local function moverRows(box, count)
     r.delta = W.Text(r, 12, C.up, true)
     r.delta:SetPoint("RIGHT", -14, 0)
     r.delta:SetJustifyH("RIGHT")
-    r:SetScript("OnEnter", function(self) self.bg:SetAlpha(0.5) end)
-    r:SetScript("OnLeave", function(self) self.bg:SetAlpha(0) end)
     r:SetScript("OnClick", function(self)
       K.view = "Recipes"
       K.prof = "All"
@@ -100,11 +97,11 @@ function K:BuildOverview(tab)
 
   -- cards
   local cards = {
-    card(f, "RECIPES"),
-    card(f, "PROFITABLE NOW"),
-    card(f, "MEDIAN MARGIN"),
-    card(f, "DAILY PROFIT POOL"),
-    card(f, "CRAFTS SOLD, 7 DAYS"),
+    card(f, "Recipes"),
+    card(f, "Profitable Now"),
+    card(f, "Median Margin"),
+    card(f, "Daily Profit Pool"),
+    card(f, "Crafts Sold, 7 Days"),
   }
   cards[1]:SetPoint("TOPLEFT", 16, 0)
   for i = 2, 5 do cards[i]:SetPoint("TOPLEFT", cards[i - 1], "TOPRIGHT", 12, 0) end
@@ -118,7 +115,7 @@ function K:BuildOverview(tab)
   f.cards = cards
 
   -- margin chart (14 days)
-  local chart = section(f, "MEDIAN MARGIN OF YOUR RECIPES, LAST 14 DAYS")
+  local chart = section(f, "Median Margin of Your Recipes, Last 14 Days")
   chart:SetPoint("TOPLEFT", 16, -90)
   chart:SetSize(520, 206)
   f.chartBox = chart
@@ -155,18 +152,18 @@ function K:BuildOverview(tab)
   f.chartEmpty:SetText("Builds up as you scan over the next days.")
 
   -- by profession
-  local profs = section(f, "BY PROFESSION")
+  local profs = section(f, "By Profession")
   profs:SetPoint("TOPLEFT", chart, "TOPRIGHT", 12, 0)
   profs:SetPoint("RIGHT", f, "RIGHT", -16, 0)
   profs:SetHeight(206)
-  local heads = { { "RECIPES", -300 }, { "PROFITABLE", -220 }, { "MEDIAN", -140 }, { "POOL / DAY", -14 } }
+  local heads = { { "Recipes", -300 }, { "Profitable", -220 }, { "Median", -140 }, { "Pool / Day", -14 } }
   local hf = CreateFrame("Frame", nil, profs)
   hf:SetPoint("TOPLEFT", 0, -3)
   hf:SetPoint("TOPRIGHT", 0, -3)
   hf:SetHeight(26)
   K.profHeaders = W.SortHeaders(hf, {
-    { key = "known", label = "RECIPES", r = -300 }, { key = "profitable", label = "PROFITABLE", r = -220 },
-    { key = "medianMargin", label = "MEDIAN", r = -140 }, { key = "pool", label = "POOL / DAY", r = -14 },
+    { key = "known", label = "Recipes", r = -300 }, { key = "profitable", label = "Profitable", r = -220 },
+    { key = "medianMargin", label = "Median", r = -140 }, { key = "pool", label = "Pool / Day", r = -14 },
   }, K.profSort, function() K:RefreshOverview() end)
   f.profRows = {}
   for i = 1, 6 do
@@ -174,8 +171,7 @@ function K:BuildOverview(tab)
     r:SetHeight(26)
     r:SetPoint("TOPLEFT", 1, -34 - (i - 1) * 28)
     r:SetPoint("RIGHT", -1, 0)
-    r.bg = W.Tex(r, C.raised, 0, "BACKGROUND")
-    r.bg:SetAllPoints()
+    W.RowHover(r)
     r.name = W.Text(r, 12, C.text)
     r.name:SetPoint("LEFT", 13, 0)
     r.cells = {}
@@ -186,17 +182,16 @@ function K:BuildOverview(tab)
       r.cells[k] = fs
     end
     r:SetScript("OnEnter", function(self)
-      self.bg:SetAlpha(0.5)
       GameTooltip:SetOwner(self, "ANCHOR_CURSOR_RIGHT")
       GameTooltip:AddLine(self.prof or "")
       if self.bestData then
-        GameTooltip:AddDoubleLine("Best recipe", self.bestData.name, 0.76, 0.79, 0.83, 1, 1, 1)
-        if self.bestData.margin then GameTooltip:AddDoubleLine("Its margin", FI.Percent(self.bestData.margin), 0.76, 0.79, 0.83, 0.25, 0.71, 0.55) end
+        GameTooltip:AddDoubleLine("Best recipe", self.bestData.name, C.soft[1], C.soft[2], C.soft[3], 1, 1, 1)
+        if self.bestData.margin then GameTooltip:AddDoubleLine("Its margin", FI.Percent(self.bestData.margin), C.soft[1], C.soft[2], C.soft[3], C.up[1], C.up[2], C.up[3]) end
       end
-      GameTooltip:AddLine("|cff8b95a3Click to see these recipes.|r")
+      GameTooltip:AddLine("|cff9e998fClick to see these recipes.|r")
       GameTooltip:Show()
     end)
-    r:SetScript("OnLeave", function(self) self.bg:SetAlpha(0); GameTooltip_Hide() end)
+    r:SetScript("OnLeave", GameTooltip_Hide)
     r:SetScript("OnClick", function(self) K.view = "Recipes"; K.prof = self.prof; K:Refresh() end)
     f.profRows[i] = r
   end
@@ -207,11 +202,11 @@ function K:BuildOverview(tab)
   f.profEmpty:SetText("Open each of your profession windows once so Goonberg learns your recipes.")
 
   -- movers
-  local up = section(f, "GETTING MORE PROFITABLE (VS. 7 DAYS AGO)")
+  local up = section(f, "Getting More Profitable (vs. 7 Days Ago)")
   up:SetPoint("TOPLEFT", chart, "BOTTOMLEFT", 0, -12)
   up:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 16, 16)
   up:SetWidth(509)
-  local down = section(f, "GETTING LESS PROFITABLE")
+  local down = section(f, "Getting Less Profitable")
   down:SetPoint("TOPLEFT", up, "TOPRIGHT", 12, 0)
   down:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -16, 16)
   for _, pair in ipairs({ { up, K.upSort }, { down, K.downSort } }) do
@@ -221,7 +216,7 @@ function K:BuildOverview(tab)
     hdr:SetPoint("TOPRIGHT", 0, -3)
     hdr:SetHeight(26)
     box.headers = W.SortHeaders(hdr, {
-      { key = "now", label = "PROFIT NOW", r = -110 }, { key = "delta", label = "CHANGE", r = -14 },
+      { key = "now", label = "Profit Now", r = -110 }, { key = "delta", label = "Change", r = -14 },
     }, state, function() K:RefreshOverview() end)
     moverRows(box, 6)
   end
