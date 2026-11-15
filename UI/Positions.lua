@@ -32,7 +32,7 @@ local function key(g) return g.opened .. "|" .. g.name end
 -- what one step says
 local ACTIONS = {
   buy = { "Bought", C.down }, craft = { "Crafted", C.gold }, de = { "Disenchanted", C.gold },
-  use = { "Used", C.soft }, sale = { "Sold", C.up },
+  use = { "Used", C.soft }, sale = { "Sold", C.up }, vendor = { "Vendored", C.soft },
 }
 local function describe(st)
   local e = st.e
@@ -53,6 +53,7 @@ local function describe(st)
     return ("%d %s  yourself"):format(st.q, e.i)
   else
     local farmed = (st.of or st.q) - st.q
+    if st.vendor then return ("%d %s  to a vendor @ %s each"):format(st.q, e.i, each(st.gross, st.q)) end
     return ("%d %s  @ %s each%s"):format(st.q, e.i, each(st.gross, st.q),
       farmed > 0 and ("  (+%d farmed, not counted)"):format(farmed) or "")
   end
@@ -125,7 +126,7 @@ local function makeRow(parent)
     line("Opened", date("%b %d %H:%M", g.opened))
     if g.closed then line("Closed", date("%b %d %H:%M", g.closed)) end
     line("Cost", FI.Money(g.cost))
-    if g.own > 0 then line("  of which your own materials", FI.Money(g.own)) end
+    if g.own > 0 then line("  of which your own / vendor materials", FI.Money(g.own)) end
     if g.proceeds > 0 then line("Sold for (after the AH cut)", FI.Money(g.proceeds)); line("  AH cut paid", FI.Money(g.fees)) end
     line("Realized P&L", (g.realized >= 0 and "+" or "-") .. FI.Money(math.abs(g.realized)), g.realized >= 0 and C.up or C.down)
     if g.roi then line("ROI on what you sold", FI.Percent(g.roi), g.roi >= 0 and C.up or C.down) end
@@ -164,6 +165,7 @@ local function updateRow(r, i)
     if g.crafted then tags[#tags + 1] = "crafted" end
     if g.disenchanted then tags[#tags + 1] = "DE'd" end
     if g.deal then tags[#tags + 1] = "|cffe8b84aDeals tab|r" end
+    if g.legacy then tags[#tags + 1] = "|cfff0613aold data, quantity may be off|r" end
     r.name:SetText(g.name .. (#tags > 0 and ("  |cff8b95a3" .. table.concat(tags, " · ") .. "|r") or ""))
     r.date:SetText(date("%b %d", g.last))
     if g.status == "open" then
@@ -188,7 +190,7 @@ local function updateRow(r, i)
       r.cells.roi:SetText(FI.Percent(g.roi)); setColor(r.cells.roi, g.roi >= 0 and C.up or C.down)
     end
   elseif row.kind == "step" then
-    local st, a = row.st, ACTIONS[row.st.kind]
+    local st, a = row.st, ACTIONS[row.st.vendor and "vendor" or row.st.kind]
     r.sDate:SetText(date("%b %d %H:%M", st.e.t))
     r.sAction:SetText(a[1]); setColor(r.sAction, a[2])
     r.sText:SetText(describe(st))
@@ -296,12 +298,15 @@ function V:Refresh()
   -- the numbers up top: closed positions for wins, everything for realized
   local realized, wins, losses, soldCost, closedNet, openN, openCost, openValue, best = 0, 0, 0, 0, 0, 0, 0, 0, nil
   for _, g in ipairs(list) do
-    realized = realized + g.realized
+    -- only sales in the period count (so this matches the Summary's Flipping number)
+    realized = realized + g.realizedIn
     if g.status == "closed" and (g.soldCost > 0 or g.proceeds > 0) then
       if g.realized >= 0 then wins = wins + 1 else losses = losses + 1 end
     end
-    soldCost = soldCost + g.soldCost
-    closedNet = closedNet + g.realized
+    if g.status == "closed" then
+      soldCost = soldCost + g.soldCost
+      closedNet = closedNet + g.realized
+    end
     if g.status == "open" then
       openN, openCost, openValue = openN + 1, openCost + g.openCost, openValue + g.openValue
     end
@@ -310,7 +315,9 @@ function V:Refresh()
   local s = self.stats
   s[1].value:SetText((realized >= 0 and "+" or "-") .. FI.Coins(math.abs(realized)))
   setColor(s[1].value, realized >= 0 and C.up or C.down)
-  s[1].sub:SetText(("%d position%s"):format(#list, #list == 1 and "" or "s"))
+  local sold = 0
+  for _, g in ipairs(list) do sold = sold + g.salesIn end
+  s[1].sub:SetText(("%d sale%s in %d position%s"):format(sold, sold == 1 and "" or "s", #list, #list == 1 and "" or "s"))
   local done = wins + losses
   s[2].value:SetText(done > 0 and (FI.Percent(wins / done * 100):gsub("^%+", "")) or "-")
   setColor(s[2].value, done > 0 and (wins >= losses and C.up or C.down) or C.muted)
@@ -321,7 +328,7 @@ function V:Refresh()
   else
     s[3].value:SetText("-"); setColor(s[3].value, C.muted)
   end
-  s[3].sub:SetText("P&L / cost of what you sold")
+  s[3].sub:SetText("on closed positions")
   s[4].value:SetText(openN > 0 and FI.Coins(openValue) or "-"); setColor(s[4].value, openN > 0 and C.gold or C.muted)
   s[4].sub:SetText(openN > 0 and ("%d open · cost %s · %s"):format(openN, FI.Money(openCost), signed(openValue - openCost)) or "nothing held")
   s[5].value:SetText(best and signed(best.realized) or "-")

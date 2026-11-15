@@ -166,6 +166,25 @@ local function buildCard(tab)
   card.flip:SetPoint("TOPLEFT", 16, -196)
   card.flip:SetPoint("BOTTOMRIGHT", card, "BOTTOM", -6, 46)
   card.farm = panel(card, "FARMING", "found, looted or crafted, then sold")
+  local function explain(f, title, lines)
+    f:EnableMouse(true)
+    f:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_TOP")
+      GameTooltip:AddLine(title)
+      for _, l in ipairs(lines) do GameTooltip:AddLine(l, 0.76, 0.79, 0.83, true) end
+      GameTooltip:Show()
+    end)
+    f:SetScript("OnLeave", GameTooltip_Hide)
+  end
+  explain(card.flip, "Flipping", {
+    "Things you bought on the AH and sold again (or crafted / disenchanted first).",
+    "Profit = what you got after the 5% AH cut, minus what those exact units cost you. Units are matched oldest purchase first.",
+    "Things you bought and haven't sold yet aren't a loss: they show as \"holding\".",
+  })
+  explain(card.farm, "Farming", {
+    "AH sales of things you didn't buy on the AH: farmed, looted, gathered, or bought by another character.",
+    "When \"your own mats\" count at market price, what they earned inside crafts you sold is added here too, so Flipping + Farming is exactly the gold you made.",
+  })
   card.farm:SetPoint("TOPLEFT", card, "TOP", 6, -196)
   card.farm:SetPoint("BOTTOMRIGHT", -16, 46)
 
@@ -198,7 +217,7 @@ local function buildSide(tab)
 
   -- materials you gathered yourself, when you craft with them
   local ownLabel = W.Text(side, 11, C.soft)
-  ownLabel:SetText("Own mats in crafts")
+  ownLabel:SetText("Your own mats count as")
   ownLabel:SetPoint("TOPLEFT", 14, -98)
   local own = W.Choice(side, { "Market price", "Free" }, "seg", function(v)
     FI.settings.ownMats = (v == "Free") and "free" or "market"
@@ -219,7 +238,7 @@ local function buildSide(tab)
   end
   P.ownChoice = own
 
-  local head = W.Heading(side, "RECENT TRADES")
+  local head = W.Heading(side, "TRADES  ·  hover one for details")
   head:SetPoint("TOPLEFT", 14, -132)
   local show = W.Choice(side, { "All", "Flips", "Farmed", "Bought", "Used" }, "pill", function(v) P.show = v; P:Refresh() end, 22)
   show:SetPoint("TOPLEFT", 14, -148)
@@ -240,6 +259,11 @@ local function buildSide(tab)
   holder:SetPoint("BOTTOMRIGHT", 0, 54)
   P.list = W.List(holder, 30, 28, function(parent)
     local r = CreateFrame("Frame", nil, parent)
+    r:EnableMouse(true)
+    r.hl = W.Tex(r, C.raised, 0, "BACKGROUND")
+    r.hl:SetAllPoints()
+    r:SetScript("OnEnter", function(self) self.hl:SetAlpha(0.7); if self.e then P:TradeTooltip(self, self.e) end end)
+    r:SetScript("OnLeave", function(self) self.hl:SetAlpha(0); GameTooltip_Hide() end)
     r.when = W.Text(r, 10, C.muted)
     r.when:SetPoint("LEFT", 14, 0)
     r.kind = W.Text(r, 11, C.up)
@@ -253,12 +277,14 @@ local function buildSide(tab)
     return r
   end, function(r, i)
     local e = P.recent[i]
+    r.e = e
     r.when:SetText(date("%b %d", e.t))
     local kind = P:Kind(e)
-    local sale = e.k == "sale"
+    local sale = e.k == "sale" or e.k == "vendor"
     local KINDS = {
       flip = { "Flip", C.up }, farmed = { "Farmed", C.soft }, part = { "Flip+", C.up }, crafted = { "Crafted", C.up },
       buy = { "Bought", C.down }, deal = { "Deal", C.gold }, made = { "Made", C.gold }, used = { "Used", C.soft }, de = { "DE'd", C.gold },
+      vendor = { "Vendor", C.soft },
     }
     local c = KINDS[kind][2]
     r.kind:SetText(KINDS[kind][1])
@@ -320,6 +346,46 @@ function P:Build(parent)
   self.summaryFrame = summary
   buildCard(summary)
   buildSide(summary)
+
+  -- how fresh the numbers are (they come from the AH mail)
+  local fresh = CreateFrame("Frame", nil, summary)
+  fresh:SetPoint("LEFT", self.periodChoice, "RIGHT", 10, 0)
+  fresh:SetSize(110, 26)
+  fresh:EnableMouse(true)
+  self.fresh = W.Text(fresh, 10, C.muted)
+  self.fresh:SetPoint("LEFT")
+  self.fresh:SetPoint("RIGHT")
+  self.fresh:SetWordWrap(true)
+  fresh:SetScript("OnEnter", function(f)
+    GameTooltip:SetOwner(f, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Where these numbers come from")
+    GameTooltip:AddLine("Every AH sale and purchase sends you a mail with an invoice. Goonberg Terminal reads those when you open a mailbox, so trades since then show up after your next visit.", 0.76, 0.79, 0.83, true)
+    GameTooltip:AddLine("Crafts, disenchants, vendor sales and things you use are tracked as they happen.", 0.55, 0.58, 0.64, true)
+    GameTooltip:Show()
+  end)
+  fresh:SetScript("OnLeave", GameTooltip_Hide)
+  -- trades saved before the quantity fix
+  local note = W.Box(summary, C.raised, C.down)
+  note:SetPoint("TOPLEFT", 200, -12)
+  note:SetHeight(30)
+  note.text = W.Text(note, 11, C.text)
+  note.text:SetPoint("LEFT", 12, 0)
+  note.hide = W.Button(note, "Leave them out", nil, 22, "pill")
+  note.hide:SetPoint("LEFT", note.text, "RIGHT", 10, 0)
+  note.hide:SetScript("OnClick", function()
+    FI.settings.pnlHideOld = not FI.settings.pnlHideOld or nil
+    FI:Fire("FI_LEDGER_CHANGED")
+    P:Refresh()
+  end)
+  note.hide:HookScript("OnEnter", function(b)
+    GameTooltip:SetOwner(b, "ANCHOR_BOTTOM")
+    GameTooltip:AddLine("Trades saved before version 0.25")
+    GameTooltip:AddLine("Older versions read the wrong number from the AH mail, so these stacks were saved as 1 item. Their profit can be wrong. Mail still in your mailbox gets fixed automatically.", 0.76, 0.79, 0.83, true)
+    GameTooltip:AddLine("Leaving them out hides them from every P&L number (they aren't deleted; click again to bring them back).", 0.55, 0.58, 0.64, true)
+    GameTooltip:Show()
+  end)
+  note.hide:HookScript("OnLeave", GameTooltip_Hide)
+  self.oldNote = note
   self.positionsFrame = FI.PositionsView:Build(tab)
   -- the card shrinks a little on narrow windows; the trade list takes the rest
   summary:SetScript("OnSizeChanged", function(_, w)
@@ -329,12 +395,82 @@ function P:Build(parent)
   return tab
 end
 
+local function tip(l, v, c)
+  local soft = C.soft
+  c = c or C.text
+  GameTooltip:AddDoubleLine(l, v, soft[1], soft[2], soft[3], c[1], c[2], c[3])
+end
+local function money(v) return FI.Money(math.floor((v or 0) + 0.5)) end
+local function signedMoney(v) return (v >= 0 and "+" or "-") .. money(math.abs(v)) end
+
+-- Hovering a trade: what happened, in plain words, with the numbers behind it
+function P:TradeTooltip(owner, e)
+  local s = self.summary
+  if not s then return end
+  local q = math.max(1, e.q or 1)
+  GameTooltip:SetOwner(owner, "ANCHOR_LEFT")
+  GameTooltip:AddLine(((q > 1) and (q .. "x ") or "") .. e.i)
+  tip("When", date("%b %d, %H:%M", e.t))
+  local kind = self:Kind(e)
+  if e.k == "buy" then
+    tip("Bought on the AH for", money(e.g), C.down)
+    if q > 1 then tip("Each", money(e.g / q)) end
+    if e.deal then GameTooltip:AddLine("You opened this from the Deals tab.", C.gold[1], C.gold[2], C.gold[3]) end
+  elseif e.k == "sale" or e.k == "vendor" then
+    local got, cost = s.flipOf[e] or 0, (s.saleCostOf or {})[e] or 0
+    if e.k == "vendor" then
+      tip("Sold to a vendor for", money(e.g), C.up)
+    else
+      tip("Sold on the AH for", money(e.g))
+      tip("AH cut (5%)", "-" .. money(e.f), C.down)
+      tip("You got", money(e.g - e.f), C.up)
+    end
+    if q > 1 then tip("Each", money(e.g / q)) end
+    if got > 0 then
+      local share = got / q
+      local profit = (e.g - e.f) * share - cost
+      GameTooltip:AddLine(" ")
+      tip(got < q and ("%d of these came from the AH, cost"):format(got) or "They cost you", money(cost))
+      tip("Profit", signedMoney(profit), profit >= 0 and C.up or C.down)
+      if cost > 0 then tip("Return", FI.Percent(profit / cost * 100), profit >= 0 and C.up or C.down) end
+      if got < q then
+        GameTooltip:AddLine(("The other %d weren't bought on the AH: that part counts as farming."):format(q - got), 0.55, 0.58, 0.64, true)
+      end
+      if kind == "crafted" then GameTooltip:AddLine("You crafted these: the cost is what their materials cost.", 0.55, 0.58, 0.64, true) end
+    else
+      GameTooltip:AddLine("Not bought on the AH (farmed, looted, or bought by another character): counts as farming.", 0.55, 0.58, 0.64, true)
+    end
+  elseif e.k == "craft" then
+    tip("Crafted", ("%d %s"):format(q, e.i))
+    for _, m in ipairs(e.r or {}) do
+      tip("  " .. m[2] .. "x " .. m[1], m[4] and "vendor" or "", C.muted)
+    end
+    tip("Materials cost", money(s.craftCostOf[e]))
+    GameTooltip:AddLine("Materials you bought on the AH count at what you paid; your own at "
+      .. ((FI.settings.ownMats == "free") and "nothing" or "market price") .. "; vendor ones at the vendor price.", 0.55, 0.58, 0.64, true)
+  elseif e.k == "use" then
+    tip("Used yourself", ("%d (drank, ate, equipped...)"):format(s.usedOf[e] or q))
+    tip("They had cost", money(s.usedCostOf[e]))
+    GameTooltip:AddLine("Not a loss on a flip: it's no longer counted as held.", 0.55, 0.58, 0.64, true)
+  elseif e.k == "de" then
+    local outs = {}
+    for _, o in ipairs(e.out or {}) do outs[#outs + 1] = o[2] .. "x " .. o[1] end
+    tip("Disenchanted into", table.concat(outs, ", "))
+    tip("Its cost moved onto those", money(s.deCostOf[e]))
+  end
+  if not e.v and (e.k == "buy" or e.k == "sale") then
+    GameTooltip:AddLine("Saved before 0.25: its quantity may be wrong.", 0.94, 0.38, 0.23, true)
+  end
+  GameTooltip:Show()
+end
+
 -- what a trade was: flip (bought on the AH first), part (partly), crafted (made
 -- from your materials), farmed, buy, deal, made (a craft)
 function P:Kind(e)
   if e.k == "craft" then return "made" end
   if e.k == "use" then return "used" end
   if e.k == "de" then return "de" end
+  if e.k == "vendor" then return "vendor" end
   if e.k ~= "sale" then return e.deal and "deal" or "buy" end
   local s = self.summary
   local got = s and s.flipOf[e] or 0
@@ -355,6 +491,26 @@ function P:Refresh()
   self.positionsFrame:SetShown(positions)
   if positions then FI.PositionsView:Refresh(); return end
   self.periodChoice:Select(self.period)
+  local old = FI.Ledger:LegacyCount()
+  local note = self.oldNote
+  note:SetShown(old > 0)
+  if old > 0 then
+    note.text:SetText(FI.settings.pnlHideOld
+      and ("%d trade%s from before 0.25 left out (their quantities may be wrong)"):format(old, old == 1 and "" or "s")
+      or ("%d trade%s from before 0.25 may have the wrong quantity"):format(old, old == 1 and "" or "s"))
+    note.hide:SetLabel(FI.settings.pnlHideOld and "Show them" or "Leave them out")
+    note.hide:SetWidth(note.hide.label:GetStringWidth() + 24)
+    note:SetWidth(note.text:GetStringWidth() + note.hide:GetWidth() + 34)
+  end
+  local last = FI.Ledger:Data().lastInbox
+  if last then
+    local ago = time() - last
+    local txt = ago < 3600 and (math.floor(ago / 60) .. " min ago") or ago < 86400 and (math.floor(ago / 3600) .. " h ago")
+      or (math.floor(ago / 86400) .. " days ago")
+    self.fresh:SetText("Mail read\n" .. txt)
+  else
+    self.fresh:SetText("Open a mailbox\nto load trades")
+  end
   local card = self.card
   card.goblin.Load()
   local from = since(self.period)
@@ -418,11 +574,17 @@ function P:Refresh()
   m.stats[3].value:SetText(FI.Number(s.farmedSales))
   m.line1:SetText(s.farmTop and ("Top seller: |cffe6e9ee%s|r |cff3fb68b+%s|r"):format(s.farmTop.name, FI.Money(s.farmTop.net))
     or "Nothing farmed and sold yet.")
-  m.line2:SetText(("Bags worth |cffe8b84a%s|r at market right now"):format(FI.Money(FI.Ledger:BagValue())))
+  if (s.ownMatsSold or 0) > 0 then
+    m.line2:SetText(("incl. |cff3fb68b+%s|r from your own mats in crafts you sold"):format(FI.Money(s.ownMatsSold)))
+    m.line3:SetText(("Bags worth |cffe8b84a%s|r at market right now"):format(FI.Money(FI.Ledger:BagValue())))
+  else
+    m.line2:SetText(("Bags worth |cffe8b84a%s|r at market right now"):format(FI.Money(FI.Ledger:BagValue())))
+    m.line3:SetText("")
+  end
   card.stamp:SetText(date("%B %d, %Y"))
 
   local recent = {}
-  local want = ({ Flips = { flip = true, part = true, crafted = true, made = true, de = true }, Farmed = { farmed = true, part = true },
+  local want = ({ Flips = { flip = true, part = true, crafted = true, made = true, de = true, vendor = true }, Farmed = { farmed = true, part = true },
     Bought = { buy = true, deal = true }, Used = { used = true } })[self.show]
   for _, e in ipairs(FI.Ledger:Data().entries) do
     local shown = (e.k ~= "use" or (s.usedOf[e] or 0) > 0) and (e.k ~= "de" or s.deCostOf[e]) -- uses of farmed copies aren't listed
@@ -432,7 +594,7 @@ function P:Refresh()
   local st = self.tradeSort
   local get = ({
     amount = function(e)
-      if e.k == "sale" then return e.g - e.f end
+      if e.k == "sale" or e.k == "vendor" then return e.g - e.f end
       if e.k == "use" then return -(P.summary.usedCostOf[e] or 0) end
       if e.k == "craft" then return -(P.summary.craftCostOf[e] or 0) end
       if e.k == "de" then return -(P.summary.deCostOf[e] or 0) end

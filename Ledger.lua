@@ -13,7 +13,7 @@ function L:Data()
   realm.ledger = realm.ledger or {}
   local d = realm.ledger[who]
   if not d then
-    d = { entries = {}, inbox = {} }
+    d = { entries = {}, seen = {} }
     realm.ledger[who] = d
   end
   return d
@@ -24,11 +24,11 @@ end
 local DEAL_WINDOW = 3 * DAY
 function L:TagDeal(d, e)
   local picked = e.k == "buy" and d.dealPicks and d.dealPicks[e.i]
-  if picked and time() - picked <= DEAL_WINDOW and e.t >= picked - DAY then e.deal = true end
+  if picked and e.t >= picked - 300 and e.t - picked <= DEAL_WINDOW then e.deal = true end
 end
 
 local function add(d, t, kind, item, qty, gross, fee)
-  local e = { t = t, k = kind, i = item, q = qty or 1, g = gross or 0, f = fee or 0 }
+  local e = { t = t, k = kind, i = item, q = qty or 1, g = gross or 0, f = fee or 0, v = 2 }
   L:TagDeal(d, e)
   d.entries[#d.entries + 1] = e
 end
@@ -46,43 +46,129 @@ function L:MarkDeal(itemName)
   d.dealPicks[itemName] = now
 end
 
+-- How many items an AH invoice was for. The invoice says (its 11th value); if a
+-- client leaves it out, the item attached to a purchase or "(20)" in a sale's subject does.
+local function invoiceCount(i, invoiceType, count)
+  if type(count) == "number" and count > 0 then return count, true end
+  if invoiceType == "buyer" and GetInboxItem then
+    local _, _, _, n = GetInboxItem(i, 1)
+    if type(n) == "number" and n > 0 then return n, true end
+  end
+  local _, _, _, subject = GetInboxHeaderInfo(i)
+  local n = type(subject) == "string" and tonumber(subject:match("%((%d+)%)%s*$"))
+  if n and n > 0 then return n, true end
+  return 1, false
+end
+
+-- Reading the mailbox. Each AH mail is recognised by what it's for (buyer/seller,
+-- item, price, AH cut) plus when it was sent, so reading the same mail again - every
+-- time the mailbox opens, or before WoW has finished loading it - never counts it twice.
+-- Identical mails sent together (someone buying three of your identical stacks) are
+-- counted by how many there are.
+local SAME_MAIL = 180 -- seconds: the same mail's send time, worked out on two reads, can drift a little
 function L:ReadInbox()
   if not GetInboxNumItems or not GetInboxInvoiceInfo then return end
   local d = self:Data()
   local now = time()
-  local counts, info = {}, {}
-  for i = 1, GetInboxNumItems() do
-    local invoiceType, itemName, playerName, bid, _, deposit, consignment, _, _, count = GetInboxInvoiceInfo(i)
-    if invoiceType == "seller" or invoiceType == "buyer" then
+  local n = GetInboxNumItems() or 0
+  local found = {}
+  for i = 1, n do
+    local invoiceType, itemName, _, bid, _, deposit, consignment, _, _, _, count = GetInboxInvoiceInfo(i)
+    if (invoiceType == "seller" or invoiceType == "buyer") and itemName then
       local _, _, _, _, _, _, daysLeft = GetInboxHeaderInfo(i)
-      local key = table.concat({ invoiceType, itemName or "?", playerName or "?", bid or 0, deposit or 0, consignment or 0 }, "|")
-      counts[key] = (counts[key] or 0) + 1
-      info[key] = { invoiceType, itemName, bid or 0, consignment or 0, count, daysLeft }
+      local qty, known = invoiceCount(i, invoiceType, count)
+      local key = table.concat({ invoiceType, itemName, bid or 0, consignment or 0, qty }, "|")
+      local sent = now - math.max(0, MAIL_DAYS - (daysLeft or MAIL_DAYS)) * DAY
+      local list = found[key]
+      if not list then list = {}; found[key] = list end
+      -- mails of the same kind sent together form one group
+      local grp
+      for _, g in ipairs(list) do if math.abs(g.t - sent) <= SAME_MAIL then grp = g end end
+      if not grp then
+        grp = { t = sent, n = 0, inv = { invoiceType, itemName, bid or 0, consignment or 0, qty, known, deposit or 0 } }
+        list[#list + 1] = grp
+      end
+      grp.n = grp.n + 1
     end
   end
-  -- Mail we've already counted stays in the inbox; only new copies are added.
+  if n == 0 then return end -- nothing loaded (yet): never a reason to change anything
+
+  d.seen = d.seen or {}
+  -- moving from the old way of remembering mail: what it had counted is counted
+  local old = d.inbox
   local added = 0
-  for key, n in pairs(counts) do
-    local seen = d.inbox[key] or 0
-    if n > seen then
-      local inv = info[key]
-      local sent = now - math.max(0, MAIL_DAYS - (inv[6] or MAIL_DAYS)) * DAY
-      for _ = 1, n - seen do
-        if inv[1] == "seller" then
-          add(d, sent, "sale", inv[2], inv[5], inv[3], inv[4])
-        else
-          add(d, sent, "buy", inv[2], inv[5], inv[3], 0)
+  for key, groups in pairs(found) do
+    local seen = d.seen[key] or {}
+    d.seen[key] = seen
+    for _, g in ipairs(groups) do
+      local rec
+      for _, r in ipairs(seen) do if math.abs(r.t - g.t) <= SAME_MAIL then rec = r end end
+      if not rec then
+        rec = { t = g.t, n = 0 }
+        seen[#seen + 1] = rec
+        if old then
+          -- counted before this version (under its old key): don't add it again, but
+          -- fix the quantity those entries were saved with
+          local inv = g.inv
+          local oldKey
+          for k in pairs(old) do
+            local t, item, _, bid, _, cut = k:match("^([^|]*)|(.-)|([^|]*)|([^|]*)|([^|]*)|([^|]*)$")
+            if t == inv[1] and item == inv[2] and tonumber(bid) == inv[3] and tonumber(cut) == inv[4] then oldKey = k end
+          end
+          if oldKey and (old[oldKey] or 0) > 0 then
+            local take = math.min(g.n, old[oldKey])
+            old[oldKey] = old[oldKey] - take
+            rec.n = take
+            self:RepairQuantity(inv, take)
+          end
         end
-        added = added + 1
+      end
+      if g.n > rec.n then
+        local inv = g.inv
+        for _ = 1, g.n - rec.n do
+          if inv[1] == "seller" then
+            add(d, g.t, "sale", inv[2], inv[5], inv[3], inv[4])
+          else
+            add(d, g.t, "buy", inv[2], inv[5], inv[3], 0)
+          end
+          if not inv[6] then d.entries[#d.entries].qGuess = true end
+          added = added + 1
+        end
+        rec.n = g.n
       end
     end
-    d.inbox[key] = n
   end
-  -- Mail that was taken: forget it so an identical sale later still counts
-  for key in pairs(d.inbox) do
-    if not counts[key] then d.inbox[key] = nil end
+  if old then d.inbox = nil end
+  -- forget mail long gone (AH mail lasts 30 days)
+  for key, seen in pairs(d.seen) do
+    for i = #seen, 1, -1 do if now - seen[i].t > (MAIL_DAYS + 2) * DAY then table.remove(seen, i) end end
+    if #seen == 0 then d.seen[key] = nil end
   end
+  d.lastInbox = now
   if added > 0 then FI:Fire("FI_LEDGER_CHANGED") end
+end
+
+-- Entries saved before 0.25 have the wrong quantity (they read the wrong invoice field).
+-- When their mail is still in the mailbox we learn the right one.
+function L:RepairQuantity(inv, howMany)
+  local d = self:Data()
+  local k = inv[1] == "seller" and "sale" or "buy"
+  for _, e in ipairs(d.entries) do
+    if howMany <= 0 then break end
+    if not e.v and e.k == k and e.i == inv[2] and e.g == inv[3] and (k == "buy" or e.f == inv[4]) then
+      e.q, e.v = inv[5], 2
+      howMany = howMany - 1
+    end
+  end
+end
+
+-- trades saved before 0.25 that couldn't be repaired: their quantity is unknown
+function L:LegacyCount()
+  local n = 0
+  for _, e in ipairs(self:Data().entries) do
+    if not e.v and (e.k == "buy" or e.k == "sale") then n = n + 1 end
+  end
+  return n
 end
 
 -- ---------------------------------------------------------------------------
@@ -107,20 +193,24 @@ function L:RecipeFor(itemID)
   end
 end
 
-function L:RecordCraft(itemID, qty, t)
+-- One "You create" message is one craft, however many it made (1-3 for some recipes).
+function L:RecordCraft(itemID, qty, t, linkName)
   local rec = self:RecipeFor(itemID)
   if not rec or not rec.r then return false end
+  local name = FI:ItemName(itemID) or linkName
+  if not name then return false end
   qty = math.max(1, qty or 1)
-  local crafts = math.max(1, math.floor(qty / math.max(1, rec.n or 1) + 0.5))
   local used = {}
   for i = 1, #rec.r, 2 do
     local id, n = rec.r[i], rec.r[i + 1]
     local price, source = FI.Crafting:ReagentPrice(id)
+    local mat = FI:ItemName(id)
+    if not mat then return false end -- can't tell what went in yet: better not guess
     -- { name, count, unit price at the time, bought from a vendor }
-    used[#used + 1] = { FI:ItemName(id), n * crafts, price or 0, source == "vendor" or nil }
+    used[#used + 1] = { mat, n, price or 0, source == "vendor" or nil }
   end
   local d = self:Data()
-  d.entries[#d.entries + 1] = { t = t or time(), k = "craft", i = FI:ItemName(itemID), q = qty, r = used }
+  d.entries[#d.entries + 1] = { t = t or time(), k = "craft", i = name, q = qty, r = used, v = 2 }
   -- the materials leaving your bags were this craft, not "used"
   self.craftCredit, self.craftCreditAt = self.craftCredit or {}, time()
   for _, m in ipairs(used) do self.craftCredit[m[1]] = (self.craftCredit[m[1]] or 0) + m[2] end
@@ -135,7 +225,7 @@ FI:On("CHAT_MSG_LOOT", function(_, msg)
   local link, n = msg:match(CREATED_MANY)
   if not link then link = msg:match(CREATED_ONE) end
   local id = link and tonumber(link:match("item:(%d+)"))
-  if id then L:RecordCraft(id, tonumber(n) or 1) end
+  if id then L:RecordCraft(id, tonumber(n) or 1, nil, link:match("%[(.-)%]")) end
 end)
 
 -- ---------------------------------------------------------------------------
@@ -159,13 +249,16 @@ end
 
 -- what you're carrying and wearing, by item name
 function L:Carried()
-  local c = { bag = {}, worn = {} }
+  local c = { bag = {}, worn = {}, ids = {} }
   if C_Container and C_Container.GetContainerNumSlots then
     for bag = 0, 4 do
       for slot = 1, C_Container.GetContainerNumSlots(bag) do
         local info = C_Container.GetContainerItemInfo(bag, slot)
         local name = info and nameOf(info.itemID, info.hyperlink)
-        if name then c.bag[name] = (c.bag[name] or 0) + (info.stackCount or 1) end
+        if name then
+          c.bag[name] = (c.bag[name] or 0) + (info.stackCount or 1)
+          c.ids[name] = info.itemID
+        end
       end
     end
   end
@@ -179,12 +272,15 @@ function L:Carried()
   return c
 end
 
--- names you've ever bought on the AH (only those can be "used")
+-- names that can have units from the AH in them: bought, crafted, or disenchanted into
 function L:Bought()
   local d = self:Data()
   if not self.boughtSet or self.boughtN ~= #d.entries then
     local set = {}
-    for _, e in ipairs(d.entries) do if e.k == "buy" then set[e.i] = true end end
+    for _, e in ipairs(d.entries) do
+      if e.k == "buy" or e.k == "craft" then set[e.i] = true end
+      if e.k == "de" then for _, o in ipairs(e.out or {}) do set[o[1]] = true end end
+    end
     self.boughtSet, self.boughtN = set, #d.entries
   end
   return self.boughtSet
@@ -220,7 +316,64 @@ FI:On("CHAT_MSG_LOOT", function(_, msg)
   de.out[#de.out + 1] = { name, tonumber(n) or 1, mkt or 0 }
 end)
 
+-- What a vendor pays for an item (GetItemInfo's 11th value)
+local function vendorPrice(id)
+  if not id then return 0 end
+  local p = select(11, FI.GetItemInfo(id))
+  return tonumber(p) or 0
+end
+
+-- At a vendor: things you sold to it. Buying something back undoes the sale.
+function L:CheckVendor()
+  local now, before = self:Carried(), self.carried
+  self.carried = now
+  if not before then return end
+  local bought, d, changed = self:Bought(), self:Data(), false
+  local visit = self.vendorVisit or {}
+  self.vendorVisit = visit
+  local open
+  for name in pairs(bought) do
+    local diff = (now.bag[name] or 0) - (before.bag[name] or 0)
+    if diff < 0 then
+      open = open or self:Summary(0, "flips").open
+      local q = math.min(-diff, open[name] or 0)
+      if q > 0 then
+        local unit = vendorPrice(before.ids[name])
+        local e = visit[name]
+        if e then
+          e.q, e.g = e.q + q, e.g + unit * q
+        else
+          e = { t = time(), k = "vendor", i = name, q = q, g = unit * q, f = 0, v = 2 }
+          d.entries[#d.entries + 1] = e
+          visit[name] = e
+        end
+        open[name] = open[name] - q
+        changed = true
+      end
+    elseif diff > 0 and visit[name] then
+      -- bought back
+      local e = visit[name]
+      local back = math.min(diff, e.q)
+      e.g = e.g - e.g / e.q * back
+      e.q = e.q - back
+      if e.q <= 0 then
+        for i = #d.entries, 1, -1 do if d.entries[i] == e then table.remove(d.entries, i) break end end
+        visit[name] = nil
+      end
+      changed = true
+    end
+  end
+  if changed then FI:Fire("FI_LEDGER_CHANGED") end
+end
+
 function L:CheckUsed()
+  if busy.vendor and not next(busy, next(busy)) and next(busy) == "vendor" then
+    if CursorHasItem and CursorHasItem() then
+      FI:Debounce("ledgerUse", USE_DELAY, function() L:CheckUsed() end)
+      return
+    end
+    return self:CheckVendor()
+  end
   if next(busy) then self.carried = nil; return end -- moving things around: start fresh after
   -- a disenchant whose dust hasn't landed yet: give it a moment
   if self.de and #self.de.out == 0 and time() - self.de.t < 4 then
@@ -277,7 +430,12 @@ function L:CheckUsed()
   if added > 0 then FI:Fire("FI_LEDGER_CHANGED") end
 end
 
-for ev, key in pairs(OPENS) do FI:On(ev, function() busy[key] = true; L.carried = nil end) end
+for ev, key in pairs(OPENS) do
+  FI:On(ev, function()
+    busy[key] = true
+    if key == "vendor" then L.vendorVisit = {} else L.carried = nil end
+  end)
+end
 for ev, key in pairs(CLOSES) do
   FI:On(ev, function()
     busy[key] = nil
@@ -305,15 +463,17 @@ FI:On("MAIL_SHOW", function() L:ReadInbox() end)
 function L:Summary(since, mode)
   mode = mode or (FI.settings and FI.settings.pnlMode) or "flips"
   local d = self:Data()
+  local hideOld = FI.settings and FI.settings.pnlHideOld
   local s = { income = 0, fees = 0, spent = 0, sales = 0, buys = 0, items = {}, mode = mode,
     farmed = 0, farmedSales = 0, holding = 0, holdingUnits = 0, flipOf = {} }
 
   if mode == "all" then
     for _, e in ipairs(d.entries) do
-      if e.t >= since and (e.k == "sale" or e.k == "buy") then -- crafts, uses and disenchants move no money
+      local old = hideOld and not e.v and (e.k == "buy" or e.k == "sale")
+      if e.i and not old and e.t >= since and (e.k == "sale" or e.k == "buy" or e.k == "vendor") then -- crafts, uses and disenchants move no money
         local per = s.items[e.i] or { net = 0 }
         s.items[e.i] = per
-        if e.k == "sale" then
+        if e.k == "sale" or e.k == "vendor" then
           s.income = s.income + e.g
           s.fees = s.fees + e.f
           s.sales = s.sales + 1
@@ -332,15 +492,19 @@ function L:Summary(since, mode)
     -- every trade in time order (purchases first on the same timestamp), whatever
     -- the period: a sale this week can use stock bought last month
     local list = {}
-    for _, e in ipairs(d.entries) do list[#list + 1] = e end
-    local ORDER = { buy = 1, craft = 2, de = 2, use = 3, sale = 4 }
+    for _, e in ipairs(d.entries) do
+      if e.i and not (hideOld and not e.v and (e.k == "buy" or e.k == "sale")) then list[#list + 1] = e end
+    end
+    local ORDER = { buy = 1, craft = 2, de = 2, use = 3, sale = 4, vendor = 4 }
     table.sort(list, function(x, y)
       if x.t ~= y.t then return x.t < y.t end
       return (ORDER[x.k] or 4) < (ORDER[y.k] or 4)
     end)
     -- your own materials (not bought on the AH): at market price, or free
     local ownAtMarket = (FI.settings and FI.settings.ownMats or "market") ~= "free"
-    -- lots: item -> { { qty, unitCost, fromDeal, crafted, root }, ... } oldest first.
+    -- lots: item -> { { qty, unitCost, fromDeal, crafted, root, ownPerUnit }, ... } oldest first.
+    -- ownPerUnit: how much of the cost is your own materials at market price (gold you
+    -- never spent: it's added back to Farming, so the total is the gold you really made)
     -- root: the entry that started the position these units belong to. A craft, a
     -- disenchant or a sale that uses units from several positions joins them into one
     -- (like a stock position: it stays one position until you're flat).
@@ -369,13 +533,14 @@ function L:Summary(since, mode)
     s.deCostOf = {}
     -- take `need` units of an item from the oldest lots
     local function take(name, need)
-      local r = { cost = 0, got = 0, dealGot = 0, dealCost = 0, craftGot = 0, craftCost = 0, roots = {} }
+      local r = { cost = 0, got = 0, own = 0, dealGot = 0, dealCost = 0, craftGot = 0, craftCost = 0, roots = {} }
       local queue = lots[name]
       while need > 0 and queue and queue[1] do
         local lot = queue[1]
         local n = math.min(need, lot[1])
         local c = n * lot[2]
         r.cost, r.got, need = r.cost + c, r.got + n, need - n
+        r.own = r.own + n * (lot[6] or 0)
         if lot[3] then r.dealGot, r.dealCost = r.dealGot + n, r.dealCost + c end
         if lot[4] then r.craftGot, r.craftCost = r.craftGot + n, r.craftCost + c end
         r.roots[#r.roots + 1] = lot[5]
@@ -384,10 +549,11 @@ function L:Summary(since, mode)
       end
       return r
     end
-    local function put(name, q, unit, deal, crafted, root)
+    local function put(name, q, unit, deal, crafted, root, ownUnit)
       lots[name] = lots[name] or {}
-      table.insert(lots[name], { q, unit, deal, crafted, root })
+      table.insert(lots[name], { q, unit, deal, crafted, root, ownUnit or 0 })
     end
+    s.ownSold = 0
     for _, e in ipairs(list) do
       local q = math.max(1, e.q or 1)
       if e.k == "buy" then
@@ -397,18 +563,20 @@ function L:Summary(since, mode)
       elseif e.k == "craft" then
         -- bought materials at what they cost you; your own at market (or free);
         -- vendor materials always at the vendor price
-        local cost, own, roots, mats = 0, 0, {}, {}
+        local cost, own, ownMkt, roots, mats = 0, 0, 0, {}, {}
         for _, m in ipairs(e.r or {}) do
           local r = take(m[1], m[2])
           local mine = m[2] - r.got
           local c = (mine > 0) and mine * ((m[4] or ownAtMarket) and (m[3] or 0) or 0) or 0
           own = own + c
+          if not m[4] then ownMkt = ownMkt + c end -- vendor mats are gold you really spent
+          ownMkt = ownMkt + r.own
           cost = cost + c + r.cost
           for _, x in ipairs(r.roots) do roots[#roots + 1] = x end
           mats[#mats + 1] = { name = m[1], n = m[2], bought = r.got, vendor = m[4], cost = c + r.cost }
         end
         local root = join(roots, e)
-        put(e.i, q, cost / q, nil, true, root)
+        put(e.i, q, cost / q, nil, true, root, ownMkt / q)
         s.craftCostOf[e] = cost
         step({ e = e, root = root, kind = "craft", q = q, cost = cost, own = own, mats = mats })
         if e.t >= since then s.crafts = s.crafts + 1 end
@@ -422,7 +590,7 @@ function L:Summary(since, mode)
           for _, o in ipairs(outs) do total = total + math.max(1, o[3] or 0) * o[2] end
           for _, o in ipairs(outs) do
             local share = (total > 0) and (math.max(1, o[3] or 0) * o[2] / total) or (1 / #outs)
-            put(o[1], o[2], r.cost * share / o[2], nil, true, root)
+            put(o[1], o[2], r.cost * share / o[2], nil, true, root, r.own * share / o[2])
           end
           s.deCostOf[e] = r.cost
           step({ e = e, root = root, kind = "de", q = r.got, cost = r.cost, outs = outs })
@@ -437,14 +605,17 @@ function L:Summary(since, mode)
             s.used, s.uses, s.usedUnits = s.used + r.cost, s.uses + 1, s.usedUnits + r.got
           end
         end
-      elseif e.k == "sale" then
+      elseif e.k == "sale" or e.k == "vendor" then
         local r = take(e.i, q)
         local got, cost = r.got, r.cost
+        local vendor = e.k == "vendor"
         s.flipOf[e] = got
+        s.saleCostOf = s.saleCostOf or {}
+        s.saleCostOf[e] = cost
         s.craftOf[e] = r.craftGot
         local share = got / q
         if got > 0 then
-          step({ e = e, root = join(r.roots, e), kind = "sale", q = got, of = q, cost = cost,
+          step({ e = e, root = join(r.roots, e), kind = "sale", vendor = vendor, q = got, of = q, cost = cost,
             gross = e.g * share, fee = e.f * share, net = (e.g - e.f) * share })
         end
         if e.t >= since then
@@ -454,6 +625,7 @@ function L:Summary(since, mode)
             s.craftNet = s.craftNet + (e.g - e.f) * r.craftGot / q - r.craftCost
           end
           if got > 0 then
+            s.ownSold = s.ownSold + r.own
             local income, fee = e.g * share, e.f * share
             s.income = s.income + income
             s.fees = s.fees + fee
@@ -468,7 +640,7 @@ function L:Summary(since, mode)
             s.dealCost = s.dealCost + r.dealCost
             s.dealNet = s.dealNet + (e.g - e.f) * r.dealGot / q - r.dealCost
           end
-          if got < q then
+          if got < q and not vendor then -- (only AH sales count as farming)
             local fs = 1 - share
             s.farmed = s.farmed + (e.g - e.f) * fs
             s.farmGross = s.farmGross + e.g * fs
@@ -498,7 +670,11 @@ function L:Summary(since, mode)
     if s.spent > 0 then s.roi = s.net / s.spent * 100 end
     if s.dealCost > 0 then s.dealRoi = s.dealNet / s.dealCost * 100 end
     if s.craftCost > 0 then s.craftRoi = s.craftNet / s.craftCost * 100 end
-    -- everything you made on the AH: flipping profit plus farming income
+    -- Your own materials at market price were counted as a cost of the crafts that
+    -- sold, but you never spent that gold: it's what your farmed mats earned, so it
+    -- goes to Farming. Flipping + Farming = the gold you really made.
+    s.farmed = s.farmed + s.ownSold
+    s.ownMatsSold = s.ownSold
     s.total = s.net + s.farmed
   end
   for name, per in pairs(s.items) do
@@ -545,12 +721,13 @@ function L:Positions(since)
     local r = find(st.root)
     local g = groups[r]
     if not g then
-      g = { steps = {}, cost = 0, own = 0, proceeds = 0, gross = 0, fees = 0, soldCost = 0, usedCost = 0,
+      g = { steps = {}, cost = 0, own = 0, realizedIn = 0, salesIn = 0, proceeds = 0, gross = 0, fees = 0, soldCost = 0, usedCost = 0,
         openUnits = 0, openCost = 0, openValue = 0, unpriced = 0, opened = st.e.t, last = st.e.t, ins = {}, outs = {} }
       groups[r] = g
       order[#order + 1] = g
     end
     g.steps[#g.steps + 1] = st
+    if not st.e.v and (st.kind == "buy" or st.kind == "sale") then g.legacy = true end
     g.last = math.max(g.last, st.e.t)
     g.opened = math.min(g.opened, st.e.t)
     if st.kind == "buy" then
@@ -572,6 +749,7 @@ function L:Positions(since)
       g.gross = g.gross + st.gross
       g.fees = g.fees + st.fee
       g.soldCost = g.soldCost + st.cost
+      if st.e.t >= since then g.realizedIn, g.salesIn = g.realizedIn + st.net - st.cost, g.salesIn + 1 end
       g.outs[st.e.i] = true
       g.closed = st.e.t
     end

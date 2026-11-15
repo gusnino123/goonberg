@@ -1,5 +1,26 @@
 # Goonberg Terminal
 
+## 0.25.0 - P&L accuracy fixes
+
+**Fixed (these made P&L numbers wrong):**
+- **Stack sizes.** The AH invoice's item count was read from the wrong field, so every stack was saved as 1 item and profit per sale could be far off. Now read correctly (with the attached item or the mail subject as a fallback).
+- **Double counting.** Opening the mailbox before WoW had loaded it could make AH mail still in your inbox count again. Each mail is now recognised by what it's for and when it was sent, so it's counted exactly once.
+- **Crafts.** One "You create" message is one craft; recipes that make 1-3 no longer use the wrong amount of materials.
+- **Held forever.** Crafted and disenchanted items you equip, use or vendor now leave "holding".
+- **Vendor sales.** Selling bought (or crafted-from-bought) items to a vendor is recorded at the vendor price (buying back undoes it).
+- **Total made = real gold.** With your own mats at market price, their value was a cost on the Flipping side but never added back. It now counts as Farming income, so Flipping + Farming is exactly the gold you made.
+- **Positions match Summary** for a period: only sales in the period count.
+- **Deals tab tagging** only counts purchases made after you opened the deal.
+- An item whose name hadn't loaded could break the P&L.
+
+**Old data:** trades saved before 0.25 have the wrong quantity. Any whose mail is still in your mailbox are fixed automatically; the rest are flagged, and a notice lets you leave them out of every number.
+
+**Easier to read:**
+- Hover any trade for what happened in plain words: price each, AH cut, what those units cost, profit and return.
+- Hover the Flipping / Farming panels for how they're worked out.
+- "Mail read 2 h ago" shows how fresh the numbers are.
+- Farming shows what your own mats earned through crafts you sold.
+
 ## 0.24.0
 
 - **New: Positions (P&L tab → Positions).** Your AH trading as a broker's trade history. Each position is one chain from buying to selling: what you bought and at what price, what you crafted or disenchanted it into, what you sold it for, and the P&L. Click a position to see every step with its price per unit and the profit of each sale.
