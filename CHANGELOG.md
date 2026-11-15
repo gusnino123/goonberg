@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.29.3
+
+- **Fixed: a guildmate's scans sometimes never reached the guild.** Goonberg only sends a scan when it knows another guildmate runs Goonberg, and it learns that from the hello everyone says at login. Guildmates answered your hello only once a day, so after a `/reload` or relog your Goonberg could think nobody was listening and keep your scans to itself, with no message. Now every hello gets an answer. The guildmates who scan need this version for it to help.
+
 ## 0.29.2
 
 - **Disenchant deals show how fast each mat sells.** Hover a Disenchant deal to see every material, its chance, and how many sell a day. The slowest one is in orange, since it limits how many of the deal are worth buying. The Sold/Day column on these rows was already about the mats: how many of these items' worth of mats sell a day.

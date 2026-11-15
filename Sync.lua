@@ -618,8 +618,11 @@ FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
     elseif kind == "L" then onKill(rest)
     elseif kind == "V" then
       Y:NoteVersion(who, rest)
-      -- hello: say hello back (once a day per person) so both sides know
-      if not Y.greeted[who] or time() - Y.greeted[who] > 86400 then
+      -- hello: say hello back so both sides know. Every time, not once a day: a hello
+      -- means they just logged in or reloaded, which wiped their list of guildmates
+      -- running Goonberg. Unanswered, they'd think nobody is listening and stop sending
+      -- their scans to the guild. (Hellos only come at login: one whisper each.)
+      if not Y.greeted[who] or time() - Y.greeted[who] > 60 then
         Y.greeted[who] = time()
         send("W" .. (FI.version or ""), "WHISPER", who)
       end
