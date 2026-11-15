@@ -50,7 +50,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="${{ steps.v.outputs.version }}"
-          NOTES=$(awk "/^## ${VERSION}\$/{f=1;next} /^## /{f=0} f" CHANGELOG.md)
+          # the version's section: "## 0.27.0" or "## 0.27.0 - A title"
+          NOTES=$(awk "/^## ${VERSION}( |\$)/{f=1;next} /^## /{f=0} f" CHANGELOG.md)
           gh release create "v${VERSION}" "dist/GoonbergTerminal-${VERSION}.zip" \
             --target "$GITHUB_SHA" --title "Goonberg Terminal ${VERSION}" \
             --notes "${NOTES:-Goonberg Terminal ${VERSION}}"
