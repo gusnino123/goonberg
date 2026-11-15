@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.30.0
+
+- **Goonberg tells you when there's a newer version.** When a guildmate runs a newer Goonberg than yours, you get a green line in chat saying which version is out and how to update (your addon manager, or the GitHub releases page). The main window shows "Update available" in its title bar (hover it for how to update), and every login reminds you until you've updated. `/goon sync` mentions it too. It learns about new versions from guildmates' hellos, since addons can't check the internet themselves.
+
 ## 0.29.4
 
 - **Guild scans arrive in seconds, not 15–20 minutes.** Guildmates' scans were waiting behind hundreds of price-history messages:

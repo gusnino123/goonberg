@@ -110,6 +110,28 @@ function UI:Build()
   titleBar:SetHeight(self.TITLE)
   draggable(titleBar, f)
 
+  -- "Update available" in the title bar, left of the close button, when a guildmate
+  -- runs a newer Goonberg (Sync.lua); hover for how to update
+  local upd = CreateFrame("Frame", nil, f)
+  upd:SetPoint("TOPRIGHT", f, "TOPRIGHT", -30, -3)
+  upd:SetSize(170, 16)
+  upd:SetFrameLevel(titleBar:GetFrameLevel() + 2)
+  local updText = W.Text(upd, 11, C.up)
+  updText:SetPoint("RIGHT")
+  updText:SetJustifyH("RIGHT")
+  upd.text = updText
+  upd:EnableMouse(true)
+  upd:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_BOTTOMLEFT")
+    GameTooltip:AddLine(self.text:GetText() or "")
+    GameTooltip:AddLine(("A guildmate runs a newer Goonberg Terminal (you have %s)."):format(FI.version or "?"), 1, 1, 1, true)
+    GameTooltip:AddLine("Update it with your addon manager (WowUp, CurseForge app) or from github.com/gusnino123/goonberg/releases, then /reload.", 1, 1, 1, true)
+    GameTooltip:Show()
+  end)
+  upd:SetScript("OnLeave", GameTooltip_Hide)
+  upd:Hide()
+  self.updateNote = upd
+
   -- The body: the game's dark inset panel; every screen fills it
   local body
   if f.native and W.HasTemplate("InsetFrameTemplate") then
@@ -244,6 +266,9 @@ function UI:UpdateStatus()
   end
   self.status:SetText(text)
   self.statusDot:SetColorTexture(color[1], color[2], color[3], 1)
+  local newer = FI.Sync and FI.Sync:UpdateAvailable()
+  if newer then self.updateNote.text:SetText(("Update available: %s"):format(newer)) end
+  self.updateNote:SetShown(newer ~= nil)
   -- the dot sits just left of the text, however long it is
   local w = math.min(self.status:GetStringWidth() or 0, self.status:GetWidth() or 0)
   self.statusDot:ClearAllPoints()

@@ -345,6 +345,7 @@ end
 ---GoonbergTerminalDB, shared by every character on the account.
 ---@class GT.DB
 ---@field settings GT.Settings
+---@field newestVersion string?   Sync.lua: the newest Goonberg version a guildmate runs
 ---@field realms table<string, GT.Realm>   by "Realm - Faction"
 ---@field lastFullScan integer
 ---@field window {point: string, relPoint: string, x: number, y: number}?

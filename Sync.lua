@@ -711,6 +711,8 @@ FI:On("PLAYER_LOGIN", function()
   realm.syncPeers, Y.peers = peers, peers
   local offlineSince = realm.lastOnline
   realm.lastOnline = time()
+  -- a guildmate ran a newer Goonberg last time: remind at every login until you update
+  C_Timer.After(20, function() Y:RemindUpdate() end)
   C_Timer.After(15, function()
     if not canSync() then return end
     send("V" .. (FI.version or ""))
@@ -734,6 +736,27 @@ local function vnum(v)
   if not a then return nil end
   return tonumber(a) * 10000 + tonumber(b) * 100 + (tonumber(c) or 0)
 end
+-- A version as plain digits ("0.29.5"): nothing else a guildmate sends ends up in chat
+local function vstr(v)
+  local a, b, c = tostring(v or ""):match("^(%d+)%.(%d+)%.?(%d*)")
+  if not a then return nil end
+  return c ~= "" and (a .. "." .. b .. "." .. c) or (a .. "." .. b)
+end
+
+-- The newer version a guildmate runs, if we still don't have it
+function Y:UpdateAvailable()
+  local v = FI.db and FI.db.newestVersion
+  local n, mine = vnum(v), vnum(FI.version)
+  if n and mine and n > mine then return v end
+end
+
+function Y:RemindUpdate(who)
+  local v = self:UpdateAvailable()
+  if not v then return end
+  FI:Print("|cff40c040Goonberg Terminal %s is out|r (you have %s%s). Update it with your addon manager (WowUp, CurseForge app) or from github.com/gusnino123/goonberg/releases, then /reload.",
+    v, FI.version or "?", who and ("; " .. who .. " already runs it") or "")
+end
+
 function Y:NoteVersion(who, v)
   if not who or not v or v == "" then return end
   self.versions[who] = v
@@ -744,6 +767,14 @@ function Y:NoteVersion(who, v)
       self.warned[who] = true
       FI:Print("%s runs Goonberg %s, which spams \"No player named ... is currently playing\" in their chat when a guildmate logs off. Ask them to update (0.28.1 or newer).", who, v)
     end
+  end
+  -- A guildmate runs a newer Goonberg than ours: say so (once per new version) and
+  -- remember it, so the window shows it and the next login reminds you until you update
+  local mine, clean = vnum(FI.version), vstr(v)
+  if n and mine and clean and n > mine and n > (vnum(FI.db and FI.db.newestVersion) or 0) then
+    if FI.db then FI.db.newestVersion = clean end
+    Y:RemindUpdate(who)
+    FI:Fire("FI_UPDATE_AVAILABLE", clean)
   end
 end
 
@@ -769,4 +800,5 @@ function Y:Status()
   end
   table.sort(vs)
   if #vs > 0 then FI:Print("Versions: %s  (you: %s)", table.concat(vs, ", "), FI.version or "?") end
+  self:RemindUpdate()
 end
