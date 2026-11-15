@@ -132,6 +132,7 @@ Every command starts with `/goon` (or `/goonberg`). Wherever a command takes an 
 | `/goon sync on` / `off` | Turn guild sync on or off |
 | `/goon sync history` | Ask your guild for price history again |
 | `/goon sync catchup` | Ask your guild for everything scanned since your last scan |
+| `/goon sync scan` | Ask your guild for its newest scan (also done at login) |
 
 ### Watchlist and alerts
 | Command | What it does |

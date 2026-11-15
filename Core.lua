@@ -393,6 +393,7 @@ end
 ---@field scanDays table<integer, true>? days (time() / 86400) that anything was scanned
 ---@field indexAdds integer?
 ---@field lastOnline integer?
+---@field liveScan integer?            the newest scan with listings (yours or a guildmate's), not a catch-up
 ---@field lastShared {from: string, t: integer, items: integer}?  the latest guildmate scan
 ---@field ledger table?                 Ledger.lua
 ---@field recipes table?                Crafting.lua, per character
@@ -503,7 +504,7 @@ local help = {
   "/goon autoscan|dock|sound|tooltip on|off",
   "/goon minimap on|off|reset  - the button under the minimap",
   "/goon de <item>  - what it disenchants into and is worth  |  /goon de watch",
-  "/goon sync  - guild sync status  |  /goon sync on|off|history|catchup",
+  "/goon sync  - guild sync status  |  /goon sync on|off|history|catchup|scan",
   "/goon import  - pull price history from Auctionator (also automatic at login; /goon import off)",
   "/goon scale 0.9  |  /goon scale reset  - window size (or drag its corner)",
 }
@@ -684,6 +685,8 @@ SlashCmdList.GOONBERG = function(msg)
       FI.Sync:RequestHistory(true)
     elseif arg == "catchup" then
       FI.Sync:RequestCatchup(FI:Realm().lastScan or (time() - 86400), true)
+    elseif arg == "scan" then
+      FI.Sync:RequestScan(true)
     else
       FI.Sync:Status()
     end

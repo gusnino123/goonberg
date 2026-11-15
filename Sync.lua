@@ -3,6 +3,8 @@
 -- game's addon messages (guild channel). Only your own scans are sent; prices you
 -- received are never passed on, so nothing loops. Newcomers with little history ask
 -- once at login and one guildmate whispers them up to 21 days of daily prices.
+-- At login everyone also asks for the guild's newest scan, so Deals can fill without
+-- waiting for someone to open the AH.
 ---@type string, GoonbergTerminal
 local _, FI = ...
 ---@class GT.Sync
@@ -167,29 +169,44 @@ local function changed(id, it, t)
   return math.abs((it.qty or 0) - last.qty) >= math.max(2, last.qty * 0.10)
 end
 
+-- The items of scan t worth sending, busiest first. Each comes back as the entry
+-- to send and the item ID. `keep` filters further (nil = all of them).
+local function scanEntries(t, keep)
+  local list = {}
+  for id, it in pairs(FI:Realm().items) do
+    if it.seen == t and it.mkt and (it.qty or 0) > 0 and (not keep or keep(id, it)) then list[#list + 1] = { id, it } end
+  end
+  table.sort(list, function(a, b) return a[2].mkt * a[2].qty > b[2].mkt * b[2].qty end)
+  local entries, ids = {}, {}
+  for i = 1, math.min(MAX_ITEMS, #list) do
+    local id, it = list[i][1], list[i][2]
+    entries[i] = table.concat({ b36(id), b36(it.mkt), b36(it.min or it.mkt), b36(it.qty), b36(it.cnt or 1) }, ",")
+    ids[i] = id
+  end
+  return entries, ids
+end
+
+local function sendScan(t, entries, channel, target, tag)
+  local tt = b36(t)
+  send("S" .. PROTO .. ":" .. tt .. ":" .. b36(#entries), channel, target, tag)
+  packed("B" .. tt .. ":", entries, channel, target, tag)
+  send("E" .. tt, channel, target, tag)
+end
+
 function Y:BroadcastScan(t)
   if not canSync() then return end
   -- nobody in the guild runs Goonberg: send nothing at all
   if self:ActivePeers() == 0 then return end
   local realm = FI:Realm()
-  local list = {}
-  for id, it in pairs(realm.items) do
-    if it.seen == t and it.mkt and (it.qty or 0) > 0 and changed(id, it, t) then list[#list + 1] = { id, it } end
-  end
-  table.sort(list, function(a, b) return a[2].mkt * a[2].qty > b[2].mkt * b[2].qty end)
-  local entries = {}
-  for i = 1, math.min(MAX_ITEMS, #list) do
-    local id, it = list[i][1], list[i][2]
-    entries[#entries + 1] = table.concat({ b36(id), b36(it.mkt), b36(it.min or it.mkt), b36(it.qty), b36(it.cnt or 1) }, ",")
+  local entries, ids = scanEntries(t, function(id, it) return changed(id, it, t) end)
+  for _, id in ipairs(ids) do
+    local it = realm.items[id]
     self.sent[id] = { mkt = it.mkt, qty = it.qty or 0, t = t }
   end
   if #entries == 0 then return end
   -- a newer scan replaces one that's still going out
   for i = #queue, 1, -1 do if queue[i][4] == "scan" then table.remove(queue, i) end end
-  local tt = b36(t)
-  send("S" .. PROTO .. ":" .. tt .. ":" .. b36(#entries), "GUILD", nil, "scan")
-  packed("B" .. tt .. ":", entries, "GUILD", nil, "scan")
-  send("E" .. tt, "GUILD", nil, "scan")
+  sendScan(t, entries, "GUILD", nil, "scan")
   self.lastSent = t
 end
 
@@ -204,45 +221,91 @@ local function snapshot(realm)
   return prev
 end
 
-local function onStart(from, rest)
+-- The newest scan we hold listings for. A catch-up moves lastScan but brings no
+-- listings, so it doesn't count. (Saved data from before liveScan existed: lastScan,
+-- if its items still have listings.)
+local function hasListings(realm, t)
+  for _, it in pairs(realm.items) do
+    if it.seen == t and it.min and (it.qty or 0) > 0 then return true end
+  end
+  return false
+end
+
+local function liveScan(realm)
+  if realm.liveScan then return realm.liveScan end
+  local t = realm.lastScan or 0
+  return hasListings(realm, t) and t or 0
+end
+Y.LiveScan = liveScan
+
+-- A scan arrives as S (start), B (batches), E (end). `key` tells sessions apart;
+-- `reply` marks the scan we asked for at login (whispered, see below).
+local function onStart(key, rest, reply)
   local proto, tt = rest:match("^(%d+):(%w+)")
   if proto ~= PROTO then return end
   local t = n36(tt)
   local realm = FI:Realm()
-  -- ignore scans older than what we already have
-  if not t or t <= (realm.lastScan or 0) or t > time() + 300 then return end
-  Y.sessions[from] = { t = t, prev = snapshot(realm), items = 0 }
+  -- ignore scans older than what we already have. A login catch-up may already have
+  -- brought this scan's prices (but not its listings), so the reply is judged by
+  -- the listings we hold.
+  local have = reply and liveScan(realm) or (realm.lastScan or 0)
+  if not t or t <= have or t > time() + 300 then return end
+  Y.sessions[key] = { t = t, prev = snapshot(realm), items = 0, reply = reply }
 end
 
-local function onBatch(from, rest)
+local function onBatch(key, rest)
   local tt, body = rest:match("^(%w+):(.*)$")
-  local s = Y.sessions[from]
+  local s = Y.sessions[key]
   if not s or not tt or n36(tt) ~= s.t then return end
   local realm = FI:Realm()
   for entry in body:gmatch("[^;]+") do
     local a, b, c, d, e = entry:match("^(%w+),(%w+),(%w+),(%w+),(%w+)$")
     local id, mkt, mn, qty, cnt = n36(a), n36(b), n36(c), n36(d), n36(e)
     if id and mkt and mkt > 0 and qty then
-      if H.RecordShared(realm, id, s.t, mkt, mn, qty, cnt) then s.items = s.items + 1 end
+      local ok = H.RecordShared(realm, id, s.t, mkt, mn, qty, cnt)
+      local it = realm.items[id]
+      if not ok and s.reply and it and (it.seen or 0) <= s.t then
+        -- the catch-up got here first with this point: add the listings it lacked
+        it.mkt, it.min, it.qty, it.cnt, it.seen, it.shared, it.src = mkt, mn, qty, cnt, s.t, true, nil
+        ok = true
+      end
+      if ok then s.items = s.items + 1 end
     end
   end
 end
 
-local function onEnd(from, rest)
-  local s = Y.sessions[from]
-  Y.sessions[from] = nil
+local function onEnd(key, from, rest)
+  local s = Y.sessions[key]
+  Y.sessions[key] = nil
   if not s or n36(rest) ~= s.t or s.items == 0 then return end
   local realm = FI:Realm()
-  if s.t > (realm.lastScan or 0) then
+  local newer = s.t > (realm.lastScan or 0)
+  if newer then
     realm.lastScan = s.t
-      realm.scans = (realm.scans or 0) + 1
+    realm.scans = (realm.scans or 0) + 1
     realm.scanDays = realm.scanDays or {}
     realm.scanDays[math.floor(s.t / 86400)] = true
-    realm.lastShared = { from = from, t = s.t, items = s.items }
     H.UpdateIndex(realm, s.prev, s.t)
+  end
+  if newer or s.reply then
+    realm.lastShared = { from = from, t = s.t, items = s.items }
     H.cache = nil
+    if s.reply then Y.wantScan = false end
     FI:Fire("FI_SCAN_DONE", s.t, from)
   end
+end
+
+-- ---------------------------------------------------------------------------
+-- Newest scan at login: whoever holds the guild's newest scan whispers it to you
+-- ---------------------------------------------------------------------------
+function Y:RequestScan(manual)
+  if not canSync() then
+    if manual then FI:Print("Guild sync needs a guild (and /goon sync on).") end
+    return
+  end
+  self.wantScan = true
+  send("N" .. PROTO .. ":" .. b36(liveScan(FI:Realm())))
+  if manual then FI:Print("Asked your guild for its newest scan...") end
 end
 
 -- ---------------------------------------------------------------------------
@@ -300,10 +363,10 @@ end
 -- whose wait ends first says so ("R"), and the others stand down. Fresher data
 -- means a shorter wait, so the best-informed guildmate usually answers.
 local responding = {}
-local function answer(kind, from, fn)
+local function answer(kind, from, fn, age)
   local key = kind .. ":" .. from
   responding[key] = false
-  local age = time() - (FI:Realm().lastScan or 0)
+  age = age or (time() - (FI:Realm().lastScan or 0))
   local wait = 1 + math.min(5, age / 3600) + math.random() * 0.5
   C_Timer.After(wait, function()
     if responding[key] == false then
@@ -322,6 +385,21 @@ end
 local function onResponding(rest)
   -- someone else is already answering this request
   if responding[rest] == false then responding[rest] = nil end
+end
+
+-- Someone logged in and wants the newest scan: send ours if it's newer than theirs.
+-- Whoever scanned it answers before guildmates who only received it.
+local function onScanRequest(from, rest)
+  local proto, h36 = rest:match("^(%d+):(%w+)$")
+  local have = n36(h36)
+  if proto ~= PROTO or not have then return end
+  local realm = FI:Realm()
+  local t = liveScan(realm)
+  if t <= have or not hasListings(realm, t) then return end
+  local relayed = realm.lastShared and realm.lastShared.t == t
+  answer("n", from, function()
+    sendScan(t, (scanEntries(t, function(_, it) return it.min end)), "WHISPER", from, "reply")
+  end, time() - t + (relayed and 1800 or 0))
 end
 
 -- ---------------------------------------------------------------------------
@@ -501,8 +579,9 @@ FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
   if channel == "GUILD" then
     if kind == "S" then onStart(who, rest)
     elseif kind == "B" then onBatch(who, rest)
-    elseif kind == "E" then onEnd(who, rest)
+    elseif kind == "E" then onEnd(who, who, rest)
     elseif kind == "Q" then if rest == PROTO then onRequest(who) end
+    elseif kind == "N" then onScanRequest(who, rest)
     elseif kind == "C" then onCatchupRequest(who, rest)
     elseif kind == "R" then onResponding(rest)
     elseif kind == "L" then onKill(rest)
@@ -516,12 +595,18 @@ FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
   else
     if kind == "H" then onHistory(who, rest)
     elseif kind == "F" then onHistoryDone(who)
+    -- the newest scan we asked for at login
+    elseif kind == "S" then if Y.wantScan then onStart("@" .. who, rest, true) end
+    elseif kind == "B" then onBatch("@" .. who, rest)
+    elseif kind == "E" then onEnd("@" .. who, who, rest)
     elseif kind == "K" then onCatchup(who, rest)
     elseif kind == "G" then onCatchupDone(who) end
   end
 end)
 
 FI:On("FI_SCAN_DONE", function(_, t, from)
+  local realm = FI:Realm()
+  if t > (realm.liveScan or 0) then realm.liveScan = t end
   -- only our own scans are broadcast (shared ones carry a sender)
   if from == nil and FI.Scanner and FI.Scanner.lastFinished == t then Y:BroadcastScan(t) end
 end)
@@ -549,6 +634,7 @@ FI:On("PLAYER_LOGIN", function()
   C_Timer.After(15, function()
     if not canSync() then return end
     send("V" .. (FI.version or ""))
+    Y:RequestScan()
     if historyDepth() < 200 then
       Y:RequestHistory(false)
     elseif offlineSince and time() - offlineSince > 20 * 60 then

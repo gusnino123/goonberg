@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.29.0
+
+- **Deals fill in when you log in.** Goonberg asks your guild for its newest scan, and a guildmate who has one sends it to you automatically (nobody has to do anything). You no longer wait for someone to open the AH before Deals shows anything. Deals still only lists scans under an hour old, since older auctions are probably gone. Your guildmates need 0.29.0 too. `/goon sync scan` asks again.
+
 ## 0.28.1
 
 - **Fixed: "No player named ... is currently playing" spam when a guildmate logs off.** When a guildmate asks for price history (or for what they missed while offline), Goonberg answers them directly with a few hundred small messages. If they logged off partway through, every message still waiting made the game print that line, for minutes. Now the rest of their answer is dropped the moment they go offline (from the guild's "has gone offline" message, the guild roster, or the first "No player named"), and that line is hidden when it's about Goonberg's own messages. Your own typed whispers still show it.
