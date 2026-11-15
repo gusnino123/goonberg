@@ -2,7 +2,9 @@
 -- Every chain from buying to selling, like a broker's trade history: what you
 -- bought and at what price, what you crafted or disenchanted it into, what you sold
 -- it for, and what the whole thing made. Click a position to see each step.
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.PositionsView
 local V = { show = "All", sort = { sort = "last", dir = -1 }, expanded = {} }
 FI.PositionsView = V
 local W = FI.Widgets
@@ -21,7 +23,6 @@ local COLS = {
 }
 local CELL_R = { cost = -426, proceeds = -326, held = -206, realized = -94, roi = -16 }
 
-local function hex(c) return ("%02x%02x%02x"):format(c[1] * 255, c[2] * 255, c[3] * 255) end
 local function signed(v)
   return ("|cff%s%s%s|r"):format(v >= 0 and "3fb68b" or "f0603a", v >= 0 and "+" or "-", FI.Money(math.abs(v)))
 end
@@ -77,8 +78,8 @@ local function makeRow(parent)
   local r = CreateFrame("Button", nil, parent)
   r.bg = W.Tex(r, C.raised, 0, "BACKGROUND")
   r.bg:SetAllPoints()
-  local line = W.Tex(r, C.border, 0.6, "BORDER")
-  line:SetPoint("BOTTOMLEFT"); line:SetPoint("BOTTOMRIGHT"); line:SetHeight(1)
+  local rule = W.Tex(r, C.border, 0.6, "BORDER")
+  rule:SetPoint("BOTTOMLEFT"); rule:SetPoint("BOTTOMRIGHT"); rule:SetHeight(1)
   r.bar = W.Tex(r, C.gold, 1, "BORDER")
   r.bar:SetPoint("TOPLEFT"); r.bar:SetPoint("BOTTOMLEFT"); r.bar:SetWidth(3)
   r.arrow = W.Chevron(r)

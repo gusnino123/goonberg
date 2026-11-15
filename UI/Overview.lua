@@ -1,5 +1,7 @@
 -- Goonberg Terminal: market overview (index, movers, sortable and filterable item table)
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.OverviewTab
 local O = { cat = "All", move = "All", tf = "24h", sort = "sold", dir = -1, search = "" }
 -- Timeframes: which change and sales figures each one uses
 local TF = {

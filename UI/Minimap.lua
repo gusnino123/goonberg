@@ -1,7 +1,7 @@
 -- Goonberg Terminal: round button under the minimap (click to open the terminal)
+---@type string, GoonbergTerminal
 local _, FI = ...
 local W = FI.Widgets
-local C = FI.colors
 
 local button
 

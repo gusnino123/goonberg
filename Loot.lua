@@ -9,7 +9,9 @@
 --
 -- Only what can be sold on the AH is shown: Bind on Equip and unbound items
 -- (recipes, materials). Bind on Pickup and quest items are never listed.
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.Loot
 local LT = {}
 FI.Loot = LT
 
@@ -169,7 +171,7 @@ local function readLoot()
   local now = time()
   for guid, list in pairs(byCorpse) do
     if not d.seen[guid] then
-      local npc = npcFromGUID(guid)
+      local npc = npcFromGUID(guid) ---@cast npc integer (byCorpse only holds NPC corpses)
       local bundled = LT.bosses[npc]
       local boss = bundled and { key = bundled.key, name = bundled.name, instance = inst } or d.bossNpc[npc]
       local p = nil

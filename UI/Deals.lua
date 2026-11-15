@@ -1,5 +1,7 @@
 -- Goonberg Terminal: deals tab
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.DealsTab
 local D = { kind = "All", margin = "5%", liquid = false, search = "", sortState = { sort = "profit", dir = -1 } }
 FI.DealsTab = D
 local W = FI.Widgets

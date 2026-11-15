@@ -1,5 +1,7 @@
 -- Goonberg Terminal: P&L tab with a shareable card (goblin included)
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.PnLTab
 local P = { period = "7D", show = "All", view = "Summary", tradeSort = { sort = "t", dir = -1 } }
 FI.PnLTab = P
 local W = FI.Widgets
@@ -26,16 +28,6 @@ local function since(period)
   return p.span and (now - p.span) or 0
 end
 P.since = since
-
-local function stat(parent, label)
-  local f = CreateFrame("Frame", nil, parent)
-  f:SetSize(118, 40)
-  f.label = W.Heading(f, label)
-  f.label:SetPoint("TOPLEFT")
-  f.value = W.Text(f, 15, C.text, true)
-  f.value:SetPoint("BOTTOMLEFT")
-  return f
-end
 
 local function buildGoblin(card)
   local holder = CreateFrame("Frame", nil, card)

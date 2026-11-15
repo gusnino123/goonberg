@@ -1,5 +1,7 @@
 -- Goonberg Terminal: crafting overview (how all your recipes are doing)
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.CraftTab
 local K = FI.CraftTab
 local W = FI.Widgets
 local C = FI.colors
@@ -214,11 +216,11 @@ function K:BuildOverview(tab)
   down:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -16, 16)
   for _, pair in ipairs({ { up, K.upSort }, { down, K.downSort } }) do
     local box, state = pair[1], pair[2]
-    local hf = CreateFrame("Frame", nil, box)
-    hf:SetPoint("TOPLEFT", 0, -3)
-    hf:SetPoint("TOPRIGHT", 0, -3)
-    hf:SetHeight(26)
-    box.headers = W.SortHeaders(hf, {
+    local hdr = CreateFrame("Frame", nil, box)
+    hdr:SetPoint("TOPLEFT", 0, -3)
+    hdr:SetPoint("TOPRIGHT", 0, -3)
+    hdr:SetHeight(26)
+    box.headers = W.SortHeaders(hdr, {
       { key = "now", label = "PROFIT NOW", r = -110 }, { key = "delta", label = "CHANGE", r = -14 },
     }, state, function() K:RefreshOverview() end)
     moverRows(box, 6)

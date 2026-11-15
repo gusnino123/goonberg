@@ -1,5 +1,7 @@
 -- Goonberg Terminal: small UI building blocks in the Goonberg Terminal look
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.Widgets
 local W = {}
 FI.Widgets = W
 local C = FI.colors
@@ -68,7 +70,7 @@ function W.Button(parent, label, width, height, style)
   end
   function b:Refresh()
     local s, hover, on = self.style, self:IsMouseOver(), self.selected
-    local bg, bd, tx, ba = C.panel, C.border, C.soft, 0
+    local bg, bd, tx, ba = C.panel, C.border, C.soft, 0 -- luacheck: ignore 311 (fallback if a style misses one)
     if s == "gold" then
       bg, bd, tx, ba = C.gold, C.gold, { 0.08, 0.07, 0.04 }, hover and 0.85 or 1
       if not self:IsEnabled() then bg, bd, tx, ba = C.raised, C.border, C.muted, 1 end

@@ -5,7 +5,9 @@
 --  * Seed\Data.lua: history built from players' saved data (tools/build_seed.py).
 -- Either way the days are added to your own history (never over a day you already
 -- have), a little each frame, and the data is then dropped from memory.
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.Seed
 local SD = {}
 FI.Seed = SD
 
@@ -101,7 +103,7 @@ worker:SetScript("OnUpdate", function()
   local job = SD.job
   if not job then worker:Hide(); return end
   local realm = FI:Realm()
-  local start = debugprofilestop()
+  local began = debugprofilestop()
   while true do
     job.i = job.i + 1
     local id = job.ids[job.i]
@@ -114,7 +116,7 @@ worker:SetScript("OnUpdate", function()
     end
     local added = FI.History.Merge(realm, id, points)
     if added > 0 then job.points = job.points + added; job.count = job.count + 1 end
-    if debugprofilestop() - start > BUDGET_MS then return end
+    if debugprofilestop() - began > BUDGET_MS then return end
   end
 end)
 

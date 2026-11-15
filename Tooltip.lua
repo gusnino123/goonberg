@@ -1,4 +1,5 @@
 -- Goonberg Terminal: Auction House value on every item tooltip (bags, bank, mail, links...)
+---@type string, GoonbergTerminal
 local _, FI = ...
 
 local function vendorPrice(itemID)

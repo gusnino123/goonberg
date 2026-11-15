@@ -199,6 +199,24 @@ Prices can be written `3g50s`, `3g 50s 20c`, `75s`, `20c` or just `3.5` (gold).
 
 Found a bug or have an idea? [Open an issue](https://github.com/gusnino123/goonberg/issues). If something errors in game, type `/console scriptErrors 1` and include the error text.
 
+## Checking the code (for maintainers)
+
+Two checkers, both run from the repo root (`brew install luacheck lua-language-server`):
+
+```
+luacheck .
+lua-language-server --check=. --checklevel=Warning
+```
+
+- **luacheck** (`.luacheckrc`) catches typos in variable and global names. When you start using a
+  WoW function it doesn't know yet, add it to `read_globals` in `.luacheckrc`.
+- **Lua language server** (`.luarc.json`) checks the `---@` type annotations: the shared types
+  (`GoonbergTerminal`, `GT.Item`, `GT.Deal`, saved data) are described in `Core.lua`, `History.lua`
+  and `Deals.lua`. In VS Code, the Lua extension (sumneko.lua) uses the same config; add the
+  WoW API extension (ketho.wow-api) for the whole game API.
+
+Neither file ships in the release zip (dotfiles are left out).
+
 ## Shared price history (for maintainers)
 
 New installs can start with price history that ships with the addon in `Seed/Data.lua`.

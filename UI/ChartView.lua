@@ -3,7 +3,11 @@
 --   Mouse wheel zooms the time range around the cursor; drag pans back in time
 --   Candles, line or area; 7 and 25 moving averages; usual price / typical low lines
 --   Right-click sets a price alert there; drag an alert line to move it
+---@type string, GoonbergTerminal
 local _, FI = ...
+---A chart. V is the prototype: V:Create() makes a view that carries its own frames.
+---@class GT.ChartView
+---@field [string] any
 local V = {}
 FI.ChartView = V
 local W = FI.Widgets

@@ -1,7 +1,9 @@
 -- Goonberg Terminal: Loot tab. Dungeon drops you can sell on the AH: where they
 -- drop, how often, and what they're worth.
+---@type string, GoonbergTerminal
 local _, FI = ...
 -- dungeon sections start closed: `expanded` holds the ones you've opened
+---@class GT.LootTab
 local T = { view = "Items", filter = "All", search = "", expanded = {},
   itemSort = { sort = "price", dir = -1 }, dungeonSort = { sort = "level", dir = 1 } }
 FI.LootTab = T

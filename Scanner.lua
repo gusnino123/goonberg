@@ -2,7 +2,9 @@
 -- Uses C_AuctionHouse.ReplicateItems (modern AH: one full dump, Blizzard allows one
 -- every 15 minutes per account). Falls back to the classic "getAll" query if the
 -- client only has the old AH API.
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.Scanner
 local S = { state = "idle" }
 FI.Scanner = S
 

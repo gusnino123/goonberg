@@ -1,5 +1,7 @@
 -- Goonberg Terminal: crafting profit screen (/goon2 or /goon craft)
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.CraftTab
 local K = { prof = "All", sortState = { sort = "profit", dir = -1 }, onlyProfit = false, search = "", view = "Overview",
   profSort = { sort = "pool", dir = -1 }, upSort = { sort = "delta", dir = -1 }, downSort = { sort = "delta", dir = 1 } }
 FI.CraftTab = K

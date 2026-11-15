@@ -1,5 +1,40 @@
 -- Goonberg Terminal: core (saved data, helpers, events, slash commands)
-local ADDON, FI = ...
+
+-- The ---@ comments are type annotations for the Lua language server (editor
+-- autocomplete and `lua-language-server --check .`). The game ignores them.
+
+local ADDON, ns = ...
+---The addon's shared table: `FI` in every file. Each module adds itself here.
+---@class GoonbergTerminal
+---@field db GT.DB                 saved data (GoonbergTerminalDB), set at ADDON_LOADED
+---@field settings GT.Settings     FI.db.settings
+---@field realmKey string?         "Realm - Faction"
+---@field ahOpen boolean?
+---@field SetMinimapButton fun(self: GoonbergTerminal, show: boolean)  UI/Minimap.lua
+---@field NoDisenchant table<integer, true>  gear that can't be disenchanted (Disenchant/NoDE.lua, generated)
+---@field LootData table           dungeon loot tables (Loot/Data.lua, generated)
+---@field Alerts GT.Alerts
+---@field Crafting GT.Crafting
+---@field Deals GT.Deals
+---@field Disenchant GT.Disenchant
+---@field History GT.History
+---@field Import GT.Import
+---@field Ledger GT.Ledger
+---@field Loot GT.Loot
+---@field Scanner GT.Scanner
+---@field Seed GT.Seed
+---@field Sync GT.Sync
+---@field UI GT.UI
+---@field Widgets GT.Widgets
+---@field ChartView GT.ChartView
+---@field ChartTab GT.ChartTab
+---@field CraftTab GT.CraftTab
+---@field DealsTab GT.DealsTab
+---@field LootTab GT.LootTab
+---@field OverviewTab GT.OverviewTab
+---@field PnLTab GT.PnLTab
+---@field PositionsView GT.PositionsView
+local FI = ns
 _G.GoonbergTerminal = FI
 
 local GetMeta = (C_AddOns and C_AddOns.GetAddOnMetadata) or GetAddOnMetadata
@@ -42,6 +77,9 @@ eventFrame:SetScript("OnEvent", function(_, event, ...)
   end
 end)
 
+---Listens to a game event, or one of our own (FI_...).
+---@param event string
+---@param fn fun(event: string, ...)
 function FI:On(event, fn)
   if not handlers[event] then
     handlers[event] = {}
@@ -51,6 +89,7 @@ function FI:On(event, fn)
   table.insert(handlers[event], fn)
 end
 
+---@param event string  one of our own events (FI_...)
 function FI:Fire(event, ...)
   local list = handlers[event]
   if list then
@@ -68,6 +107,9 @@ end
 -- Runs fn once after `delay` seconds, however many times it is asked for meanwhile
 local pending = {}
 function FI:Pending(key) return pending[key] == true end
+---@param key string
+---@param delay number  seconds
+---@param fn fun()
 function FI:Debounce(key, delay, fn)
   if pending[key] then return end
   pending[key] = true
@@ -85,6 +127,10 @@ function FI:Print(msg, ...)
   DEFAULT_CHAT_FRAME:AddMessage("|cffe8b84aGoonberg Terminal|r: " .. tostring(msg))
 end
 
+---"3g 50s" from copper; `full` always shows every unit ("3g 50s 00c").
+---@param copper number?
+---@param full boolean?
+---@return string
 function FI.Money(copper, full)
   if not copper then return "-" end
   copper = math.floor(copper + 0.5)
@@ -112,12 +158,17 @@ end
 -- way the game shows money. The digits keep the text's own colour. For display only:
 -- chat messages and edit boxes use FI.Money.
 local COIN = { g = "|cffffd100g|r", s = "|cffc7c7cfs|r", c = "|cffeda55fc|r" }
+---@param copper number?
+---@param full boolean?
+---@return string
 function FI.Coins(copper, full)
   local out = FI.Money(copper, full)
   if out == "-" then return out end
   return (out:gsub("(%d)([gsc])", function(d, u) return d .. COIN[u] end))
 end
 
+---@param n number?
+---@return string
 function FI.Number(n)
   if not n then return "-" end
   local s = tostring(math.floor(n + 0.5))
@@ -126,6 +177,8 @@ function FI.Number(n)
   return s
 end
 
+---@param v number?  already in percent (12.5 = 12.5%)
+---@return string
 function FI.Percent(v)
   if not v then return "-" end
   return ("%s%.1f%%"):format(v >= 0 and "+" or "", v)
@@ -141,6 +194,8 @@ function FI.ColoredPercent(v)
   return ("|c%s%s|r"):format(v >= 0 and FI.hex.up or FI.hex.down, FI.Percent(v))
 end
 
+---@param sec number
+---@return string
 function FI.Duration(sec)
   sec = math.max(0, math.floor(sec))
   if sec < 60 then return sec .. "s" end
@@ -149,6 +204,8 @@ function FI.Duration(sec)
   return math.floor(sec / 86400) .. "d"
 end
 
+---@param t integer?  a time() value
+---@return string
 function FI.Ago(t)
   if not t or t == 0 then return "never" end
   local d = time() - t
@@ -157,6 +214,8 @@ function FI.Ago(t)
 end
 
 -- "3g50s", "3g 50s 20c", "3.5" (gold), "350s", "75c" -> copper
+---@param text string?
+---@return integer? copper  nil when the text isn't a price
 function FI.ParseMoney(text)
   if not text then return nil end
   text = text:lower():gsub("%s+", "")
@@ -183,6 +242,8 @@ end
 -- ---------------------------------------------------------------------------
 local pendingNames = {}
 
+---@param itemID integer
+---@return string
 function FI:ItemName(itemID)
   local name = FI.GetItemInfo(itemID)
   if name then
@@ -224,6 +285,8 @@ function FI:ItemQualityColor(itemID)
   return unpack(FI.colors.text)
 end
 
+---@param link string?
+---@return integer?
 function FI:ItemIDFromLink(link)
   if not link then return nil end
   local id = link:match("|Hitem:(%d+)") or link:match("item:(%d+)")
@@ -232,6 +295,8 @@ end
 
 -- Category used by the overview filters
 local tradeGoods = { [5] = "Cloth", [6] = "Leather", [7] = "Ore & Bars", [9] = "Herbs", [12] = "Enchanting" }
+---@param itemID integer
+---@return string
 function FI:Category(itemID)
   local _, _, _, _, _, classID, subID = FI.GetItemInfoInstant(itemID)
   if classID == 7 then return tradeGoods[subID] or "Trade Goods" end
@@ -243,6 +308,8 @@ end
 FI.categories = { "All", "Herbs", "Ore & Bars", "Cloth", "Leather", "Enchanting", "Trade Goods", "Consumables", "Gear", "Recipes", "Other" }
 
 -- Accepts an item link, an item ID or (part of) a name the addon has seen
+---@param text string?
+---@return integer? itemID
 function FI:FindItem(text)
   if not text or text == "" then return nil end
   local id = self:ItemIDFromLink(text) or tonumber(text)
@@ -264,6 +331,70 @@ end
 -- ---------------------------------------------------------------------------
 -- Saved data
 -- ---------------------------------------------------------------------------
+
+---GoonbergTerminalDB, shared by every character on the account.
+---@class GT.DB
+---@field settings GT.Settings
+---@field realms table<string, GT.Realm>   by "Realm - Faction"
+---@field lastFullScan integer
+---@field window {point: string, relPoint: string, x: number, y: number}?
+---@field size {w: integer, h: integer}?
+---@field scale number?
+---@field minimap {x: integer, y: integer}?
+---@field vendor table<integer, integer>?    what an NPC charges for one, in copper
+---@field deLearned table<integer, boolean>? found out in game: true = can be disenchanted, false = can't
+---@field loot table?                        Loot.lua
+---@field importSeen table<string, integer>   Import.lua: newest Auctionator day imported per item (created by the first import)
+---@field lastImport integer?
+---@field lastScanRequest integer?
+---@field indexVersion integer?
+
+---@class GT.Settings
+---@field autoScan boolean
+---@field dock boolean
+---@field sound boolean
+---@field flash boolean
+---@field chatAlerts boolean
+---@field tooltip boolean
+---@field guildSync boolean?
+---@field importAuctionator boolean?
+---@field minimapButton boolean?
+---@field dealAlerts boolean?
+---@field dealAlertGold integer?   copper
+---@field rareAlerts boolean?
+---@field rarePct number?          0.20 = 20% under the usual price
+---@field rareMinGold integer?     copper
+---@field rareMinDays integer?
+---@field market string?           ruleset picked with /goon market; nil = from the realm name
+---@field marketHint boolean?
+---@field ownMats "free"|"market"|nil  how the P&L values your own materials
+---@field pnlHideOld boolean?
+---@field pnlMode string?
+
+---One realm and faction's market.
+---@class GT.Realm
+---@field items table<integer, GT.Item>
+---@field index number[]                Goonberg Index: flat time, level pairs
+---@field watch table<integer, GT.Watch>
+---@field lastScan integer
+---@field scans integer
+---@field scanDays table<integer, true>? days (time() / 86400) that anything was scanned
+---@field indexAdds integer?
+---@field lastOnline integer?
+---@field lastShared {from: string, t: integer, items: integer}?  the latest guildmate scan
+---@field ledger table?                 Ledger.lua
+---@field recipes table?                Crafting.lua, per character
+---@field marketBuilt integer?          Seed.lua
+---@field seedBuilt integer?
+
+---A watched item. Alert levels are in copper; nil means no alert that way.
+---@class GT.Watch
+---@field added integer
+---@field below integer?
+---@field above integer?
+---@field belowFired boolean?
+---@field aboveFired boolean?
+
 local defaults = {
   settings = {
     autoScan = true,   -- scan when the AH opens (if Blizzard's limit allows)
@@ -289,7 +420,10 @@ local function fill(dst, src)
   end
 end
 
+---This realm and faction's data (nil only before the addon has loaded).
+---@return GT.Realm
 function FI:Realm()
+  ---@diagnostic disable-next-line: return-type-mismatch
   if not self.db then return nil end
   if not self.realmKey then
     local faction = UnitFactionGroup("player") or "Neutral"

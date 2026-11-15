@@ -1,5 +1,7 @@
 -- Goonberg Terminal: watchlist, price alerts (toast, sound, chat) and sharing prices
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.Alerts
 local A = {}
 FI.Alerts = A
 

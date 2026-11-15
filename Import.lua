@@ -3,7 +3,9 @@
 -- Auctionator keeps, per item and per day, the lowest price it saw and how many were
 -- listed. Goonberg adds those days to its own history (never twice, never over a
 -- day it scanned itself), so charts start with everything Auctionator remembers.
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.Import
 local I = {}
 FI.Import = I
 local PER_FRAME = 250

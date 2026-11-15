@@ -1,5 +1,7 @@
 -- Goonberg Terminal: main window (header, tabs, scan button, docking beside the AH)
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.UI
 local UI = { tabs = {} }
 FI.UI = UI
 local W = FI.Widgets

@@ -2,10 +2,13 @@
 -- Recipes are read when you open a profession window (C_TradeSkillUI, the API the
 -- Forever client uses). Vendor prices are read when you open any merchant, so
 -- reagents like vials and thread are priced at what an NPC charges.
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.Crafting
 local K = {}
 FI.Crafting = K
 local TS = C_TradeSkillUI
+---@type fun(v: any): boolean
 local secret = issecretvalue or function() return false end
 K.AH_CUT = 0.05
 

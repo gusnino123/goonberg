@@ -1,7 +1,9 @@
 -- Goonberg Terminal: profit and loss from Auction House mail invoices
 -- Every AH sale and purchase arrives as mail with an invoice. When the mailbox is
 -- open we read those invoices once each and keep a ledger per character.
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.Ledger
 local L = {}
 FI.Ledger = L
 local DAY = 86400

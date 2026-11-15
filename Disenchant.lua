@@ -4,7 +4,9 @@
 -- an item disenchants into, so this follows the WoW Forever disenchanting table:
 -- bands by the item's REQUIRED level (the "Requires Level" line), not its item level.
 -- Source: wow-professions.com/forever/disenchanting-guide (checked November 2026).
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.Disenchant
 local D = {}
 FI.Disenchant = D
 
@@ -80,8 +82,19 @@ end
 -- What an item can turn into: list of { itemID, chance, avgQty }, or nil.
 -- These never change for an item, so they're worked out once and cached
 -- (false = "can't be disenchanted"; items whose info isn't loaded yet aren't cached).
+---@alias GT.DEResult { [1]: integer, [2]: number, [3]: number }  material itemID, chance (0-1), average quantity
+
+---@class GT.DEPart
+---@field id integer
+---@field chance number
+---@field qty number      average quantity
+---@field price number?   what one sells for (nil = no recent price)
+---@field converted boolean?  priced as the other essence size (3 lesser = 1 greater)
+
 local resultsCache = {}
 function D:ForgetCache() resultsCache = {} end
+---@param itemID integer
+---@return GT.DEResult[]?
 function D:Results(itemID)
   local c = resultsCache[itemID]
   if c ~= nil then return c or nil end
@@ -90,6 +103,9 @@ function D:Results(itemID)
   return r
 end
 
+---@param itemID integer
+---@return GT.DEResult[]? results
+---@return boolean known  false while the item's info is still loading
 function D:ComputeResults(itemID)
   if not self:CanDisenchant(itemID) then return nil, true end
   local _, _, _, equipLoc, _, classID = FI.GetItemInfoInstant(itemID)
@@ -127,6 +143,9 @@ end
 -- What one unit of a material sells for: the lower of its market price and the
 -- cheapest listing now (what you'd have to match), only if seen in the last 7 days.
 -- Essences take the better of selling as-is or converting (3 lesser = 1 greater).
+---@param id integer
+---@return number? price
+---@return boolean? converted
 function D:MaterialPrice(id)
   local own = FI.Crafting:SellPrice(id)
   local best = own
@@ -142,6 +161,10 @@ end
 
 -- Expected value in copper (before the AH's cut on the materials);
 -- complete = every possible result has a price. parts lists each result.
+---@param itemID integer
+---@return number? value  copper, before the AH cut
+---@return boolean? complete
+---@return GT.DEPart[]? parts
 function D:Value(itemID)
   local results = self:Results(itemID)
   if not results then return nil end

@@ -34,7 +34,7 @@ jobs:
         if: steps.exists.outputs.found == 'false'
         run: |
           mkdir -p dist/GoonbergTerminal
-          rsync -a --exclude '.git*' --exclude '.github' --exclude 'dist' --exclude 'tools' --exclude 'Markets' ./ dist/GoonbergTerminal/
+          rsync -a --exclude '.*' --exclude 'dist' --exclude 'tools' --exclude 'Markets' ./ dist/GoonbergTerminal/
           # the latest daily market data (from the "Blizzard prices" workflow), if any
           if git ls-remote --exit-code origin data >/dev/null 2>&1; then
             git fetch --depth 1 origin data

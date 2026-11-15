@@ -3,7 +3,9 @@
 -- game's addon messages (guild channel). Only your own scans are sent; prices you
 -- received are never passed on, so nothing loops. Newcomers with little history ask
 -- once at login and one guildmate whispers them up to 21 days of daily prices.
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.Sync
 local Y = { peers = {}, sessions = {}, sent = {}, greeted = {} }
 FI.Sync = Y
 local PREFIX = "GoonbergSync"

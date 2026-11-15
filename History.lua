@@ -1,7 +1,30 @@
 -- Goonberg Terminal: price history, statistics and the Goonberg Index level
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.History
 local H = {}
 FI.History = H
+
+---One item's price data on one realm (GT.Realm.items[itemID]). Prices in copper.
+---@class GT.Item
+---@field h number[]       history, STRIDE numbers per scan: time, market price (0 = none listed), quantity listed, est. sold
+---@field mkt integer?     market price the last time it was listed
+---@field min integer?     lowest unit price in the latest scan (nil when not listed)
+---@field qty integer?     units listed in the latest scan
+---@field cnt integer?     auctions in the latest scan
+---@field d number[]?      market depth: flat price, quantity pairs, cheapest first
+---@field dt integer?      when `d` was taken; only trusted when it equals `seen`
+---@field seen integer?    last time it was listed
+---@field adds integer?    points added since the history was last compacted
+---@field n string?        cached name
+---@field imported integer? newest point from Auctionator, seed or Blizzard data
+---@field shared boolean?  the latest price came from a guildmate's scan
+
+---@class GT.LongTerm
+---@field historical number  60-day median of daily prices ("usual price")
+---@field typicalLow number  10th-percentile daily low ("cheapest typical")
+---@field days integer       separate days it was seen
+---@field market number?     14-day market value
 
 -- Each item keeps a flat history array, 4 numbers per scan:
 --   time, market price (copper, 0 = nothing listed), quantity listed, est. sold since previous scan
@@ -13,6 +36,9 @@ H.DAY = DAY
 -- Market price: average unit price of the cheapest 15% of units listed (at least 1).
 -- Steadier than the single lowest listing, which one troll posting can swing.
 -- `pairs` is a sorted flat array: unitPrice, count, unitPrice, count...
+---@param pairsArr number[]  unit price, count pairs, cheapest first
+---@param totalQty integer
+---@return integer copper
 function H.MarketPrice(pairsArr, totalQty)
   local want = math.max(1, math.ceil(totalQty * 0.15))
   local got, sum = 0, 0
@@ -77,6 +103,15 @@ function H.Compact(h, now, stride, sumField)
 end
 
 -- Adds one scan's result for an item. qty 0 means it wasn't listed this scan.
+---@param realm GT.Realm
+---@param itemID integer
+---@param now integer
+---@param mkt integer
+---@param minPrice integer?
+---@param qty integer
+---@param listings integer
+---@param depth number[]?
+---@return GT.Item
 function H.Record(realm, itemID, now, mkt, minPrice, qty, listings, depth)
   local it = realm.items[itemID]
   if not it then
@@ -144,6 +179,10 @@ end
 
 -- Market price of an item as it was at time t (nil if no data that old). With
 -- maxAge, the point must be no older than t - maxAge (no stale stand-ins).
+---@param it GT.Item
+---@param t integer
+---@param maxAge integer?
+---@return integer?
 function H.PriceAt(it, t, maxAge)
   if not it then return nil end
   return priceAt(it.h or {}, t, maxAge and (t - maxAge) or nil)
@@ -164,6 +203,9 @@ local LONGEST = WIN_LIST[#WIN_LIST][2]
 -- Everything the tooltip, overview and chart header need for one item.
 -- One backward pass over the last 14 days of history (older points are never
 -- touched), which matters with thousands of items.
+---@param it GT.Item
+---@param now integer?
+---@return table stats  price, min, qty, listings, seen, change per window (c15, c1, ...), sold per window, soldPerDay
 function H.Stats(it, now)
   now = now or time()
   local h = it.h or {}
@@ -599,6 +641,9 @@ end
 
 -- Market value (14 days, recent 3 days count triple). Needs at least 3 earlier
 -- points spanning 12 hours; nil otherwise. (Called "fair value" on the Deals tab.)
+---@param it GT.Item
+---@param now integer
+---@return number? copper
 function H.FairValue(it, now)
   local h = it.h
   if not h then return nil end
@@ -623,6 +668,9 @@ end
 -- Long-term picture for rare finds: the 60-day median of daily values, the item's
 -- "cheapest typical" price (its 10th-percentile daily low: cheaper than 90% of its
 -- days), how many separate days it was seen, and the 14-day market value for trend.
+---@param it GT.Item
+---@param now integer
+---@return GT.LongTerm?
 function H.LongTerm(it, now)
   local days = dailyValues(it, now, 60)
   if #days == 0 then return nil end

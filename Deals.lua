@@ -6,12 +6,39 @@
 --   Disenchant - gear under its estimated disenchant value
 -- A deal must leave a margin (5%+ by default) after the AH's 5% cut where you'd
 -- resell on the AH. Total profit counts every unit under the deal price (from depth).
+---@type string, GoonbergTerminal
 local _, FI = ...
 local STRIDE_OF_HISTORY = 4
 -- margin = what you pocket per item after any AH cut, divided by what you pay
+---@class GT.Deals
 local DL = { minMargin = 0.05, alertMargin = 0.10, maxAge = 3600 }
 FI.Deals = DL
 local CUT = 0.05
+
+---One deal: an item listed under what it's worth. Prices in copper.
+---@class GT.Deal
+---@field id integer
+---@field kind "Rare"|"Flip"|"Vendor"|"Disenchant"
+---@field price integer      the cheapest listing
+---@field worth number       what you get for one after any AH cut
+---@field ref number         headline value: market value, vendor price, disenchant value or usual price
+---@field units integer      units listed under the deal price
+---@field profit number      total on all of those units
+---@field perItem number     profit on the cheapest one
+---@field margin number      perItem / price, in percent
+---@field discount number    percent under `ref`
+---@field qtyKnown boolean   false for guild scans: only the lowest price is known
+---@field levels number[]    the depth it was judged on: flat price, quantity pairs
+---@field seen integer
+---@field name string?       set when the search finishes
+---@field soldPerDay number?
+---@field relist number?     Flip and Rare: the price to relist at
+---@field typicalLow number? Rare
+---@field days integer?      Rare
+---@field confidence "Solid"|"Thin"|nil
+---@field trendDown boolean? Rare: the whole item is falling
+---@field under number?      Rare: percent under the usual price
+
 local MIN_PROFIT = 100 -- 1s: ignore crumbs
 
 DL.FLOOR = 0.05 -- deals are found once at the loosest margin; screens filter tighter
@@ -96,6 +123,10 @@ end
 local function cutoffFor(worth, margin) return worth / (1 + margin) end
 
 -- One item: its best deal at the loosest margin (DL.FLOOR), or nil
+---@param id integer
+---@param it GT.Item
+---@param now integer
+---@return GT.Deal?
 local function evaluate(id, it, now)
   local levels, qtyKnown = listings(it)
   local cheapest = levels[1]
@@ -276,7 +307,8 @@ local function alert(raw)
   local threshold = FI.settings.dealAlertGold or 50000 -- 5g
   local deals = DL:Filter(raw, DL.alertMargin)
   local seen = DL.alerted or {}
-  local fresh, total, top = 0, 0, nil
+  local fresh, total = 0, 0
+  local top ---@type GT.Deal?
   local now = {}
   for _, d in ipairs(deals) do
     now[d.id] = true
@@ -307,7 +339,7 @@ local function alert(raw)
       return
     end
   end
-  if fresh > 0 and total >= threshold then
+  if top and fresh > 0 and total >= threshold then
     FI.Alerts:Toast(top.id,
       ("%d new deal%s worth %s"):format(fresh, fresh == 1 and "" or "s", FI.Money(total)),
       ("Best: %s, +%s each (%d%% margin). Click to view."):format(top.name, FI.Money(top.perItem), math.floor(top.margin)),

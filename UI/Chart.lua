@@ -1,5 +1,7 @@
 -- Goonberg Terminal: chart tab (watchlist, candlestick chart, market depth, alerts)
+---@type string, GoonbergTerminal
 local _, FI = ...
+---@class GT.ChartTab
 local T = { tf = "1W", watchSort = { sort = "name", dir = 1 } }
 FI.ChartTab = T
 local W = FI.Widgets
@@ -8,20 +10,6 @@ local H
 
 local LEFT_W, RIGHT_W = 214, 256
 local PAD = 18
-local AXIS_W = 70
-local PLOT_H, VOL_H = 250, 48
-
-local TF = {
-  ["15M"] = { span = 900, n = 3, label = "past 15 minutes", start = "15m ago", chg = "c15", sold = "sold15" },
-  ["1H"] = { span = 3600, n = 12, label = "past hour", start = "1h ago", chg = "c1", sold = "sold1" },
-  ["6H"] = { span = 6 * 3600, n = 24, label = "past 6 hours", start = "6h ago", chg = "c6", sold = "sold6" },
-  ["12H"] = { span = 12 * 3600, n = 24, label = "past 12 hours", start = "12h ago", chg = "c12", sold = "sold12" },
-  ["1D"] = { span = 86400, n = 24, label = "past 24 hours", start = "24h ago", chg = "c24", sold = "sold24" },
-  ["1W"] = { span = 7 * 86400, n = 28, label = "past 7 days", start = "7d ago", chg = "c7", sold = "sold7" },
-  ["1M"] = { span = 30 * 86400, n = 30, label = "past 30 days", start = "30d ago" },
-  ["All"] = { n = 32, label = "all history", start = "first scan" },
-}
-
 -- Shift-clicking an item while one of our edit boxes has focus puts the link there
 local focused
 local function trackFocus(e)
@@ -471,7 +459,6 @@ function T:Refresh()
     return
   end
 
-  local now = time()
   local s = H.Stats(it, now)
   tab.price:SetText(FI.Money(it.mkt))
   tab.pill:Show()
