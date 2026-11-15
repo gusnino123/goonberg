@@ -106,9 +106,35 @@ local function makeRow(parent)
     else
       GameTooltip:AddDoubleLine("Disenchants for (estimate)", FI.Money(d.ref), muted[1], muted[2], muted[3], 1, 1, 1)
       GameTooltip:AddDoubleLine("After 5% AH cut on the mats", FI.Money(d.worth), muted[1], muted[2], muted[3], 1, 1, 1)
+      if d.pace then
+        GameTooltip:AddDoubleLine("Mats the AH takes a day", ("%s items' worth"):format(FI.Number(d.pace)), muted[1], muted[2], muted[3], 1, 1, 1)
+      else
+        GameTooltip:AddLine("|cfff0613aHow fast the mats sell isn't known yet, so every unit is counted.|r", 1, 1, 1, true)
+      end
     end
     GameTooltip:AddDoubleLine("Profit per item", ("+%s (%d%%)"):format(FI.Money(d.perItem), math.floor(d.margin)), muted[1], muted[2], muted[3], 0.25, 0.71, 0.55)
-    GameTooltip:AddDoubleLine(("Profit on all %s"):format(d.qtyKnown and d.units or "1+"), "+" .. FI.Money(d.profit), muted[1], muted[2], muted[3], 0.25, 0.71, 0.55)
+    local capped = d.qtyKnown and d.listed and d.listed > d.units
+    local allLabel = capped and ("Profit on the %d counted"):format(d.units) or ("Profit on all %s"):format(d.qtyKnown and d.units or "1+")
+    GameTooltip:AddDoubleLine(allLabel, "+" .. FI.Money(d.profit), muted[1], muted[2], muted[3], 0.25, 0.71, 0.55)
+    if d.kind == "Disenchant" then
+      -- disenchanting is luck: the range you'd land in 8 times out of 10
+      if d.sdEach and d.qtyKnown and d.units >= 5 then
+        local spread = 1.28 * d.sdEach * math.sqrt(d.units)
+        local lo, hi = d.profit - spread, d.profit + spread
+        local function signed(v) return (v >= 0 and "+" or "") .. FI.Money(v) end
+        local c = lo < 0 and FI.colors.down or FI.colors.up
+        GameTooltip:AddDoubleLine("Likely (8 times in 10)", signed(lo) .. " to " .. signed(hi), muted[1], muted[2], muted[3], c[1], c[2], c[3])
+      end
+      if capped then
+        GameTooltip:AddLine(("|cfff0613aOnly %d of the %d listed are counted: mats from more would take over %d days to sell.|r")
+          :format(d.units, d.listed, FI.Deals.DE_SELL_DAYS), 1, 1, 1, true)
+      end
+      local n = FI.Disenchant:Samples(d.id)
+      GameTooltip:AddLine(n > 0 and ("|cff8b95a3Odds: the disenchanting table plus %d of your own disenchants of this kind of gear.|r"):format(n)
+        or "|cff8b95a3Odds: the disenchanting table. Your own disenchants refine them.|r", 1, 1, 1, true)
+      GameTooltip:AddLine(("|cff8b95a3Disenchant deals need a %d%%+ margin and mats priced in the last day.|r")
+        :format(FI.Deals.DE_MIN_MARGIN * 100), 1, 1, 1, true)
+    end
     GameTooltip:AddLine(("|cff8b95a3Seen %s.|r"):format(FI.Ago(d.seen)))
     if not d.qtyKnown then GameTooltip:AddLine("|cff8b95a3From a guild scan: only the lowest price is known.|r") end
     GameTooltip:AddLine("|cff8b95a3Click: find it on the AH. Right-click: chart. Shift-click: link.|r")
@@ -150,7 +176,14 @@ local function updateRow(r, i)
   setColor(r.cells.perItem, C.up)
   r.cells.margin:SetText(("%d%%"):format(math.floor(d.margin + 0.5)))
   setColor(r.cells.margin, C.up)
-  r.cells.units:SetText(d.qtyKnown and FI.Number(d.units) or "1+")
+  -- disenchant deals capped by how fast the mats sell: counted / listed, in orange
+  if d.qtyKnown and d.listed and d.listed > d.units then
+    r.cells.units:SetText(FI.Number(d.units) .. "/" .. FI.Number(d.listed))
+    setColor(r.cells.units, C.down)
+  else
+    r.cells.units:SetText(d.qtyKnown and FI.Number(d.units) or "1+")
+    setColor(r.cells.units, C.text)
+  end
   r.cells.profit:SetText("+" .. FI.Coins(d.profit))
   setColor(r.cells.profit, C.up)
   r.cells.sold:SetText(d.soldPerDay and FI.Number(d.soldPerDay) or "-")
@@ -177,6 +210,7 @@ function D:Build(parent)
     GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
     GameTooltip:AddLine("Sells daily")
     GameTooltip:AddLine("Only items with at least 1 estimated sale a day, so you can sell them again.", 0.76, 0.79, 0.83, true)
+    GameTooltip:AddLine("Disenchants: the AH takes the mats from at least 1 item a day.", 0.76, 0.79, 0.83, true)
     GameTooltip:Show()
   end)
   liquid:SetScript("OnLeave", function(self) self:Refresh(); GameTooltip_Hide() end)

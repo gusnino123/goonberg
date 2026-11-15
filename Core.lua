@@ -343,6 +343,7 @@ end
 ---@field minimap {x: integer, y: integer}?
 ---@field vendor table<integer, integer>?    what an NPC charges for one, in copper
 ---@field deLearned table<integer, boolean>? found out in game: true = can be disenchanted, false = can't
+---@field deYields table<string, {n: integer, out: table<integer, {h: integer, q: integer}>}>?  your disenchants by table row (GT.DEBand.key): n done, and per material how often it came (h) and how many in all (q)
 ---@field loot table?                        Loot.lua
 ---@field importSeen table<string, integer>   Import.lua: newest Auctionator day imported per item (created by the first import)
 ---@field lastImport integer?
@@ -589,13 +590,18 @@ SlashCmdList.GOONBERG = function(msg)
     end
     local id = FI:FindItem(rest)
     if not id then return FI:Print("Usage: /goon de <item>  (or /goon de watch)") end
-    local v, complete, parts = FI.Disenchant:Value(id)
+    local v, complete, parts = FI.Disenchant:Value(id, FI.Disenchant.LAST_KNOWN)
     if not parts then return FI:Print("%s can't be disenchanted.", FI:ItemName(id)) end
     FI:Print("%s disenchants for about %s%s:", FI:ItemLink(id) or FI:ItemName(id), FI.Money(v or 0), complete and "" or " (some materials not priced yet)")
     for _, p in ipairs(parts) do
       local pct = p.chance < 0.01 and ("%.1f"):format(p.chance * 100) or tostring(math.floor(p.chance * 100 + 0.5))
-      DEFAULT_CHAT_FRAME:AddMessage(("   %s%%  %s x%s  %s%s"):format(pct, FI:ItemName(p.id), p.qty, p.price and FI.Money(p.price * p.qty) or "no recent price", p.converted and " (as 3:1 essence)" or ""))
+      local qty = p.qty % 1 == 0 and tostring(p.qty) or ("%.1f"):format(p.qty)
+      local age = p.t and time() - p.t > 86400 and (" (price from " .. FI.Ago(p.t) .. ")") or ""
+      DEFAULT_CHAT_FRAME:AddMessage(("   %s%%  %s x%s  %s%s%s"):format(pct, FI:ItemName(p.id), qty, p.price and FI.Money(p.price * p.qty) or "never priced", p.converted and " (as 3:1 essence)" or "", age))
     end
+    local n = FI.Disenchant:Samples(id)
+    DEFAULT_CHAT_FRAME:AddMessage(n > 0 and ("   Odds: the disenchanting table plus %d of your own disenchants of this kind of gear."):format(n)
+      or "   Odds: the disenchanting table (your own disenchants refine them).")
   elseif cmd == "sync" then
     local arg = rest:lower()
     if arg == "on" or arg == "off" then

@@ -54,7 +54,7 @@ Listings in the latest scan you can buy and make money on:
 - **Rare:** a seldom-listed item (worth 5g+) showing up at least 20% under its **usual price** (its 60-day median) **and** under the cheapest it typically goes for. See *Rare finds* below.
 - **Flip:** cheaper than the item's **market value**: its average over the last 14 days, counting the latest 3 days more (the same idea TradeSkillMaster uses). Buy and relist.
 - **Vendor:** cheaper than what an NPC vendor pays for it. Buy it, vendor it: guaranteed profit, no waiting.
-- **Disenchant:** gear cheaper than what it disenchants into.
+- **Disenchant:** gear cheaper than what it disenchants into. Because the value is an estimate, these need a **10%+ margin**, materials priced in the **last day**, and only count as many units as the materials' AH sales cover in **2 days** (more would flood the market: the Units column shows e.g. `20/50` in orange). Their **Sold/day** is how many items' worth of materials the AH takes a day. Hover for the **likely range** of your profit (disenchanting is luck) and how many of your own disenchants back the odds.
 
 Each deal shows **Buy at** (the cheapest listing), **Sell for** (what you'd get per item: after the 5% AH cut when you relist on the AH, or the full price from a vendor), **profit per item**, **margin** (profit ÷ what you pay), how many **units** are listed under the deal price and the **total** profit on all of them, plus how fast it sells.
 
@@ -99,7 +99,7 @@ A shareable profit card for **Today, 7 days, 30 days or All time**: net profit, 
 Hover any item (bags, bank, mail, chat links, the AH) to see:
 - Market price, **stack value**, lowest buyout now, **7-day change**, est. sold per day
 - **Vendor price**, in green when vendoring pays more than the AH
-- **Disenchant value** for green, blue and purple gear, in green when disenchanting beats selling. Hold **Shift** to see what it breaks into. It follows the WoW Forever disenchanting table, which goes by the item's **required level** (an estimate: the game doesn't tell addons what an item breaks into).
+- **Disenchant value** for green, blue and purple gear, in green when disenchanting beats selling. Hold **Shift** to see what it breaks into. It uses each material's last known price and says how old it is when that's over a day. It starts from the WoW Forever disenchanting table, which goes by the item's **required level** (an estimate: the game doesn't tell addons what an item breaks into), and **learns from every disenchant you do**: after 20 of one kind of gear (say level 31-35 green armor) the odds are half yours, after 100 mostly yours.
 
 ### Minimap button
 The goblin under your minimap: **click** to open the terminal, **right-click** for your P&L, **drag** to move it. Hover it for the Goonberg Index and when the last scan was.

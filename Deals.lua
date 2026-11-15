@@ -6,6 +6,8 @@
 --   Disenchant - gear under its estimated disenchant value
 -- A deal must leave a margin (5%+ by default) after the AH's 5% cut where you'd
 -- resell on the AH. Total profit counts every unit under the deal price (from depth).
+-- Disenchant deals are estimates, so they ask for more: a 10%+ margin, materials
+-- priced in the last day, and only as many units as the materials' market can take.
 ---@type string, GoonbergTerminal
 local _, FI = ...
 local STRIDE_OF_HISTORY = 4
@@ -14,6 +16,9 @@ local STRIDE_OF_HISTORY = 4
 local DL = { minMargin = 0.05, alertMargin = 0.10, maxAge = 3600 }
 FI.Deals = DL
 local CUT = 0.05
+DL.DE_MIN_MARGIN = 0.10      -- disenchant deals: at least this margin, whatever the screen asks
+DL.DE_PRICE_AGE = 24 * 3600  -- materials priced in the last day only
+DL.DE_SELL_DAYS = 2          -- count only as many as the materials' AH sales cover in 2 days
 
 ---One deal: an item listed under what it's worth. Prices in copper.
 ---@class GT.Deal
@@ -22,8 +27,9 @@ local CUT = 0.05
 ---@field price integer      the cheapest listing
 ---@field worth number       what you get for one after any AH cut
 ---@field ref number         headline value: market value, vendor price, disenchant value or usual price
----@field units integer      units listed under the deal price
+---@field units integer      units listed under the deal price (Disenchant: at most `cap`)
 ---@field profit number      total on all of those units
+---@field listed integer?    Disenchant: units listed under the deal price before the cap
 ---@field perItem number     profit on the cheapest one
 ---@field margin number      perItem / price, in percent
 ---@field discount number    percent under `ref`
@@ -38,6 +44,10 @@ local CUT = 0.05
 ---@field confidence "Solid"|"Thin"|nil
 ---@field trendDown boolean? Rare: the whole item is falling
 ---@field under number?      Rare: percent under the usual price
+---@field cap integer?       Disenchant: most units whose materials sell within DE_SELL_DAYS
+---@field pace number?       Disenchant: items' worth of materials the AH takes a day (nil = unknown)
+---@field slowest integer?   Disenchant: the material that sets that pace
+---@field sdEach number?     Disenchant: spread of one item's value after the cut (std. deviation)
 
 local MIN_PROFIT = 100 -- 1s: ignore crumbs
 
@@ -108,11 +118,14 @@ local function listings(it)
 end
 
 -- Units and profit for listings under `cutoff`, reselling at `worth` each
-local function judge(levels, worth, cutoff)
+-- (at most `cap` units when given)
+local function judge(levels, worth, cutoff, cap)
   local units, profit = 0, 0
   for i = 1, #levels, 2 do
     local p, q = levels[i], levels[i + 1]
     if p >= cutoff then break end -- levels are cheapest first
+    if cap then q = math.min(q, cap - units) end
+    if q <= 0 then break end
     units = units + q
     profit = profit + (worth - p) * q
   end
@@ -135,13 +148,13 @@ local function evaluate(id, it, now)
   local best
   -- worth: what you get per item (after the AH cut when you resell on the AH)
   -- ref: the headline value (fair value, vendor price, disenchant value)
-  local function consider(kind, worth, ref)
+  local function consider(kind, worth, ref, cap)
     if not worth or worth <= 0 then return end
-    local cutoff = cutoffFor(worth, DL.FLOOR)
+    local cutoff = cutoffFor(worth, kind == "Disenchant" and DL.DE_MIN_MARGIN or DL.FLOOR)
     if cheapest >= cutoff then return end
-    local units, profit = judge(levels, worth, cutoff)
+    local units, profit = judge(levels, worth, cutoff, cap)
     if profit >= MIN_PROFIT and (not best or profit > best.profit) then
-      best = { kind = kind, worth = worth, ref = ref, units = units, profit = profit }
+      best = { kind = kind, worth = worth, ref = ref, units = units, profit = profit, cap = cap }
     end
   end
   local fair, lt = fairValue(id, it, now)
@@ -188,9 +201,20 @@ local function evaluate(id, it, now)
   end
   local vendor = not (best and best.kind == "Rare") and vendorPrice(id)
   if vendor then consider("Vendor", vendor, vendor) end             -- NPC pays in full
-  if not (best and best.kind == "Rare") and FI.Disenchant:Results(id) then
-    local de, complete = FI.Disenchant:Value(id)
-    if de and complete then consider("Disenchant", de * (1 - CUT), de) end -- mats sold on the AH
+  local DE = FI.Disenchant
+  if not (best and best.kind == "Rare") and DE:Results(id) then
+    -- mats sold on the AH, priced in the last day; count only as many units as the
+    -- mats' sales cover in DE_SELL_DAYS (buying more would flood their market)
+    local de, complete, parts = DE:Value(id, DL.DE_PRICE_AGE)
+    if de and complete and parts and cheapest < cutoffFor(de * (1 - CUT), DL.DE_MIN_MARGIN) then
+      local pace, slowest = DE:ItemsPerDay(parts, de, now)
+      local cap = pace and math.max(1, math.floor(pace * DL.DE_SELL_DAYS + 1e-6)) -- 19.999... is 20
+      consider("Disenchant", de * (1 - CUT), de, cap)
+      if best and best.kind == "Disenchant" then
+        best.pace, best.slowest = pace, slowest
+        best.sdEach = DE:Spread(parts) * (1 - CUT)
+      end
+    end
   end
   if not best then return nil end
   best.id = id
@@ -204,19 +228,32 @@ local function evaluate(id, it, now)
   return best
 end
 
--- Units and profit of a deal at a stricter margin (e.g. 0.20); nil if it no longer qualifies
+-- Units and profit of a deal at a stricter margin (e.g. 0.20); nil if it no longer
+-- qualifies. Third value: units listed under that price before any cap.
+---@param d GT.Deal
+---@param minMargin number
+---@return integer? units
+---@return number? profit
+---@return integer? listed
 function DL:At(d, minMargin)
-  if d.kind == "Rare" then return d.units, d.profit end -- judged by its own rule
+  if d.kind == "Rare" then return d.units, d.profit, d.units end -- judged by its own rule
+  if d.kind == "Disenchant" then minMargin = math.max(minMargin, DL.DE_MIN_MARGIN) end
   local cutoff = cutoffFor(d.worth, minMargin)
   if d.price >= cutoff then return nil end
-  local units, profit = judge(d.levels, d.worth, cutoff)
+  local units, profit = judge(d.levels, d.worth, cutoff, d.cap)
   if profit < MIN_PROFIT then return nil end
-  return units, profit
+  local listed = d.cap and judge(d.levels, d.worth, cutoff) or units
+  return units, profit, listed
 end
 
 local function finish(d, now)
-  local it = FI:Realm().items[d.id]
-  d.soldPerDay = it and FI.History.Stats(it, now).soldPerDay
+  if d.kind == "Disenchant" then
+    -- what matters is selling the materials: items' worth of them sold a day
+    d.soldPerDay = d.pace
+  else
+    local it = FI:Realm().items[d.id]
+    d.soldPerDay = it and FI.History.Stats(it, now).soldPerDay
+  end
   d.name = FI:ItemName(d.id)
 end
 
@@ -232,9 +269,9 @@ end
 function DL:Filter(list, minMargin)
   local out = {}
   for _, d in ipairs(list) do
-    local units, profit = self:At(d, minMargin)
+    local units, profit, listed = self:At(d, minMargin)
     if units then
-      local c = setmetatable({ units = units, profit = profit }, { __index = d })
+      local c = setmetatable({ units = units, profit = profit, listed = listed }, { __index = d })
       out[#out + 1] = c
     end
   end

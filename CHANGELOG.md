@@ -1,5 +1,18 @@
 # Goonberg Terminal
 
+## 0.26.0 - More accurate disenchant deals
+
+Disenchant deals now try harder to be money you can actually make, not just money on paper.
+
+- **Won't count more than you can sell.** A disenchant deal only counts as many units as the AH buys the materials for in 2 days. Buying 50 pieces of gear can mean 55+ dust to sell; if the market takes 10 items' worth a day, only 20 count, and the Units column shows `20/50` in orange.
+- **Sold/day means the materials.** For disenchant deals, Sold/day (and the Sells daily filter) is how many items' worth of materials the AH takes a day, not how fast the gear sells.
+- **Fresh material prices only.** Disenchant deals use material prices from the last day (gear prices were already live).
+- **Tooltips use last known prices.** A tooltip's disenchant value now uses each material's last known price however old it is (before, anything over 7 days showed as no price), and says how old when it's over a day: `Disenchant (mats 3 d ago)`. Hold Shift for each material's age.
+- **Likely range.** Hover a disenchant deal for the profit you'd land in 8 times out of 10 (shards are luck). It turns orange when that range dips below zero.
+- **Learns from your disenchants.** Every disenchant you do is recorded: what kind of gear went in, what came out. Those numbers blend into the table's odds and amounts: after 20 of one kind it's half yours, after 100 mostly yours. Tooltips and `/goon de` say how many back an item.
+- **Safer defaults.** Disenchant deals need a 10%+ margin, even on the 5% setting. The shard chance on greens is 4% (the middle of the guide's 3-5%), down from 5%.
+- A rare extra with no recent price (the 0.5% Nexus Crystal from high-level blues) no longer hides a disenchant value.
+
 ## 0.25.1
 
 - **Disenchant deals only list items that can be disenchanted.** Some gear can't be disenchanted at all (Greater/Lesser Magic and Mystic Wands, the Twilight Cultist set, PvP rewards, ...). Goonberg Terminal now knows all 1,350 of them from the classic item data (Blizzard's "no disenchant" flag plus items with no disenchant loot), so they no longer show as Disenchant deals or get a disenchant value in tooltips. Checked against every one of the 10,540 weapons and armor pieces in the game: none that can't be disenchanted is listed.

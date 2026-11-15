@@ -305,17 +305,28 @@ FI:On("UNIT_SPELLCAST_SUCCEEDED", function(_, unit, _, spellID)
   end
   if isDE then L.de = { t = time(), out = {} } end
 end)
-FI:On("CHAT_MSG_LOOT", function(_, msg)
-  local de = L.de
-  if not de or type(msg) ~= "string" or time() - de.t > 6 then return end
+-- The item and amount in one of your own loot messages ("You receive loot: [X]x3."),
+-- or nil. Disenchant.lua uses it too.
+---@param msg any
+---@return integer? itemID
+---@return integer qty
+---@return string? link
+function L.LootFromChat(msg)
+  if type(msg) ~= "string" then return nil, 0 end
   local link, n = msg:match(LOOT_MANY)
   if not link then link, n = msg:match(PUSH_MANY) end
   if not link then link = msg:match(LOOT_ONE) or msg:match(PUSH_ONE) end
   local id = link and tonumber(link:match("item:(%d+)"))
+  return id, tonumber(n) or 1, link
+end
+FI:On("CHAT_MSG_LOOT", function(_, msg)
+  local de = L.de
+  if not de or type(msg) ~= "string" or time() - de.t > 6 then return end
+  local id, n, link = L.LootFromChat(msg)
   if not id then return end
   local name = nameOf(id, link)
   local mkt = L:PriceByName(name)
-  de.out[#de.out + 1] = { name, tonumber(n) or 1, mkt or 0 }
+  de.out[#de.out + 1] = { name, n, mkt or 0 }
 end)
 
 -- What a vendor pays for an item (GetItemInfo's 11th value)

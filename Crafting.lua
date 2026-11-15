@@ -115,10 +115,10 @@ end)
 -- An AH price is only used if it's from the last 7 days; older ones are too stale
 -- to plan crafting around (the recipe shows "?" until the item is seen again).
 K.MAX_PRICE_AGE = 7 * 86400
-local function freshMarket(it)
+local function freshMarket(it, maxAge)
   if not it or not it.mkt then return nil end
   local t = math.max(it.seen or 0, it.imported or 0)
-  if time() - t > K.MAX_PRICE_AGE then return nil end
+  if time() - t > (maxAge or K.MAX_PRICE_AGE) then return nil end
   return it.mkt, t
 end
 
@@ -131,9 +131,13 @@ end
 
 -- What a crafted item really sells for: you'd have to match the cheapest listing,
 -- so it's the lower of the market price and the lowest price right now.
-function K:SellPrice(itemID)
+-- maxAge: only a price seen this recently (seconds; default MAX_PRICE_AGE).
+---@param itemID integer
+---@param maxAge integer?
+---@return number?
+function K:SellPrice(itemID, maxAge)
   local it = FI:Realm().items[itemID]
-  local mkt = freshMarket(it)
+  local mkt = freshMarket(it, maxAge)
   if not mkt then return nil end
   if it.min and it.seen and time() - it.seen < 6 * 3600 then return math.min(mkt, it.min) end
   return mkt
