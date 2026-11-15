@@ -80,11 +80,12 @@ local function panel(card, title, sub)
   f.sub:SetPoint("LEFT", f.title, "RIGHT", 8, 0)
   f.value = W.Text(f, 24, C.up, true)
   f.value:SetPoint("TOPLEFT", 14, -34)
-  f.badge = W.Box(f, C.up, C.up)
+  -- the return on what you spent, as colored text after the amount
+  f.badge = CreateFrame("Frame", nil, f)
   f.badge:SetHeight(20)
   f.badge:SetPoint("LEFT", f.value, "RIGHT", 10, 0)
-  f.badge.text = W.Text(f.badge, 11, C.bg, true)
-  f.badge.text:SetPoint("CENTER")
+  f.badge.text = W.Text(f.badge, 13, C.up, true)
+  f.badge.text:SetPoint("LEFT")
   f.stats = {}
   for i = 1, 3 do
     local st = CreateFrame("Frame", nil, f)
@@ -120,10 +121,17 @@ local function setBadge(b, text, col)
   if not text then b:Hide(); return end
   b:Show()
   b.text:SetText(text)
-  b:SetWidth(b.text:GetStringWidth() + 18)
-  b:SetBackdropColor(col[1], col[2], col[3], 1)
-  b:SetBackdropBorderColor(col[1], col[2], col[3], 1)
+  b.text:SetTextColor(col[1], col[2], col[3])
+  b:SetWidth(b.text:GetStringWidth() + 2)
 end
+
+-- Is this game file there? (true when the client can't say)
+local function hasFile(path)
+  if not GetFileIDFromPath then return true end
+  return GetFileIDFromPath(path) ~= nil
+end
+local GOLD_EDGE = "Interface\\DialogFrame\\UI-DialogBox-Gold-Border"
+local ALERT_ICON = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertNew"
 
 local function buildCard(tab)
   local card = W.Box(tab, C.side, C.gold)
@@ -131,8 +139,16 @@ local function buildCard(tab)
   card:SetPoint("TOPLEFT", 24, -52)
   P.card = card
 
-  local band = W.Tex(card, C.gold, 1, "BORDER")
-  band:SetPoint("TOPLEFT", 1, -1); band:SetPoint("TOPRIGHT", -1, -1); band:SetHeight(4)
+  if card.edge and hasFile(GOLD_EDGE) then
+    -- the game's gold dialog frame (like a quest reward or a gold popup)
+    card:SetBackdrop({ bgFile = W.WHITE, insets = { left = 5, right = 5, top = 5, bottom = 5 } })
+    card:SetBackdropColor(C.side[1], C.side[2], C.side[3], C.side[4] or 1)
+    card.edge:SetBackdrop({ edgeFile = GOLD_EDGE, edgeSize = 24 })
+    card.edge:SetBackdropBorderColor(1, 1, 1, 1)
+  elseif not card.edge then
+    local band = W.Tex(card, C.gold, 1, "BORDER")
+    band:SetPoint("TOPLEFT", 1, -1); band:SetPoint("TOPRIGHT", -1, -1); band:SetHeight(4)
+  end
 
   local brand = W.Text(card, 13, C.gold)
   brand:SetText("GOONBERG TERMINAL")
@@ -359,11 +375,21 @@ function P:Build(parent)
   end)
   fresh:SetScript("OnLeave", GameTooltip_Hide)
   -- trades saved before the quantity fix
-  local note = W.Box(summary, C.raised, C.down)
+  -- an alert icon and a line of text, like the game's own warnings
+  local note = CreateFrame("Frame", nil, summary)
   note:SetPoint("TOPLEFT", 200, -12)
   note:SetHeight(30)
+  if hasFile(ALERT_ICON) then
+    note.icon = note:CreateTexture(nil, "ARTWORK")
+    note.icon:SetTexture(ALERT_ICON)
+  else
+    note.icon = W.Text(note, 16, C.down)
+    note.icon:SetText("!")
+  end
+  note.icon:SetSize(18, 18)
+  note.icon:SetPoint("LEFT", 0, 0)
   note.text = W.Text(note, 11, C.text)
-  note.text:SetPoint("LEFT", 12, 0)
+  note.text:SetPoint("LEFT", note.icon, "RIGHT", 6, 0)
   note.hide = W.Button(note, "Leave them out", nil, 22, "pill")
   note.hide:SetPoint("LEFT", note.text, "RIGHT", 10, 0)
   note.hide:SetScript("OnClick", function()
@@ -494,7 +520,7 @@ function P:Refresh()
       or ("%d trade%s from before 0.25 may have the wrong quantity"):format(old, old == 1 and "" or "s"))
     note.hide:SetLabel(FI.settings.pnlHideOld and "Show them" or "Leave them out")
     note.hide:SetWidth(note.hide.label:GetStringWidth() + 24)
-    note:SetWidth(note.text:GetStringWidth() + note.hide:GetWidth() + 34)
+    note:SetWidth(18 + 6 + note.text:GetStringWidth() + 10 + note.hide:GetWidth())
   end
   local last = FI.Ledger:Data().lastInbox
   if last then

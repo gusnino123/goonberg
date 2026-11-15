@@ -11,6 +11,7 @@ local C = FI.colors
 W.FONT = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
 W.NUMFONT = "Fonts\\ARIALN.TTF"
 local WHITE = "Interface\\Buttons\\WHITE8X8"
+W.WHITE = WHITE
 local NATIVE_BUTTON = "UIPanelButtonTemplate"
 local NATIVE_TAB = "PanelTopTabButtonTemplate"
 local NATIVE_DROPDOWN = "WowStyle1DropdownTemplate"
@@ -37,15 +38,37 @@ function W.Sound(name)
   if id then PlaySound(id) end
 end
 
--- Colors can carry a 4th value, their alpha (the see-through panel colors do)
-function W.Box(parent, bg, border, alpha)
+-- Does the client have the game's own UI pieces? (The flat look is for one without.)
+function W.Native() return W.HasTemplate(NATIVE_BUTTON) end
+
+-- Panels and cards get the game's tooltip edge (rounded, bevelled); the flat look, and
+-- small tags (flat = true), get a 1px line. Colors can carry a 4th value, their alpha
+-- (the see-through panel colors do). The plain border color means the tooltip's grey.
+local PANEL_EDGE = "Interface\\Tooltips\\UI-Tooltip-Border"
+local PANEL_GREY = { 0.62, 0.62, 0.62 }
+function W.Box(parent, bg, border, alpha, flat)
   local f = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-  f:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
   bg = bg or C.panel
   border = border or C.border
-  f:SetBackdropColor(bg[1], bg[2], bg[3], alpha or bg[4] or 1)
-  f:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
   f.isPanel = true -- the layout check (/goon layout) keeps content inside it
+  if flat or not W.Native() then
+    f:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
+    f:SetBackdropColor(bg[1], bg[2], bg[3], alpha or bg[4] or 1)
+    f:SetBackdropBorderColor(border[1], border[2], border[3], border[4] or 1)
+    return f
+  end
+  f:SetBackdrop({ bgFile = WHITE, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
+  f:SetBackdropColor(bg[1], bg[2], bg[3], alpha or bg[4] or 1)
+  -- the edge is its own frame above the panel's content, so a table header or a row
+  -- running to the panel's side can't cover it
+  local edge = CreateFrame("Frame", nil, f, "BackdropTemplate")
+  edge:SetAllPoints()
+  edge:SetFrameLevel(f:GetFrameLevel() + 20)
+  edge:SetBackdrop({ edgeFile = PANEL_EDGE, edgeSize = 14 })
+  local c = border == C.border and PANEL_GREY or border
+  edge:SetBackdropBorderColor(c[1], c[2], c[3], c[4] or 1)
+  f.edge = edge
+  function f:SetBackdropBorderColor(r, g, b, a) self.edge:SetBackdropBorderColor(r, g, b, a) end
   return f
 end
 
@@ -204,16 +227,18 @@ end
 
 -- The game's tabs (the kind that sit on top of a panel), bottoms on the group's bottom
 -- edge. Same interface as W.Choice. A selected tab is disabled, so it can't be re-clicked.
-local function nativeTabs(parent, values, onPick, height)
+local NATIVE_SUBTAB = "TabButtonTemplate"
+local function nativeTabs(parent, values, onPick, height, template)
   local g = CreateFrame("Frame", nil, parent)
   g.buttons, g.native = {}, true
+  local sub = template == NATIVE_SUBTAB
   local x, prev = 0, nil
   for _, v in ipairs(values) do
-    local t = CreateFrame("Button", nil, g, NATIVE_TAB)
+    local t = CreateFrame("Button", nil, g, template or NATIVE_TAB)
     t.native = true
     t:SetText(v)
     t:SetScript("OnShow", function(self)
-      PanelTemplates_TabResize(self, 15, nil, 70)
+      PanelTemplates_TabResize(self, sub and 10 or 15, nil, sub and 60 or 70)
       if self.selected then PanelTemplates_SelectTab(self) else PanelTemplates_DeselectTab(self) end
     end)
     t:GetScript("OnShow")(t)
@@ -225,7 +250,7 @@ local function nativeTabs(parent, values, onPick, height)
     end
     x = x + t:GetWidth()
     t:SetScript("OnClick", function()
-      W.Sound("IG_CHARACTER_INFO_TAB")
+      W.Sound(sub and "IG_MAINMENU_OPTION" or "IG_CHARACTER_INFO_TAB")
       g:Select(v)
       onPick(v)
     end)
@@ -244,10 +269,32 @@ local function nativeTabs(parent, values, onPick, height)
   return g
 end
 
+-- Can the game's small tabs be built and switched here? (tried once: an old client's
+-- tab code wants named frames)
+local subTabsOK
+local function subTabsWork()
+  if subTabsOK == nil then
+    subTabsOK = W.HasTemplate(NATIVE_SUBTAB) and PanelTemplates_TabResize and PanelTemplates_SelectTab
+      and pcall(function()
+        local t = CreateFrame("Button", nil, UIParent, NATIVE_SUBTAB)
+        t:Hide()
+        PanelTemplates_TabResize(t, 10, nil, 60)
+        PanelTemplates_SelectTab(t)
+        PanelTemplates_DeselectTab(t)
+      end) or false
+  end
+  return subTabsOK
+end
+
 -- A group of mutually exclusive buttons. onPick(value)
+-- style: "tab" (the window's tabs), "seg" (a view switch: the game's small tabs), or a
+-- button style for a row of buttons
 function W.Choice(parent, values, style, onPick, height)
   if style == "tab" and W.HasTemplate(NATIVE_TAB) and PanelTemplates_TabResize and PanelTemplates_SelectTab then
     return nativeTabs(parent, values, onPick, height)
+  end
+  if style == "seg" and subTabsWork() then
+    return nativeTabs(parent, values, onPick, height, NATIVE_SUBTAB)
   end
   local native = style ~= "tab" and W.HasTemplate(NATIVE_BUTTON)
   local g = CreateFrame("Frame", nil, parent, "BackdropTemplate")
@@ -279,6 +326,49 @@ function W.Choice(parent, values, style, onPick, height)
     for v, b in pairs(self.buttons) do b:SetSelected(v == value) end
   end
   return g
+end
+
+-- An on/off option: the game's checkbox with its label to the right (click either),
+-- or a pill button in the flat look. onToggle(on). t:SetOn(on), t.on
+function W.Toggle(parent, label, onToggle)
+  if W.Native() and W.HasTemplate("UICheckButtonTemplate") then
+    local t = CreateFrame("Frame", nil, parent)
+    local cb = CreateFrame("CheckButton", nil, t, "UICheckButtonTemplate")
+    cb:SetSize(24, 24)
+    cb:SetPoint("LEFT", -2, 0)
+    local own = cb.Text or cb.text
+    if own then own:SetText("") end
+    t.check = cb
+    t.label = W.Text(t, W.SIZE.label, C.text)
+    t.label:SetPoint("LEFT", cb, "RIGHT", 1, 0)
+    function t:SetLabel(text)
+      self.label:SetText(text)
+      local w = math.ceil(self.label:GetStringWidth() or 0)
+      self:SetSize(22 + 1 + w + 4, 24)
+      cb:SetHitRectInsets(0, -(w + 4), 0, 0) -- the label clicks too
+    end
+    function t:SetOn(on)
+      self.on = on and true or false
+      cb:SetChecked(self.on)
+    end
+    cb:SetScript("OnClick", function(self)
+      W.Sound(self:GetChecked() and "IG_MAINMENU_OPTION_CHECKBOX_ON" or "IG_MAINMENU_OPTION_CHECKBOX_OFF")
+      t.on = self:GetChecked() and true or false
+      onToggle(t.on)
+    end)
+    -- tooltips set on the toggle show from the box as well
+    cb:SetScript("OnEnter", function() local f = t:GetScript("OnEnter"); if f then f(t) end end)
+    cb:SetScript("OnLeave", function() local f = t:GetScript("OnLeave"); if f then f(t) end end)
+    t:SetLabel(label)
+    return t
+  end
+  local b = W.Button(parent, label, nil, 24, "pill")
+  function b:SetOn(on)
+    self.on = on and true or false
+    self:SetSelected(self.on)
+  end
+  b:SetScript("OnClick", function(self) self:SetOn(not self.on); onToggle(self.on) end)
+  return b
 end
 
 -- A dropdown for picking one of several options (a filter, a time frame). It stays the
@@ -487,11 +577,30 @@ function W.RowBg(r, color)
   return t
 end
 
--- The Auction House's own row highlight when the client has it, else a warm tint
-local HOVER_ATLAS = "auctionhouse-ui-row-highlight"
+-- The selected row (the item on the chart, the open recipe): the game's own selection
+-- highlight, else a solid band. Hidden at first, like W.RowBg: SetAlpha(1) to show.
+local SELECT_ATLAS = "auctionhouse-ui-row-select"
+local SELECT_FILE = "Interface\\QuestFrame\\UI-QuestLogTitleHighlight"
 local function hasAtlas(name)
   return C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(name) ~= nil
 end
+function W.RowSelect(r)
+  if not W.Native() then return W.RowBg(r) end
+  local t = r:CreateTexture(nil, "BACKGROUND", nil, 6)
+  t:SetAllPoints()
+  if hasAtlas(SELECT_ATLAS) then
+    t:SetAtlas(SELECT_ATLAS)
+  else
+    t:SetTexture(SELECT_FILE)
+    t:SetVertexColor(1, 0.82, 0.3, 0.55)
+  end
+  t:SetBlendMode("ADD")
+  t:SetAlpha(0)
+  return t
+end
+
+-- The Auction House's own row highlight when the client has it, else a warm tint
+local HOVER_ATLAS = "auctionhouse-ui-row-highlight"
 
 -- The row under the mouse: its plain text (grey or off-white) turns white. Colored text
 -- (green, red, an item's quality) keeps its color, so the meaning stays.
@@ -640,56 +749,101 @@ function W.List(parent, rowCount, rowHeight, makeRow, update)
     self:ScrollTo(self.offset - delta * step)
   end)
 
-  -- Scroll bar on the right: the thumb's size is how much of the list you see, its
-  -- place is where you are. Drag it, or click the track to jump a page.
+  -- Scroll bar on the right. The game's look: arrows at both ends and its knob; the
+  -- flat look: a thin track whose thumb's size is how much of the list you see. Drag
+  -- the thumb, click an arrow for a row, or click the track to jump a page.
+  local native = W.Native()
+  local arrow = native and 12 or 0 -- room each arrow takes at the ends
   local bar = CreateFrame("Button", nil, l)
-  bar:SetPoint("TOPRIGHT", l, "TOPRIGHT", -3, -3)
-  bar:SetPoint("BOTTOMRIGHT", l, "BOTTOMRIGHT", -3, 3)
-  bar:SetWidth(7)
+  bar:SetPoint("TOPRIGHT", l, "TOPRIGHT", native and -1 or -3, native and -1 or -3)
+  bar:SetPoint("BOTTOMRIGHT", l, "BOTTOMRIGHT", native and -1 or -3, native and 1 or 3)
+  bar:SetWidth(native and 12 or 7)
   bar:SetFrameLevel((l:GetFrameLevel() or 1) + 10)
-  bar.track = W.Tex(bar, C.border, 0.55, "BACKGROUND")
-  bar.track:SetAllPoints()
+  bar.track = W.Tex(bar, native and C.bg or C.border, native and 0.6 or 0.55, "BACKGROUND")
+  bar.track:SetPoint("TOPLEFT", 0, -arrow)
+  bar.track:SetPoint("BOTTOMRIGHT", 0, arrow)
   local thumb = CreateFrame("Frame", nil, bar)
-  thumb:SetWidth(7)
-  thumb:SetPoint("TOP", bar, "TOP", 0, 0)
+  thumb:SetWidth(native and 12 or 7)
+  thumb:SetPoint("TOP", bar, "TOP", 0, -arrow)
   thumb:EnableMouse(true)
-  thumb.tex = W.Tex(thumb, C.muted, 0.9, "ARTWORK")
+  if native then
+    thumb.tex = thumb:CreateTexture(nil, "ARTWORK")
+    thumb.tex:SetTexture("Interface\\Buttons\\UI-ScrollBar-Knob")
+    thumb.tex:SetTexCoord(0.2, 0.8, 0.125, 0.875)
+  else
+    thumb.tex = W.Tex(thumb, C.muted, 0.9, "ARTWORK")
+  end
   thumb.tex:SetAllPoints()
+  local function thumbLit(on)
+    if native then
+      local v = on and 1 or 0.85
+      thumb.tex:SetVertexColor(v, v, v)
+    elseif on then
+      thumb.tex:SetColorTexture(C.soft[1], C.soft[2], C.soft[3], 1)
+    else
+      thumb.tex:SetColorTexture(C.muted[1], C.muted[2], C.muted[3], 0.9)
+    end
+  end
+  thumbLit(false)
   bar.thumb = thumb
   l.bar = bar
+  if native then
+    local function arrowButton(dir, step)
+      local b = CreateFrame("Button", nil, bar)
+      b:SetSize(12, 12)
+      b:SetPoint(dir == "Up" and "TOP" or "BOTTOM")
+      local base = "Interface\\Buttons\\UI-ScrollBar-Scroll" .. dir .. "Button-"
+      for _, kind in ipairs({ "Normal", "Pushed", "Disabled", "Highlight" }) do
+        local file = base .. (kind == "Normal" and "Up" or kind == "Pushed" and "Down" or kind)
+        local set = b["Set" .. kind .. "Texture"]
+        if kind == "Highlight" then set(b, file, "ADD") else set(b, file) end
+        local t = b["Get" .. kind .. "Texture"](b)
+        if t then t:SetTexCoord(0.2, 0.8, 0.25, 0.75) end
+      end
+      b:SetScript("OnClick", function() l:ScrollTo(l.offset + step) end)
+      return b
+    end
+    bar.up = arrowButton("Up", -1)
+    bar.down = arrowButton("Down", 1)
+  end
   local function travel()
-    local trackH = bar:GetHeight() or 0
+    local trackH = (bar:GetHeight() or 0) - 2 * arrow
     return trackH, math.max(0, trackH - (thumb:GetHeight() or 0)), math.max(1, l.count - l.visible)
   end
   function l:UpdateBar()
     if self.count <= self.visible then bar:Hide(); return end
     bar:Show()
-    local trackH = bar:GetHeight() or 0
+    if bar.up then
+      bar.up:SetEnabled(self.offset > 0)
+      bar.down:SetEnabled(self.offset < self.count - self.visible)
+    end
+    local trackH = travel()
     if trackH <= 0 then return end
-    thumb:SetHeight(math.max(24, trackH * self.visible / self.count))
+    -- the game's knob keeps its shape; the flat thumb shows how much is in view
+    thumb:SetHeight(native and math.min(18, trackH) or math.max(24, trackH * self.visible / self.count))
     local _, room, maxOff = travel()
     thumb:ClearAllPoints()
-    thumb:SetPoint("TOP", bar, "TOP", 0, -room * math.min(1, self.offset / maxOff))
+    thumb:SetPoint("TOP", bar, "TOP", 0, -arrow - room * math.min(1, self.offset / maxOff))
   end
   local function cursorY()
     local _, y = GetCursorPosition()
     return (y or 0) / ((bar.GetEffectiveScale and bar:GetEffectiveScale()) or 1)
   end
-  thumb:SetScript("OnEnter", function(self) self.tex:SetColorTexture(C.soft[1], C.soft[2], C.soft[3], 1) end)
-  thumb:SetScript("OnLeave", function(self) if not bar.dragging then self.tex:SetColorTexture(C.muted[1], C.muted[2], C.muted[3], 0.9) end end)
+  thumb:SetScript("OnEnter", function() thumbLit(true) end)
+  thumb:SetScript("OnLeave", function() if not bar.dragging then thumbLit(false) end end)
   thumb:SetScript("OnMouseDown", function()
     bar.dragging = { y = cursorY(), offset = l.offset }
   end)
   thumb:SetScript("OnMouseUp", function()
     bar.dragging = nil
-    thumb.tex:SetColorTexture(C.muted[1], C.muted[2], C.muted[3], 0.9)
+    thumbLit(false)
   end)
   bar:SetScript("OnUpdate", function()
     local d = bar.dragging
     if not d then return end
     if IsMouseButtonDown and not IsMouseButtonDown("LeftButton") then
       bar.dragging = nil
-      thumb.tex:SetColorTexture(C.muted[1], C.muted[2], C.muted[3], 0.9)
+      thumbLit(false)
       return
     end
     local _, room, maxOff = travel()
@@ -735,6 +889,20 @@ function W.Chevron(parent)
     end
   end
   return f
+end
+
+-- The open/closed mark on a group row: the quest log's +/- in the game's look, else a
+-- chevron. Same calls as W.Chevron: SetRight() closed, SetDown(true) open.
+local PLUS = "Interface\\Buttons\\UI-PlusButton-Up"
+local MINUS = "Interface\\Buttons\\UI-MinusButton-Up"
+function W.Expander(parent)
+  if not W.Native() then return W.Chevron(parent) end
+  local t = parent:CreateTexture(nil, "ARTWORK")
+  t:SetSize(14, 14)
+  t:SetTexture(PLUS)
+  function t:SetRight() self:SetTexture(PLUS) end
+  function t:SetDown(down) self:SetTexture(down and MINUS or PLUS) end
+  return t
 end
 
 -- cols: { key, label, x = offset from the left edge | r = offset from the right edge

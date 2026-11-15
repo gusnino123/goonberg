@@ -66,7 +66,7 @@ local function setColor(fs, c) fs:SetTextColor(c[1], c[2], c[3]) end
 
 local function makeRow(parent)
   local r = CreateFrame("Button", nil, parent)
-  r.bg = W.RowBg(r) -- the selected recipe
+  r.bg = W.RowSelect(r) -- the selected recipe
   r.sub = W.RowBg(r, C.bg) -- a darker band under an expanded recipe's reagents
   local line = W.Tex(r, C.border, 0.6, "BORDER")
   line:SetPoint("BOTTOMLEFT"); line:SetPoint("BOTTOMRIGHT"); line:SetHeight(1)

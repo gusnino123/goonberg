@@ -65,7 +65,7 @@ local function window()
     f.native = true
     return f
   end
-  local f = W.Box(UIParent, { 0.06, 0.06, 0.06 }, C.border)
+  local f = W.Box(UIParent, { 0.06, 0.06, 0.06 }, C.border, nil, true)
   _G.GoonbergTerminalFrame = f
   W.Shadow(f)
   local title = W.Text(f, 13, C.gold)

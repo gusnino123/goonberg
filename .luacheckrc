@@ -39,7 +39,7 @@ read_globals = {
   -- Blizzard templates and their helpers (the native look)
   "C_XMLUtil", "DoesTemplateExist", "GameFontNormal", "GameFontHighlight",
   "PanelTemplates_TabResize", "PanelTemplates_SelectTab", "PanelTemplates_DeselectTab",
-  "SetPortraitTextureFromCreatureDisplayID", "MenuUtil", "CreateFont", "C_Texture",
+  "SetPortraitTextureFromCreatureDisplayID", "MenuUtil", "CreateFont", "C_Texture", "GetFileIDFromPath",
 
   -- Player, realm, chat
   "UnitName", "UnitExists", "UnitGUID", "UnitFactionGroup", "GetRealmName", "GetCurrentRegion",

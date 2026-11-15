@@ -89,10 +89,12 @@ local function makeRow(parent)
   -- a dungeon's header row in the Items view
   r.gBg = W.Tex(r, C.raised, 1, "BACKGROUND")
   r.gBg:SetAllPoints()
-  r.gBar = W.Tex(r, C.gold, 1, "BORDER")
-  r.gBar:SetPoint("TOPLEFT"); r.gBar:SetPoint("BOTTOMLEFT"); r.gBar:SetWidth(3)
-  r.gArrow = W.Chevron(r)
-  r.gArrow:SetPoint("LEFT", 14, 0)
+  if not W.Native() then -- the game's look marks a group with +/- alone
+    r.gBar = W.Tex(r, C.gold, 1, "BORDER")
+    r.gBar:SetPoint("TOPLEFT"); r.gBar:SetPoint("BOTTOMLEFT"); r.gBar:SetWidth(3)
+  end
+  r.gArrow = W.Expander(r)
+  r.gArrow:SetPoint("LEFT", W.Native() and 10 or 14, 0)
   r.gName = W.Text(r, 13, C.gold)
   r.gName:SetPoint("LEFT", 32, 0)
   r.gLevel = W.Text(r, 12, C.soft)
@@ -186,7 +188,8 @@ local function makeRow(parent)
 end
 
 local function showGroup(r, on)
-  r.gBg:SetShown(on); r.gBar:SetShown(on); r.gArrow:SetShown(on)
+  r.gBg:SetShown(on); r.gArrow:SetShown(on)
+  if r.gBar then r.gBar:SetShown(on) end
   r.gName:SetShown(on); r.gLevel:SetShown(on); r.gInfo:SetShown(on)
   r.name:SetShown(not on)
 end
@@ -380,6 +383,26 @@ function T:Build(parent)
   self.footer:SetPoint("BOTTOMLEFT", 14, 10)
   self.footer:SetPoint("RIGHT", -14, 0)
   self.footer:SetJustifyH("LEFT")
+  self.footer:SetWordWrap(false)
+  -- what the counts mean, on hover (the line itself stays short so it fits)
+  local why = CreateFrame("Frame", nil, tbl)
+  why:SetPoint("BOTTOMLEFT", 1, 1)
+  why:SetPoint("BOTTOMRIGHT", -1, 1)
+  why:SetHeight(28)
+  why:EnableMouse(true)
+  why:SetScript("OnEnter", function(f)
+    GameTooltip:SetOwner(f, "ANCHOR_TOP")
+    if T.view == "Dungeons" then
+      GameTooltip:AddLine("Gold per clear")
+      GameTooltip:AddLine("The average value of a run's sellable boss drops, at AH prices.", 0.82, 0.82, 0.82, true)
+    else
+      GameTooltip:AddLine("Where the drop chances come from")
+      GameTooltip:AddLine("WoW Forever's loot tables, plus boss kills seen by you and guildmates running Goonberg.", 0.82, 0.82, 0.82, true)
+      GameTooltip:AddLine("Only Bind on Equip and unbound drops are listed: what you can sell on the AH.", 0.55, 0.58, 0.64, true)
+    end
+    GameTooltip:Show()
+  end)
+  why:SetScript("OnLeave", GameTooltip_Hide)
 
   tab.Refresh = function() T:Refresh() end
   self.rows = {}
@@ -489,13 +512,14 @@ function T:Refresh()
     self.empty:SetText("Nothing matches these filters.")
   end
   if dungeons then
-    self.footer:SetText(("%d dungeon%s  ·  gold per clear = average value of sellable boss drops at AH prices"):format(#rows, #rows == 1 and "" or "s"))
+    self.footer:SetText(("%d dungeon%s  ·  gold per clear: the average value of a run's sellable boss drops"):format(#rows, #rows == 1 and "" or "s"))
   else
     local items = 0
     for _, g in ipairs(self.groups or {}) do items = items + g.count end
-    self.footer:SetText(("%d item%s in %d dungeon%s, lowest level first  ·  Bind on Equip and unbound drops only  ·  chances: WoW Forever loot tables + %s kills by you and your guild%s")
-      :format(items, items == 1 and "" or "s", #(self.groups or {}), #(self.groups or {}) == 1 and "" or "s",
-        FI.Number(kills), (L.pendingItems or 0) > 0 and ("  ·  loading %d items"):format(L.pendingItems) or ""))
+    local pending = L.pendingItems or 0
+    self.footer:SetText(("%s%d item%s in %d dungeon%s, lowest level first  ·  BoE and unbound drops  ·  %s boss kills counted")
+      :format(pending > 0 and ("Loading %d item%s  ·  "):format(pending, pending == 1 and "" or "s") or "",
+        items, items == 1 and "" or "s", #(self.groups or {}), #(self.groups or {}) == 1 and "" or "s", FI.Number(kills)))
     local anyOpen = false
     for _, g in ipairs(self.groups or {}) do if self:IsOpen(g) then anyOpen = true end end
     self.collapseAll:SetLabel(anyOpen and "Collapse all" or "Expand all")

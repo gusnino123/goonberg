@@ -158,8 +158,8 @@ function O:Build(parent)
     card(tab, "Goonberg Index", true),
     card(tab, "Est. Gold Traded"),
     card(tab, "Listings on AH"),
-    card(tab, "TOP GAINER"),
-    card(tab, "TOP LOSER"),
+    card(tab, "Top Gainer"),
+    card(tab, "Top Loser"),
   }
   self.cards = cards
   cards[1]:SetPoint("TOPLEFT", 16, -16)

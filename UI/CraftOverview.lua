@@ -101,7 +101,7 @@ function K:BuildOverview(tab)
     card(f, "Profitable Now"),
     card(f, "Median Margin"),
     card(f, "Daily Profit Pool"),
-    card(f, "CRAFTS SOLD, 7 DAYS"),
+    card(f, "Crafts Sold, 7 Days"),
   }
   cards[1]:SetPoint("TOPLEFT", 16, 0)
   for i = 2, 5 do cards[i]:SetPoint("TOPLEFT", cards[i - 1], "TOPRIGHT", 12, 0) end
@@ -115,7 +115,7 @@ function K:BuildOverview(tab)
   f.cards = cards
 
   -- margin chart (14 days)
-  local chart = section(f, "MEDIAN MARGIN OF YOUR RECIPES, LAST 14 DAYS")
+  local chart = section(f, "Median Margin of Your Recipes, Last 14 Days")
   chart:SetPoint("TOPLEFT", 16, -90)
   chart:SetSize(520, 206)
   f.chartBox = chart

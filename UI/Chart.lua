@@ -66,7 +66,7 @@ local function buildWatchlist(tab)
   local list = W.List(listHolder, 24, 44, function(parent)
     local r = CreateFrame("Button", nil, parent)
     r:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    r.bg = W.RowBg(r) -- the item on the chart
+    r.bg = W.RowSelect(r) -- the item on the chart
     r.line = W.Tex(r, C.border, 1, "BORDER")
     r.line:SetPoint("TOPLEFT"); r.line:SetPoint("TOPRIGHT"); r.line:SetHeight(1)
     r.icon = r:CreateTexture(nil, "ARTWORK")
@@ -151,11 +151,12 @@ local function buildCenter(tab)
   price:SetPoint("BOTTOMLEFT", icon, "BOTTOMRIGHT", 12, -4)
   tab.price = price
 
-  local pill = W.Box(center, C.up, C.up)
+  -- the change, as colored text next to the price (green up, red down)
+  local pill = CreateFrame("Frame", nil, center)
   pill:SetHeight(20)
   pill:SetPoint("LEFT", price, "RIGHT", 10, 0)
-  pill.text = W.Text(pill, 12, C.bg, true)
-  pill.text:SetPoint("CENTER")
+  pill.text = W.Text(pill, 15, C.up, true)
+  pill.text:SetPoint("LEFT")
   tab.pill = pill
 
   local tfLabel = W.Text(center, 11, C.muted)
@@ -163,12 +164,11 @@ local function buildCenter(tab)
   tfLabel:SetPoint("RIGHT", center, "RIGHT", -PAD, 0)
   tab.tfLabel = tfLabel
 
-  local watchBtn = W.Button(center, "+ Watch", 96, 26, "pill")
-  watchBtn:SetPoint("TOPRIGHT", -PAD, -PAD)
-  watchBtn:SetScript("OnClick", function()
+  local watchBtn = W.Toggle(center, "Watch", function(on)
     if not T.itemID then return end
-    if FI.Alerts:IsWatched(T.itemID) then FI.Alerts:Unwatch(T.itemID) else FI.Alerts:Watch(T.itemID) end
+    if on then FI.Alerts:Watch(T.itemID) else FI.Alerts:Unwatch(T.itemID) end
   end)
+  watchBtn:SetPoint("TOPRIGHT", -PAD, -PAD)
   tab.watchBtn = watchBtn
 
   -- (timeframes live in the chart's own top bar, so the title row never overlaps)
@@ -185,7 +185,7 @@ local function buildCenter(tab)
 
   -- Stats row
   local stats = {}
-  local labels = { "HIGH", "LOW", "Listed Now", "Est. Sold" }
+  local labels = { "High", "Low", "Listed Now", "Est. Sold" }
   for i = 1, 4 do
     local s = statBox(center)
     s.label:SetText(labels[i])
@@ -322,10 +322,9 @@ end
 
 local function setChange(tab, v)
   local c = FI.ChangeColor(v)
-  tab.pill:SetBackdropColor(c[1], c[2], c[3], 1)
-  tab.pill:SetBackdropBorderColor(c[1], c[2], c[3], 1)
+  tab.pill.text:SetTextColor(c[1], c[2], c[3])
   tab.pill.text:SetText(v and FI.Percent(v) or "new")
-  tab.pill:SetWidth(tab.pill.text:GetStringWidth() + 14)
+  tab.pill:SetWidth(tab.pill.text:GetStringWidth() + 2)
 end
 
 -- The chart grows with the window: whatever height the stats row doesn't need
@@ -375,8 +374,10 @@ function T:DrawDepth(it)
       r.qty:SetText(FI.Number(q))
       r.cum:SetText(FI.Number(cum))
       r.bar:SetWidth(math.max(1, q / qmax * r:GetWidth()))
-      local col = (i * 2 == wallI) and C.gold or C.down
-      r.bar:SetColorTexture(col[1], col[2], col[3], (i * 2 == wallI) and 0.3 or 0.2)
+      local wall = i * 2 == wallI
+      r.bar:SetColorTexture(C.down[1], C.down[2], C.down[3], wall and 0.42 or 0.2)
+      local qc = wall and C.gold or C.text
+      r.qty:SetTextColor(qc[1], qc[2], qc[3])
       r:Show()
     else
       r:Hide()
@@ -428,8 +429,7 @@ function T:Refresh()
   end
   local it = realm.items[id]
   tab.watchBtn:Show()
-  tab.watchBtn:SetSelected(FI.Alerts:IsWatched(id))
-  tab.watchBtn:SetLabel(FI.Alerts:IsWatched(id) and "Watching" or "+ Watch")
+  tab.watchBtn:SetOn(FI.Alerts:IsWatched(id))
   tab.icon:SetTexture(FI:ItemIcon(id))
   tab.name:SetText(FI:ItemName(id))
   tab.name:SetTextColor(FI:ItemQualityColor(id))

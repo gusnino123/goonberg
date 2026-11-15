@@ -81,10 +81,12 @@ local function makeRow(parent)
   r.bg = W.RowBg(r) -- a faint band behind each position (its steps sit under it)
   local rule = W.Tex(r, C.border, 0.6, "BORDER")
   rule:SetPoint("BOTTOMLEFT"); rule:SetPoint("BOTTOMRIGHT"); rule:SetHeight(1)
-  r.bar = W.Tex(r, C.gold, 1, "BORDER")
-  r.bar:SetPoint("TOPLEFT"); r.bar:SetPoint("BOTTOMLEFT"); r.bar:SetWidth(3)
-  r.arrow = W.Chevron(r)
-  r.arrow:SetPoint("LEFT", 14, 0)
+  if not W.Native() then -- the game's look marks an open position with its "-" alone
+    r.bar = W.Tex(r, C.gold, 1, "BORDER")
+    r.bar:SetPoint("TOPLEFT"); r.bar:SetPoint("BOTTOMLEFT"); r.bar:SetWidth(3)
+  end
+  r.arrow = W.Expander(r)
+  r.arrow:SetPoint("LEFT", W.Native() and 10 or 14, 0)
   r.name = W.Text(r, 12, C.text)
   r.name:SetPoint("LEFT", 32, 0)
   r.name:SetPoint("RIGHT", r, "RIGHT", -644, 0)
@@ -160,7 +162,7 @@ local function updateRow(r, i)
   r.row = row
   clear(r)
   local pos = row.kind == "pos"
-  r.bar:SetShown(pos and V.expanded[key(row.g)] or false)
+  if r.bar then r.bar:SetShown(pos and V.expanded[key(row.g)] or false) end
   r.arrow:SetShown(pos)
   r.bg:SetAlpha(pos and 0.25 or 0)
   local g = row.g
