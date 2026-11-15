@@ -325,6 +325,61 @@ function H.Candles(it, now, span, n)
   return out
 end
 
+-- Candles on a fixed time grid: each candle covers [t, t + slot) with t a multiple
+-- of `slot` (offset by `tz` so daily candles start at local midnight). Because the
+-- grid doesn't move with the view, panning slides candles instead of re-grouping
+-- them. The whole history is built once per candle size and cached until new data
+-- arrives; drawing then only picks the visible ones (see H.CandleRange).
+-- Each candle: { t, o, hi, lo, c, v } (open = previous close, like a stock chart).
+local seriesCache = setmetatable({}, { __mode = "k" })
+function H.CandleSeries(it, slot, tz)
+  local h = it.h or {}
+  tz = tz or 0
+  local sig = #h .. ":" .. (h[#h - STRIDE + 1] or 0) .. ":" .. (h[#h - STRIDE + 2] or 0) .. ":" .. tz
+  local byItem = seriesCache[it]
+  if not byItem then byItem = {}; seriesCache[it] = byItem end
+  local cached = byItem[slot]
+  if cached and cached.sig == sig then return cached.list end
+  local list, cur, prev = {}, nil, nil
+  for i = 1, #h, STRIDE do
+    local t, m, s = h[i], h[i + 1], h[i + 3]
+    local b = math.floor((t + tz) / slot) * slot - tz
+    if not cur or cur.t ~= b then
+      if cur and cur.c then list[#list + 1] = cur; prev = cur.c end
+      cur = { t = b, v = 0 }
+      if prev then cur.o, cur.hi, cur.lo, cur.c = prev, prev, prev, nil end
+    end
+    cur.v = cur.v + (s or 0)
+    if m > 0 then
+      if not cur.o then cur.o, cur.hi, cur.lo = m, m, m end
+      cur.c = m
+      if m > cur.hi then cur.hi = m end
+      if m < cur.lo then cur.lo = m end
+    elseif prev and not cur.c then
+      cur.c = prev -- sold out all slot: flat at the last price
+    end
+  end
+  if cur and cur.c then list[#list + 1] = cur end
+  byItem[slot] = { sig = sig, list = list }
+  return list
+end
+
+-- The candles of a series that touch [from, to] (binary search, no copying of the rest)
+function H.CandleRange(list, from, to, slot)
+  local lo, hi = 1, #list + 1
+  while lo < hi do
+    local mid = math.floor((lo + hi) / 2)
+    if list[mid].t + slot <= from then lo = mid + 1 else hi = mid end
+  end
+  local out = {}
+  for i = lo, #list do
+    local c = list[i]
+    if c.t >= to then break end
+    out[#out + 1] = c
+  end
+  return out, lo
+end
+
 -- The span of history an item has, for the "All" timeframe
 function H.Span(it, now)
   local h = it.h or {}

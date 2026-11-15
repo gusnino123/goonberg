@@ -14,7 +14,8 @@ local W = FI.Widgets
 local C = FI.colors
 
 local AXIS_W, VOL_H, TOP_BAR, LEGEND_H = 72, 44, 34, 18
-local MIN_SPAN = 900
+local MIN_SPAN = 3 * 3600
+local CANDLE_PX = 8 -- target width of one candle (body + gap)
 local MA_COLORS = { { 0.40, 0.68, 1.00 }, { 0.75, 0.55, 0.98 } } -- MA 7, MA 25
 local REF_USUAL, REF_LOW = { 0.55, 0.62, 0.72 }, { 0.25, 0.71, 0.55 }
 
@@ -25,17 +26,37 @@ V.PRESETS = {
 local PRESET_SPAN = {}
 for _, p in ipairs(V.PRESETS) do PRESET_SPAN[p[1]] = p[2] end
 
--- Candle width for a span: at most 48 candles, never finer than 5 minutes
-local SLOTS = { 300, 900, 1800, 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400, 2 * 86400, 7 * 86400 }
-local function slotFor(span)
-  for _, s in ipairs(SLOTS) do if span / s <= 48 then return s end end
+-- Candle size: the finest that keeps candles about CANDLE_PX wide on this chart
+local SLOTS = { 300, 600, 900, 1800, 3600, 2 * 3600, 3 * 3600, 4 * 3600, 6 * 3600, 8 * 3600, 12 * 3600,
+  86400, 2 * 86400, 3 * 86400, 7 * 86400 }
+local function slotFor(span, width)
+  local most = math.max(20, math.floor((width or 400) / CANDLE_PX))
+  for _, s in ipairs(SLOTS) do if span / s <= most then return s end end
   return SLOTS[#SLOTS]
 end
+local function slotName(s)
+  if s < 3600 then return (s / 60) .. "-minute" end
+  if s < 86400 then return (s / 3600) .. "-hour" end
+  if s == 7 * 86400 then return "weekly" end
+  return s == 86400 and "daily" or ((s / 86400) .. "-day")
+end
+-- local time zone offset, so daily candles and labels start at your midnight
+local function tzOffset()
+  local now = time()
+  local u = date("!*t", now)
+  u.isdst = date("*t", now).isdst
+  return now - time(u)
+end
+-- time axis: the tick spacing that gives about 5 labels
+local TICKS = { 900, 1800, 3600, 2 * 3600, 3 * 3600, 6 * 3600, 12 * 3600, 86400, 2 * 86400, 7 * 86400, 14 * 86400, 30 * 86400 }
 
-local function timeLabel(t, span)
-  if span <= 86400 then return date("%H:%M", t) end
-  if span <= 14 * 86400 then return date("%a %H:%M", t) end
-  return date("%b %d", t)
+-- an axis label for a tick: hours within a day, the day at midnight and for day ticks
+local function timeLabel(t, span, tick)
+  tick = tick or 3600
+  if tick >= 86400 then return date(span <= 14 * 86400 and "%a %d" or "%b %d", t) end
+  local d = date("*t", t)
+  if d.hour == 0 and d.min == 0 then return date("%a %d", t) end
+  return date("%H:%M", t)
 end
 
 local function setTex(t, col, a) t:SetColorTexture(col[1], col[2], col[3], a or 1) end
@@ -104,11 +125,21 @@ function V:Create(parent, opts)
   plot:EnableMouse(true)
   plot:EnableMouseWheel(true)
   view.plot = plot
+  -- candles are drawn on a canvas the plot clips, so ones half off the edge while
+  -- panning are cut cleanly instead of spilling over the axis
+  if plot.SetClipsChildren then plot:SetClipsChildren(true) end
+  local canvas = CreateFrame("Frame", nil, plot)
+  canvas:SetAllPoints()
+  view.canvas = canvas
   view:LayoutBar()
   local vol = CreateFrame("Frame", nil, box)
   vol:SetPoint("TOPLEFT", plot, "BOTTOMLEFT", 0, -6)
   vol:SetPoint("TOPRIGHT", plot, "BOTTOMRIGHT", 0, -6)
   vol:SetHeight(VOL_H - 6)
+  if vol.SetClipsChildren then vol:SetClipsChildren(true) end
+  local volCanvas = CreateFrame("Frame", nil, vol)
+  volCanvas:SetAllPoints()
+  view.volCanvas = volCanvas
   local volLine = W.Tex(vol, C.border)
   volLine:SetPoint("TOPLEFT"); volLine:SetPoint("TOPRIGHT"); volLine:SetHeight(1)
   view.vol = vol
@@ -120,12 +151,18 @@ function V:Create(parent, opts)
   view.empty:SetWidth(380)
 
   local function tex(p, layer) return function() return p:CreateTexture(nil, layer or "ARTWORK") end end
-  view.candles = W.Pool(tex(plot))
-  view.vols = W.Pool(tex(vol))
-  view.grid = W.Pool(tex(plot, "BACKGROUND"))
+  view.candles = W.Pool(tex(canvas))
+  view.vols = W.Pool(tex(volCanvas))
+  view.grid = W.Pool(tex(canvas, "BACKGROUND"))
   view.labels = W.Pool(function() return W.Text(box, 10, C.muted, true) end)
   view.xlabels = W.Pool(function() return W.Text(box, 10, C.muted) end)
-  view.lines = W.Pool(function() return W.Line(plot, C.gold, 1.5) or plot:CreateTexture() end)
+  view.lines = W.Pool(function() return W.Line(canvas, C.gold, 1.5) or canvas:CreateTexture() end)
+  -- how to use it, always in view (bottom-left, under the time axis)
+  view.hint = W.Text(box, 10, C.muted)
+  view.hint:SetPoint("BOTTOMLEFT", 14, 4)
+  view.hint:SetText("Scroll to zoom  ·  drag to move  ·  double-click to reset  ·  right-click to set a price alert")
+  view.slotText = W.Text(box, 10, C.muted)
+  view.slotText:SetPoint("BOTTOMRIGHT", -14, 4)
   view.tags = W.Pool(function()
     local f = W.Box(box, C.up, C.up)
     f:SetHeight(18)
@@ -209,16 +246,27 @@ function V:Draw()
   self.tfChoice:Select(not self.customSpan and self.preset or nil)
   self.nowBtn:SetShown(self.offset > 0)
 
+  local plot = self.plot
+  local PW, PH = plot:GetWidth(), plot:GetHeight()
+  if not PW or PW < 10 then PW = 400 end
+  if not PH or PH < 10 then PH = 220 end
+  self.PW, self.PH = PW, PH
+
   local span = self:Span(it, now)
   local maxSpan = self:MaxSpan(it, now)
   self.offset = math.max(0, math.min(self.offset, maxSpan))
   local endT = now - self.offset
-  local slot = slotFor(span)
-  local n = math.max(1, math.ceil(span / slot))
-  span = n * slot
-  self.endT, self.span, self.n = endT, span, n
-  local candles = (it and it.h) and FI.History.Candles(it, endT, span, n) or {}
+  local startT = endT - span
+  local slot = slotFor(span, PW)
+  self.tz = self.tz or tzOffset()
+  self.endT, self.span, self.slot, self.n = endT, span, slot, span / slot
+  local series = (it and it.h) and FI.History.CandleSeries(it, slot, self.tz) or {}
+  -- the visible candles plus one each side, so lines run to the edges
+  local candles, first = FI.History.CandleRange(series, startT - slot, endT + slot, slot)
   self.data = candles
+  -- MAs need the candles just before the window too
+  self.series, self.seriesFirst = series, first
+  self.slotText:SetText(slotName(slot) .. " candles")
 
   local info = { span = span, offset = self.offset, candles = #candles }
   if #candles == 0 then
@@ -229,21 +277,20 @@ function V:Draw()
     return
   end
   self.empty:Hide()
-
-  local plot = self.plot
-  local PW, PH = plot:GetWidth(), plot:GetHeight()
-  if not PW or PW < 10 then PW = 400 end
-  if not PH or PH < 10 then PH = 220 end
-  self.PW, self.PH = PW, PH
+  local function xOf(t) return (t - startT) / span * PW end
+  self.xOf = xOf
 
   -- Price range: candles, plus MAs, reference and alert lines that are close by
   local hi, lo, vmax = -math.huge, math.huge, 0
   local closes = {}
   for i, c in ipairs(candles) do
-    hi, lo = math.max(hi, c.hi), math.min(lo, c.lo)
-    vmax = math.max(vmax, c.v)
+    if c.t + slot > startT and c.t < endT then
+      hi, lo = math.max(hi, c.hi), math.min(lo, c.lo)
+      vmax = math.max(vmax, c.v)
+    end
     closes[i] = c.c
   end
+  if hi < lo then for _, c in ipairs(candles) do hi, lo = math.max(hi, c.hi), math.min(lo, c.lo) end end
   local extras = {}
   local w = FI:Realm().watch[self.itemID]
   if w and w.below then extras[#extras + 1] = { w.below, "alert", "below" } end
@@ -276,27 +323,39 @@ function V:Draw()
     l:SetPoint("LEFT", plot, "BOTTOMRIGHT", 8, y(p))
     l:SetText(FI.Money(p))
   end
-  -- Time axis: 4 labels
-  local startT = endT - span
-  for k = 0, 3 do
-    local x = PW * (k + 0.5) / 4
-    local l = self.xlabels:Get()
-    l:ClearAllPoints()
-    l:SetPoint("TOP", self.vol, "BOTTOMLEFT", x, -4)
-    l:SetText(timeLabel(startT + span * (k + 0.5) / 4, span))
+  -- Time axis: labels on round times (midnight, 6:00...), sliding with the chart
+  local tick = TICKS[#TICKS]
+  for _, st in ipairs(TICKS) do if span / st <= 5 then tick = st; break end end
+  local tz = self.tz
+  local t0 = math.ceil((startT + tz) / tick) * tick - tz
+  for t = t0, endT, tick do
+    local x = xOf(t)
+    if x > 20 and x < PW - 20 then
+      local l = self.xlabels:Get()
+      l:ClearAllPoints()
+      l:SetPoint("TOP", self.vol, "BOTTOMLEFT", x, -4)
+      l:SetText(timeLabel(t, span, tick))
+      local g = self.grid:Get()
+      setTex(g, C.border, 0.35)
+      g:ClearAllPoints()
+      g:SetPoint("TOPLEFT", plot, "TOPLEFT", math.floor(x), 0)
+      g:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", math.floor(x), 0)
+      g:SetWidth(1)
+    end
   end
 
   -- Candles / line / area, and volume
-  local slotW = PW / n
-  local bw = math.max(2, math.floor(slotW * 0.6))
+  local slotW = slot / span * PW
+  -- tight candles: 70% of the slot, always at least a 1-pixel gap between them
+  local bw = math.max(1, math.min(math.floor(slotW * 0.7 + 0.5), math.floor(slotW) - 1))
   local pts = {}
-  for i, c in ipairs(candles) do
-    local x = c.slot * slotW + slotW / 2
+  for _, c in ipairs(candles) do
+    local x = xOf(c.t + slot / 2)
     c.x = x
     local col = c.c >= c.o and C.up or C.down
     if self.style == "Candles" then
       local wick = self.candles:Get()
-      setTex(wick, col)
+      setTex(wick, col, 0.9)
       wick:ClearAllPoints()
       wick:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", math.floor(x), y(c.lo))
       wick:SetSize(1, math.max(1, y(c.hi) - y(c.lo)))
@@ -304,12 +363,12 @@ function V:Draw()
       setTex(body, col)
       body:ClearAllPoints()
       body:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", math.floor(x - bw / 2 + 0.5), y(math.min(c.o, c.c)))
-      body:SetSize(bw, math.max(2, math.abs(y(c.o) - y(c.c))))
+      body:SetSize(bw, math.max(1, math.abs(y(c.o) - y(c.c))))
     else
       pts[#pts + 1] = { x, y(c.c) }
       if self.style == "Area" then
         local col2 = self.candles:Get()
-        setTex(col2, C.gold, 0.12)
+        setTex(col2, C.gold, 0.10)
         col2:ClearAllPoints()
         col2:SetPoint("BOTTOMLEFT", plot, "BOTTOMLEFT", math.floor(x - slotW / 2 + 0.5), 0)
         col2:SetSize(math.max(1, math.ceil(slotW)), math.max(1, y(c.c)))
@@ -317,7 +376,7 @@ function V:Draw()
     end
     if c.v > 0 and vmax > 0 then
       local v = self.vols:Get()
-      setTex(v, col, 0.4)
+      setTex(v, col, 0.35)
       v:ClearAllPoints()
       v:SetPoint("BOTTOMLEFT", self.vol, "BOTTOMLEFT", math.floor(x - bw / 2 + 0.5), 0)
       v:SetSize(bw, math.max(1, c.v / vmax * (VOL_H - 10)))
@@ -334,18 +393,26 @@ function V:Draw()
       end
     end
   end
-  if #pts > 0 then polyline(pts, C.gold, 2) end
+  if #pts > 0 then polyline(pts, C.gold, 1.5) end
 
-  -- Moving averages over the visible candles
+  -- Moving averages: computed over the whole series, so they start at the left edge
   local maNow = {}
   if self.showMA then
+    local series, f = self.series, self.seriesFirst
     for k, len in ipairs({ 7, 25 }) do
       local mpts = {}
-      for i, c in ipairs(candles) do
-        local m = sma(closes, len, i)
-        if m then mpts[#mpts + 1] = { c.x, y(m) }; maNow[k] = m end
+      local sum, from = 0, math.max(1, f - len + 1)
+      for i = from, f + #candles - 1 do
+        sum = sum + series[i].c
+        if i - len >= from then sum = sum - series[i - len].c end
+        if i - from + 1 >= len and i >= f then
+          local c = series[i]
+          local m = sum / len
+          mpts[#mpts + 1] = { c.x or xOf(c.t + slot / 2), y(m) }
+          if c.t < endT then maNow[k] = m end
+        end
       end
-      polyline(mpts, MA_COLORS[k], 1.2)
+      polyline(mpts, MA_COLORS[k], 1)
     end
   end
   self.maNow = maNow
@@ -385,23 +452,29 @@ function V:Draw()
       hline(e[1], REF_LOW, "TYPICAL LOW " .. FI.Money(e[1]), true, 0.5)
     end
   end
-  local last, first = candles[#candles].c, candles[1].o
+  local vis = {}
+  for _, c in ipairs(candles) do if c.t + slot > startT and c.t < endT then vis[#vis + 1] = c end end
+  if #vis == 0 then vis = candles end
+  local last, first = vis[#vis].c, vis[1].o
   hline(last, last >= first and C.up or C.down, FI.Money(last), false)
 
   -- Summary for the header (and the legend when not hovering)
   local sold, wHi, wLo = 0, -math.huge, math.huge
-  for _, c in ipairs(candles) do sold = sold + c.v; wHi = math.max(wHi, c.hi); wLo = math.min(wLo, c.lo) end
+  for _, c in ipairs(vis) do sold = sold + c.v; wHi = math.max(wHi, c.hi); wLo = math.min(wLo, c.lo) end
   info.first, info.last, info.sold, info.hi, info.lo = first, last, sold, wHi, wLo
   info.change = first > 0 and (last - first) / first * 100 or nil
   info.startT, info.endT = startT, endT
   self.info = info
+  self.drawn = (self.drawn or 0) + 1
   self:Legend(nil)
   if self.opts.onDraw then self.opts.onDraw(info) end
 end
 
 -- Legend: the candle under the cursor, or the latest one
 function V:Legend(c)
-  c = c or (self.data and self.data[#self.data])
+  if not c and self.data then
+    for i = #self.data, 1, -1 do if self.data[i].t < (self.endT or math.huge) then c = self.data[i]; break end end
+  end
   if not c then self.legend:SetText(""); return end
   local chg = c.o > 0 and (c.c - c.o) / c.o * 100 or nil
   local col = (c.c >= c.o) and "ff3fb68b" or "fff0613a"
@@ -435,16 +508,22 @@ function V:PriceAtY(py)
   return self.lo + (py / self.PH) * (self.hi - self.lo)
 end
 
-function V:UpdateCrosshair()
+function V:UpdateCrosshair(force)
   if not self.data or #self.data == 0 or not self.PW then return self:HideCrosshair() end
   local x, py = self:Cursor()
+  -- nothing moved since the last frame: nothing to do
+  if not force and x == self.cx and py == self.cy and self.drawn == self.cDrawn then return end
+  self.cx, self.cy, self.cDrawn = x, py, self.drawn
   if x < 0 or x > self.PW or py < 0 or py > self.PH then return self:HideCrosshair() end
-  -- snap to the nearest candle
-  local best, bd
-  for _, c in ipairs(self.data) do
-    local d = math.abs((c.x or 0) - x)
-    if not bd or d < bd then best, bd = c, d end
+  -- snap to the candle under the cursor (they're in time order: binary search)
+  local data = self.data
+  local lo, hi = 1, #data
+  while lo < hi do
+    local mid = math.floor((lo + hi) / 2)
+    if (data[mid].x or 0) < x then lo = mid + 1 else hi = mid end
   end
+  local best = data[lo]
+  if lo > 1 and math.abs((data[lo - 1].x or 0) - x) < math.abs((best.x or 0) - x) then best = data[lo - 1] end
   local plot = self.plot
   self.vline:ClearAllPoints()
   self.vline:SetPoint("TOPLEFT", plot, "TOPLEFT", math.floor(best.x), 0)
@@ -456,11 +535,12 @@ function V:UpdateCrosshair()
   self.priceTag:SetWidth(self.priceTag.text:GetStringWidth() + 12)
   self.priceTag:ClearAllPoints()
   self.priceTag:SetPoint("LEFT", plot, "BOTTOMRIGHT", 4, py)
-  local t = self.endT - self.span + (best.slot + 0.5) * self.span / self.n
-  self.timeTag.text:SetText(date(self.span <= 86400 and "%H:%M" or "%b %d %H:%M", t))
-  self.timeTag:SetWidth(self.timeTag.text:GetStringWidth() + 12)
+  if self.hover ~= best then
+    self.timeTag.text:SetText(date(self.slot < 86400 and "%b %d %H:%M" or "%a %b %d", best.t))
+    self.timeTag:SetWidth(self.timeTag.text:GetStringWidth() + 12)
+  end
   self.timeTag:ClearAllPoints()
-  self.timeTag:SetPoint("TOP", self.vol, "BOTTOMLEFT", best.x, -2)
+  self.timeTag:SetPoint("TOP", self.vol, "BOTTOMLEFT", math.max(30, math.min(self.PW - 30, best.x)), -2)
   self.vline:Show(); self.hline:Show(); self.priceTag:Show(); self.timeTag:Show()
   if self.hover ~= best then
     self.hover = best
@@ -468,7 +548,7 @@ function V:UpdateCrosshair()
   end
 end
 
--- Zoom the time range around the cursor (wheel up = closer)
+-- Zoom the time range around the cursor (wheel up = closer), in small steps
 function V:Zoom(delta)
   local it = self:Item()
   if not it or not self.PW then return end
@@ -477,10 +557,17 @@ function V:Zoom(delta)
   local span = self.span or self:Span(it, now)
   local startT = (self.endT or now) - span
   local anchor = startT + x / self.PW * span
-  local newSpan = math.max(MIN_SPAN, math.min(self:MaxSpan(it, now) * 1.1, span * (delta > 0 and 0.75 or 1.33)))
+  local newSpan = math.max(MIN_SPAN, math.min(self:MaxSpan(it, now) * 1.1, span * (delta > 0 and 0.85 or 1 / 0.85)))
   local newEnd = anchor + (1 - x / self.PW) * newSpan
   self.customSpan = newSpan
   self.offset = math.max(0, now - newEnd)
+  self:Draw()
+end
+
+-- Double-click: back to the timeframe you picked, ending now
+function V:Reset()
+  self.customSpan = nil
+  self.offset = 0
   self:Draw()
 end
 
@@ -499,14 +586,21 @@ function V:Hook()
       view:Draw()
       return
     end
-    -- grab an alert line if the cursor is on it, otherwise pan
+    local t = GetTime()
+    if view.lastClick and t - view.lastClick < 0.35 then
+      view.lastClick = nil
+      view.panX = nil
+      return view:Reset()
+    end
+    view.lastClick = t
+    -- grab an alert line if the cursor is on it, otherwise move the chart
     for _, a in ipairs(view.alertYs or {}) do
       if math.abs(view.y(a.price) - py) <= 5 then
         view.dragAlert = a.dir
         return
       end
     end
-    view.panX, view.panOffset = x, view.offset
+    view.panX, view.panOffset, view.panSpan = x, view.offset, view.span
   end)
   plot:SetScript("OnMouseUp", function()
     if view.dragAlert then
@@ -519,28 +613,21 @@ function V:Hook()
     view.panX = nil
   end)
   plot:SetScript("OnLeave", function() view:HideCrosshair(); view:Legend(nil) end)
-  local acc = 0
-  plot:SetScript("OnUpdate", function(_, e)
+  plot:SetScript("OnUpdate", function()
     if view.panX then
-      acc = acc + e
-      if acc > 0.04 then
-        acc = 0
-        local x = view:Cursor()
-        local newOffset = view.panOffset + (x - view.panX) / view.PW * view.span
-        if math.abs(newOffset - view.offset) > view.span / view.n / 2 then
-          view.offset = math.max(0, newOffset)
+      -- follow the mouse every frame it moves: the chart slides with it
+      local x = view:Cursor()
+      if x ~= view.panLastX then
+        view.panLastX = x
+        if math.abs(x - view.panX) > 2 then view.lastClick = nil end -- a drag isn't half a double-click
+        local newOffset = math.max(0, view.panOffset + (x - view.panX) / view.PW * (view.panSpan or view.span))
+        if newOffset ~= view.offset then
+          view.offset = newOffset
           view:Draw()
         end
       end
     end
     if plot:IsMouseOver() then view:UpdateCrosshair() elseif view.hover then view:HideCrosshair(); view:Legend(nil) end
-  end)
-  plot:SetScript("OnEnter", function()
-    GameTooltip:SetOwner(plot, "ANCHOR_NONE")
-    GameTooltip:SetPoint("BOTTOMLEFT", plot, "TOPLEFT", 0, 4)
-    GameTooltip:AddLine("|cff8b95a3Scroll to zoom, drag to pan, right-click to set a price alert, drag an alert line to move it.|r", 1, 1, 1, true)
-    GameTooltip:Show()
-    C_Timer.After(2.5, function() if GameTooltip:GetOwner() == plot then GameTooltip_Hide() end end)
   end)
 end
 

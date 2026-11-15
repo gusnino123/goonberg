@@ -1,5 +1,13 @@
 # Goonberg Terminal
 
+## 0.27.0 - Smoother, tighter charts
+
+- **Tighter candles.** Candle size now follows the chart's width (about 8 px per candle) instead of a fixed 48 at most: a week is 3-hour candles instead of 6-hour ones. Bodies are thinner with a gap between every candle, and lines and moving averages are thinner too.
+- **Dragging is smooth.** The chart follows the mouse every frame instead of jumping a half candle at a time, and candles sit on fixed clock times (2:00, 4:00, ...) so they slide instead of regrouping while you move. Candles at the edges are cut cleanly.
+- **Finer zoom.** Each scroll step zooms 15% (was 25-33%), around the cursor.
+- **Faster.** Candles are built once per size and reused until new prices arrive; the crosshair does no work while the mouse is still.
+- **Easier to use.** Double-click the chart to go back to the timeframe you picked, ending now. The controls are always shown under the chart, along with the candle size. Time labels sit on round times (midnight, 6:00...) and slide with the chart; moving averages start at the left edge.
+
 ## 0.26.2 - Imported prices no longer replace your scans
 
 - **Fixed: crafting (and anything else using the current price) could show a price far below the AH.** Auctionator only keeps the lowest single listing it saw each day. When it had a day you hadn't scanned, that one listing (often a cheap auction bought right away) became the item's current price, so Heavy Hide could show 2s while the AH was at 12s. Imported days still go into the history and charts, but they only become the current price when you (or a guildmate) haven't scanned the item in the last 2 days. Prices already replaced this way are restored from your own scan the first time you log in.
