@@ -58,6 +58,21 @@ for _, p in ipairs(ESSENCE_PAIRS) do greaterOf[p[1]] = p[2]; lesserOf[p[2]] = p[
 -- Slots that can't be disenchanted even though they're "armor"
 local NOT_DISENCHANTABLE = { INVTYPE_BODY = true, INVTYPE_TABARD = true, INVTYPE_BAG = true, INVTYPE_QUIVER = true }
 
+-- Some gear can't be disenchanted at all (Greater Magic Wand, PvP rewards, ...):
+-- FI.NoDisenchant (Disenchant/NoDE.lua) lists them from the classic item data.
+-- WoW Forever can differ, so what you find out in game wins: a disenchant that works
+-- clears an item, "Item cannot be disenchanted" blocks it (saved in FI.db.deLearned).
+function D:Learned(itemID)
+  local l = FI.db and FI.db.deLearned
+  return l and l[itemID]
+end
+
+function D:CanDisenchant(itemID)
+  local learned = self:Learned(itemID)
+  if learned ~= nil then return learned end
+  return not (FI.NoDisenchant and FI.NoDisenchant[itemID])
+end
+
 local function band(list, level)
   for _, row in ipairs(list) do if level <= row[1] then return row end end
 end
@@ -66,6 +81,7 @@ end
 -- These never change for an item, so they're worked out once and cached
 -- (false = "can't be disenchanted"; items whose info isn't loaded yet aren't cached).
 local resultsCache = {}
+function D:ForgetCache() resultsCache = {} end
 function D:Results(itemID)
   local c = resultsCache[itemID]
   if c ~= nil then return c or nil end
@@ -75,6 +91,7 @@ function D:Results(itemID)
 end
 
 function D:ComputeResults(itemID)
+  if not self:CanDisenchant(itemID) then return nil, true end
   local _, _, _, equipLoc, _, classID = FI.GetItemInfoInstant(itemID)
   if classID ~= 2 and classID ~= 4 then return nil, true end -- not gear: never
   if equipLoc and NOT_DISENCHANTABLE[equipLoc] then return nil, true end
@@ -150,3 +167,47 @@ function D:Materials()
   list[#list + 1] = NEXUS
   return list
 end
+
+-- ---------------------------------------------------------------------------
+-- Learning from the game. Disenchant is cast, then you click the item: we note
+-- which item you clicked while a spell was waiting for a target, then see whether
+-- the disenchant went through or the game said it can't be disenchanted.
+-- ---------------------------------------------------------------------------
+local DISENCHANT = 13262
+local target
+local function noteTarget(bag, slot)
+  if not (SpellIsTargeting and SpellIsTargeting()) then return end
+  local id = C_Container and C_Container.GetContainerItemID and C_Container.GetContainerItemID(bag, slot)
+    or (GetContainerItemID and GetContainerItemID(bag, slot))
+  if id then target = { id = id, t = GetTime() } end
+end
+if hooksecurefunc then
+  if C_Container then
+    if C_Container.PickupContainerItem then hooksecurefunc(C_Container, "PickupContainerItem", noteTarget) end
+    if C_Container.UseContainerItem then hooksecurefunc(C_Container, "UseContainerItem", noteTarget) end
+  end
+  if PickupContainerItem then hooksecurefunc("PickupContainerItem", noteTarget) end
+  if UseContainerItem then hooksecurefunc("UseContainerItem", noteTarget) end
+end
+
+function D:Learn(itemID, can)
+  if not itemID or not FI.db then return end
+  FI.db.deLearned = FI.db.deLearned or {}
+  if FI.db.deLearned[itemID] == can then return end
+  FI.db.deLearned[itemID] = can
+  self:ForgetCache()
+  FI:Fire("FI_DISENCHANT_LEARNED", itemID, can)
+end
+
+FI:On("UNIT_SPELLCAST_SUCCEEDED", function(_, unit, _, spellID)
+  if unit ~= "player" or spellID ~= DISENCHANT then return end
+  if target and GetTime() - target.t < 30 then D:Learn(target.id, true) end
+  target = nil
+end)
+FI:On("UI_ERROR_MESSAGE", function(_, _, msg)
+  local cant = _G.SPELL_FAILED_CANT_BE_DISENCHANTED or "Item cannot be disenchanted"
+  if msg == cant and target and GetTime() - target.t < 5 then
+    D:Learn(target.id, false)
+    target = nil
+  end
+end)

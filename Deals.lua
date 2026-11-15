@@ -320,3 +320,8 @@ end
 FI:On("FI_SCAN_DONE", function()
   FI:Debounce("deals", 2, function() DL:Run(alert) end)
 end)
+
+-- Found out an item can't be disenchanted (or can): search again without alerts
+FI:On("FI_DISENCHANT_LEARNED", function()
+  FI:Debounce("deals", 1, function() DL:Run() end)
+end)

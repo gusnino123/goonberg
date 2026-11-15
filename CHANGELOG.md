@@ -1,5 +1,10 @@
 # Goonberg Terminal
 
+## 0.25.1
+
+- **Disenchant deals only list items that can be disenchanted.** Some gear can't be disenchanted at all (Greater/Lesser Magic and Mystic Wands, the Twilight Cultist set, PvP rewards, ...). Goonberg Terminal now knows all 1,350 of them from the classic item data (Blizzard's "no disenchant" flag plus items with no disenchant loot), so they no longer show as Disenchant deals or get a disenchant value in tooltips. Checked against every one of the 10,540 weapons and armor pieces in the game: none that can't be disenchanted is listed.
+- **Learns from WoW Forever.** If a disenchant works on an item, or the game says "Item cannot be disenchanted", Goonberg Terminal remembers it and the Deals tab updates. That covers anything Forever does differently.
+
 ## 0.25.0 - P&L accuracy fixes
 
 **Fixed (these made P&L numbers wrong):**
