@@ -19,7 +19,7 @@ function L:Data()
   return d
 end
 
--- entries: flat list of { t, kind ("sale"|"buy"), item, qty, gross, fee, deal }
+-- entries: flat list of { t, kind ("sale"|"buy"|"craft"|"use"), item, qty, gross, fee, deal }
 -- deal = true: a purchase of something you'd just opened from the Deals tab
 local DEAL_WINDOW = 3 * DAY
 function L:TagDeal(d, e)
@@ -121,6 +121,9 @@ function L:RecordCraft(itemID, qty, t)
   end
   local d = self:Data()
   d.entries[#d.entries + 1] = { t = t or time(), k = "craft", i = FI:ItemName(itemID), q = qty, r = used }
+  -- the materials leaving your bags were this craft, not "used"
+  self.craftCredit, self.craftCreditAt = self.craftCredit or {}, time()
+  for _, m in ipairs(used) do self.craftCredit[m[1]] = (self.craftCredit[m[1]] or 0) + m[2] end
   FI:Fire("FI_LEDGER_CHANGED")
   return true
 end
@@ -134,6 +137,107 @@ FI:On("CHAT_MSG_LOOT", function(_, msg)
   local id = link and tonumber(link:match("item:(%d+)"))
   if id then L:RecordCraft(id, tonumber(n) or 1) end
 end)
+
+-- ---------------------------------------------------------------------------
+-- Used: things you bought on the AH and then used yourself (drank, ate, equipped,
+-- used up in an enchant, disenchanted, destroyed). We watch your bags and worn gear:
+-- when a bought item goes away while no vendor, bank, mailbox, trade or AH window is
+-- open (and it wasn't a craft's materials), it was used. It stops counting as unsold
+-- "holding" and shows as Used in the P&L instead. Equipping counts as using; taking
+-- gear off and on again doesn't count twice.
+-- ---------------------------------------------------------------------------
+local busy = {}
+local OPENS = { MERCHANT_SHOW = "vendor", BANKFRAME_OPENED = "bank", MAIL_SHOW = "mail", TRADE_SHOW = "trade",
+  AUCTION_HOUSE_SHOW = "ah", GUILDBANKFRAME_OPENED = "gbank" }
+local CLOSES = { MERCHANT_CLOSED = "vendor", BANKFRAME_CLOSED = "bank", MAIL_CLOSED = "mail", TRADE_CLOSED = "trade",
+  AUCTION_HOUSE_CLOSED = "ah", GUILDBANKFRAME_CLOSED = "gbank" }
+local USE_DELAY = 2 -- seconds: lets a craft's "You create" message arrive first
+
+local function nameOf(id, link)
+  return (id and FI:ItemName(id)) or (link and link:match("%[(.-)%]"))
+end
+
+-- what you're carrying and wearing, by item name
+function L:Carried()
+  local c = { bag = {}, worn = {} }
+  if C_Container and C_Container.GetContainerNumSlots then
+    for bag = 0, 4 do
+      for slot = 1, C_Container.GetContainerNumSlots(bag) do
+        local info = C_Container.GetContainerItemInfo(bag, slot)
+        local name = info and nameOf(info.itemID, info.hyperlink)
+        if name then c.bag[name] = (c.bag[name] or 0) + (info.stackCount or 1) end
+      end
+    end
+  end
+  if GetInventoryItemID then
+    for slot = 1, 19 do
+      local id = GetInventoryItemID("player", slot)
+      local name = id and nameOf(id, GetInventoryItemLink and GetInventoryItemLink("player", slot))
+      if name then c.worn[name] = (c.worn[name] or 0) + 1 end
+    end
+  end
+  return c
+end
+
+-- names you've ever bought on the AH (only those can be "used")
+function L:Bought()
+  local d = self:Data()
+  if not self.boughtSet or self.boughtN ~= #d.entries then
+    local set = {}
+    for _, e in ipairs(d.entries) do if e.k == "buy" then set[e.i] = true end end
+    self.boughtSet, self.boughtN = set, #d.entries
+  end
+  return self.boughtSet
+end
+
+function L:CheckUsed()
+  if next(busy) then self.carried = nil; return end -- moving things around: start fresh after
+  if (CursorHasItem and CursorHasItem()) or (InCombatLockdown and InCombatLockdown()) then
+    FI:Debounce("ledgerUse", USE_DELAY, function() L:CheckUsed() end) -- try again shortly
+    return
+  end
+  local now, before = self:Carried(), self.carried
+  self.carried = now
+  if not before then return end
+  local credit = self.craftCredit or {}
+  if self.craftCreditAt and time() - self.craftCreditAt > 15 then credit = {}; self.craftCredit = nil end
+  local bought, gone = self:Bought(), {}
+  for name in pairs(bought) do
+    local b, n = before.bag[name] or 0, now.bag[name] or 0
+    local bw, nw = before.worn[name] or 0, now.worn[name] or 0
+    local drop = (b + bw) - (n + nw)                 -- left you entirely
+    if drop > 0 and credit[name] then
+      local c = math.min(drop, credit[name])
+      drop, credit[name] = drop - c, credit[name] - c
+    end
+    local use = math.max(0, drop) + math.max(0, nw - bw) -- plus newly put on
+    if use > 0 then gone[name] = use end
+  end
+  if not next(gone) then return end
+  -- only units you still had from the AH (not farmed copies)
+  local open = self:Summary(0, "flips").open
+  local d, added = self:Data(), 0
+  for name, use in pairs(gone) do
+    local q = math.min(use, open[name] or 0)
+    if q > 0 then
+      d.entries[#d.entries + 1] = { t = time(), k = "use", i = name, q = q }
+      added = added + 1
+    end
+  end
+  if added > 0 then FI:Fire("FI_LEDGER_CHANGED") end
+end
+
+for ev, key in pairs(OPENS) do FI:On(ev, function() busy[key] = true; L.carried = nil end) end
+for ev, key in pairs(CLOSES) do
+  FI:On(ev, function()
+    busy[key] = nil
+    -- what came out of the mail or bank is yours now: take stock once it has landed
+    C_Timer.After(1, function() if not next(busy) then L.carried = L:Carried() end end)
+  end)
+end
+FI:On("BAG_UPDATE_DELAYED", function() FI:Debounce("ledgerUse", USE_DELAY, function() L:CheckUsed() end) end)
+FI:On("PLAYER_EQUIPMENT_CHANGED", function() FI:Debounce("ledgerUse", USE_DELAY, function() L:CheckUsed() end) end)
+FI:On("PLAYER_ENTERING_WORLD", function() C_Timer.After(3, function() L.carried = L:Carried() end) end)
 
 FI:On("MAIL_INBOX_UPDATE", function()
   FI:Debounce("ledger", 0.5, function() L:ReadInbox() end)
@@ -156,7 +260,7 @@ function L:Summary(since, mode)
 
   if mode == "all" then
     for _, e in ipairs(d.entries) do
-      if e.t >= since and e.k ~= "craft" then -- crafts move no money
+      if e.t >= since and e.k ~= "craft" and e.k ~= "use" then -- crafts and uses move no money
         local per = s.items[e.i] or { net = 0 }
         s.items[e.i] = per
         if e.k == "sale" then
@@ -179,10 +283,10 @@ function L:Summary(since, mode)
     -- the period: a sale this week can use stock bought last month
     local list = {}
     for _, e in ipairs(d.entries) do list[#list + 1] = e end
-    local ORDER = { buy = 1, craft = 2, sale = 3 }
+    local ORDER = { buy = 1, craft = 2, use = 3, sale = 4 }
     table.sort(list, function(x, y)
       if x.t ~= y.t then return x.t < y.t end
-      return (ORDER[x.k] or 3) < (ORDER[y.k] or 3)
+      return (ORDER[x.k] or 4) < (ORDER[y.k] or 4)
     end)
     -- your own materials (not bought on the AH): at market price, or free
     local ownAtMarket = (FI.settings and FI.settings.ownMats or "market") ~= "free"
@@ -190,6 +294,7 @@ function L:Summary(since, mode)
     local farmItems = {}
     s.farmGross, s.farmFees, s.dealSales, s.dealNet, s.dealCost = 0, 0, 0, 0, 0
     s.craftSales, s.craftNet, s.craftCost, s.crafts, s.craftCostOf, s.craftOf = 0, 0, 0, 0, {}, {}
+    s.used, s.uses, s.usedUnits, s.usedOf, s.usedCostOf = 0, 0, 0, {}, {}
     local function take(name, need)
       local cost, got = 0, 0
       local queue = lots[name]
@@ -223,6 +328,13 @@ function L:Summary(since, mode)
         table.insert(lots[e.i], { q, cost / q, nil, true })
         s.craftCostOf[e] = cost
         if e.t >= since then s.crafts = s.crafts + 1 end
+      elseif e.k == "use" then
+        -- used it yourself: what it cost leaves "holding", but it isn't a loss on a flip
+        local cost, got = take(e.i, q)
+        s.usedOf[e], s.usedCostOf[e] = got, cost
+        if e.t >= since and got > 0 then
+          s.used, s.uses, s.usedUnits = s.used + cost, s.uses + 1, s.usedUnits + got
+        end
       elseif e.k == "sale" then
         local need, cost, got, dealGot, dealCost, craftGot, craftCost = q, 0, 0, 0, 0, 0, 0
         local queue = lots[e.i]
@@ -277,10 +389,12 @@ function L:Summary(since, mode)
       if not s.farmTop or v > s.farmTop.net then s.farmTop = { name = name, net = v } end
     end
     -- bought and not sold yet (any time): their cost
-    for _, queue in pairs(lots) do
+    s.open = {}
+    for name, queue in pairs(lots) do
       for _, lot in ipairs(queue) do
         s.holding = s.holding + lot[1] * lot[2]
         s.holdingUnits = s.holdingUnits + lot[1]
+        s.open[name] = (s.open[name] or 0) + lot[1]
       end
     end
     for _, e in ipairs(d.entries) do

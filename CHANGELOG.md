@@ -1,5 +1,12 @@
 # Goonberg Terminal
 
+## 0.23.0
+
+- **Tracks what you buy on the AH and then use yourself.** Drink a potion, equip a piece of gear, burn mats on an enchant or disenchant something you bought, and the P&L logs it as **Used** (with what those units cost you) instead of leaving it in "holding" forever. Uses don't count against your flipping profit.
+  - Only units you actually bought count: if you had 5 bought potions and 3 farmed ones, drinking all 8 logs 5.
+  - Putting things in the bank, mailing, trading, vendoring or posting on the AH isn't "using". Neither is crafting (that's already a craft), holding an item on the cursor, or taking gear off and back on.
+  - New **Used** filter in Recent trades; the Flipping panel shows "Used yourself" next to what you're still holding.
+
 ## 0.22.2
 
 - **Crafting page updates properly.** Clicking a profession on the crafting overview now also moves the highlight on the profession buttons, so the buttons and the recipe list always agree. Newly learned recipes and professions show up without reopening the window.

@@ -219,7 +219,7 @@ local function buildSide(tab)
 
   local head = W.Heading(side, "RECENT TRADES")
   head:SetPoint("TOPLEFT", 14, -132)
-  local show = W.Choice(side, { "All", "Flips", "Farmed", "Bought" }, "pill", function(v) P.show = v; P:Refresh() end, 22)
+  local show = W.Choice(side, { "All", "Flips", "Farmed", "Bought", "Used" }, "pill", function(v) P.show = v; P:Refresh() end, 22)
   show:SetPoint("TOPLEFT", 14, -148)
   show:Select(P.show)
 
@@ -256,16 +256,20 @@ local function buildSide(tab)
     local sale = e.k == "sale"
     local KINDS = {
       flip = { "Flip", C.up }, farmed = { "Farmed", C.soft }, part = { "Flip+", C.up }, crafted = { "Crafted", C.up },
-      buy = { "Bought", C.down }, deal = { "Deal", C.gold }, made = { "Made", C.gold },
+      buy = { "Bought", C.down }, deal = { "Deal", C.gold }, made = { "Made", C.gold }, used = { "Used", C.soft },
     }
     local c = KINDS[kind][2]
     r.kind:SetText(KINDS[kind][1])
     r.kind:SetTextColor(c[1], c[2], c[3])
     r.item:SetText((e.q and e.q > 1) and (e.i .. " x" .. e.q) or e.i)
     r.item:SetTextColor(C.text[1], C.text[2], C.text[3])
-    if kind == "made" then
-      -- a craft moves no gold: show what its materials cost (muted)
-      local cost = P.summary and P.summary.craftCostOf[e]
+    if kind == "made" or kind == "used" then
+      -- a craft or a use moves no gold: show what it cost you (muted)
+      local s = P.summary
+      local cost = s and (kind == "made" and s.craftCostOf[e] or s.usedCostOf[e])
+      if kind == "used" and s and (s.usedOf[e] or 0) ~= (e.q or 1) then
+        r.item:SetText((s.usedOf[e] or 0) > 1 and (e.i .. " x" .. s.usedOf[e]) or e.i)
+      end
       r.amt:SetText(cost and FI.Coins(cost) or "")
       r.amt:SetTextColor(C.muted[1], C.muted[2], C.muted[3])
     else
@@ -286,7 +290,7 @@ local function buildSide(tab)
   note:SetPoint("BOTTOMLEFT", 14, 14)
   note:SetPoint("RIGHT", -14, 0)
   note:SetWordWrap(true)
-  note:SetText("Flip: bought on the AH first. Made: a craft (its materials' cost). Crafted: sold after crafting. Deal: from the Deals tab.")
+  note:SetText("Flip: bought on the AH first. Made: a craft (its materials' cost). Crafted: sold after crafting. Deal: from the Deals tab. Used: bought, then used yourself.")
 end
 
 function P:Build(parent)
@@ -308,6 +312,7 @@ end
 -- from your materials), farmed, buy, deal, made (a craft)
 function P:Kind(e)
   if e.k == "craft" then return "made" end
+  if e.k == "use" then return "used" end
   if e.k ~= "sale" then return e.deal and "deal" or "buy" end
   local s = self.summary
   local got = s and s.flipOf[e] or 0
@@ -350,18 +355,23 @@ function P:Refresh()
   else
     f.line1:SetText("No flips sold yet: buy low on the AH, sell it again.")
   end
-  local lines = {}
-  if s.craftSales > 0 then
-    lines[#lines + 1] = ("Crafted: %d sale%s |cff%s%s|r%s"):format(s.craftSales, s.craftSales == 1 and "" or "s",
-      s.craftNet >= 0 and "3fb68b" or "f0603a", (s.craftNet >= 0 and "+" or "-") .. FI.Money(math.abs(s.craftNet)),
-      s.craftRoi and ("  (" .. FI.Percent(s.craftRoi) .. ")") or "")
+  -- line 2: crafted and Deals-tab results; line 3: what you used yourself and still hold
+  local function res(v, roi)
+    return ("|cff%s%s|r%s"):format(v >= 0 and "3fb68b" or "f0603a", (v >= 0 and "+" or "-") .. FI.Money(math.abs(v)),
+      roi and ("  (" .. FI.Percent(roi) .. ")") or "")
   end
+  local lines, results = {}, {}
+  -- both: just the gold; one alone also gets its count and ROI
+  if s.craftSales > 0 then results[#results + 1] = "Crafted: " .. res(s.craftNet) end
+  if s.dealSales > 0 then results[#results + 1] = "Deals tab: " .. res(s.dealNet) end
+  if #results == 1 then
+    -- room for the count too
+    results[1] = s.craftSales > 0 and ("Crafted: %d sale%s "):format(s.craftSales, s.craftSales == 1 and "" or "s") .. res(s.craftNet, s.craftRoi)
+      or ("Deals tab: %d flip%s "):format(s.dealSales, s.dealSales == 1 and "" or "s") .. res(s.dealNet, s.dealRoi)
+  end
+  if #results > 0 then lines[#lines + 1] = table.concat(results, "  ·  ") end
   local parts = {}
-  if s.dealSales > 0 then
-    parts[#parts + 1] = ("Deals tab: %d flip%s |cff%s%s|r%s"):format(s.dealSales, s.dealSales == 1 and "" or "s",
-      s.dealNet >= 0 and "3fb68b" or "f0603a", (s.dealNet >= 0 and "+" or "-") .. FI.Money(math.abs(s.dealNet)),
-      s.dealRoi and ("  (" .. FI.Percent(s.dealRoi) .. ")") or "")
-  end
+  if s.uses > 0 then parts[#parts + 1] = ("Used yourself |cffaab4c0%s|r"):format(FI.Money(s.used)) end
   if s.holdingUnits > 0 then parts[#parts + 1] = ("holding |cffe8b84a%s|r unsold"):format(FI.Money(s.holding)) end
   if #parts > 0 then lines[#lines + 1] = table.concat(parts, "  ·  ") end
   if #lines == 0 then lines[1] = "Profit = what you sold for, minus the AH cut and what those units cost." end
@@ -385,14 +395,20 @@ function P:Refresh()
 
   local recent = {}
   local want = ({ Flips = { flip = true, part = true, crafted = true, made = true }, Farmed = { farmed = true, part = true },
-    Bought = { buy = true, deal = true } })[self.show]
+    Bought = { buy = true, deal = true }, Used = { used = true } })[self.show]
   for _, e in ipairs(FI.Ledger:Data().entries) do
-    if e.t >= from and (not want or want[self:Kind(e)]) then recent[#recent + 1] = e end
+    local shown = e.k ~= "use" or (s.usedOf[e] or 0) > 0 -- a use of farmed copies isn't listed
+    if shown and e.t >= from and (not want or want[self:Kind(e)]) then recent[#recent + 1] = e end
   end
   -- in the order picked by the headers (amount: what it added or cost you)
   local st = self.tradeSort
   local get = ({
-    amount = function(e) return e.k == "sale" and (e.g - e.f) or -e.g end,
+    amount = function(e)
+      if e.k == "sale" then return e.g - e.f end
+      if e.k == "use" then return -(P.summary.usedCostOf[e] or 0) end
+      if e.k == "craft" then return -(P.summary.craftCostOf[e] or 0) end
+      return -(e.g or 0)
+    end,
     k = function(e) return P:Kind(e) end,
   })[st.sort]
   W.SortRows(recent, st.sort, st.dir, get)
