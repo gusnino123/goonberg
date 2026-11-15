@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.27.1
+
+- **No more deal pop-ups when a guildmate scans.** Their prices still update the Deals tab, quietly; the "new deals" pop-up (and its sound) only comes after your own scans. Want them back? `/goon deals guildalerts on` (`off` to undo). Price alerts you set on an item are unchanged.
+
 ## 0.27.0 - Smoother, tighter charts
 
 - **Tighter candles.** Candle size now follows the chart's width (about 8 px per candle) instead of a fixed 48 at most: a week is 3-hour candles instead of 6-hour ones. Bodies are thinner with a gap between every candle, and lines and moving averages are thinner too.

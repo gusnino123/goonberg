@@ -386,8 +386,16 @@ end
 
 -- After a scan (yours or a guildmate's), wait for things to settle, then search once.
 -- Several guild scans arriving together cause one search, not several.
-FI:On("FI_SCAN_DONE", function()
-  FI:Debounce("deals", 2, function() DL:Run(alert) end)
+-- Pop-ups only come from your own scans: a guildmate's scan updates the Deals tab
+-- quietly (/goon deals guildalerts on brings their pop-ups back).
+local ownScan = false
+FI:On("FI_SCAN_DONE", function(_, _, from)
+  if from == nil or FI.settings.guildDealAlerts then ownScan = true end
+  FI:Debounce("deals", 2, function()
+    local loud = ownScan
+    ownScan = false
+    DL:Run(loud and alert or nil)
+  end)
 end)
 
 -- Found out an item can't be disenchanted (or can): search again without alerts

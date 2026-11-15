@@ -361,6 +361,7 @@ end
 ---@field importAuctionator boolean?
 ---@field minimapButton boolean?
 ---@field dealAlerts boolean?
+---@field guildDealAlerts boolean? pop-ups after a guildmate's scan too (off by default)
 ---@field dealAlertGold integer?   copper
 ---@field rareAlerts boolean?
 ---@field rarePct number?          0.20 = 20% under the usual price
@@ -582,6 +583,11 @@ SlashCmdList.GOONBERG = function(msg)
     if arg == "alert on" or arg == "alert off" then
       FI.settings.dealAlerts = arg == "alert on"
       return FI:Print("Deal alerts are now %s.", arg:sub(7))
+    end
+    if arg == "guildalerts on" or arg == "guildalerts off" then
+      FI.settings.guildDealAlerts = arg == "guildalerts on" or nil
+      return FI:Print("Deal pop-ups after a guildmate's scan are now %s. (Your own scans always %s.)",
+        arg:sub(13), FI.settings.dealAlerts == false and "stay quiet: deal alerts are off" or "pop up")
     end
     local gold = arg:match("^alert%s+([%d%.]+)")
     if gold then
