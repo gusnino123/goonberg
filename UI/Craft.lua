@@ -15,14 +15,29 @@ local TOP = 90 -- the table starts below two rows of controls
 -- numbers hang off the table's right edge (r = right side of the column)
 local COLS = {
   { key = "cost", label = "COST", r = -372 },
-  { key = "sell", label = "SELLS FOR", r = -276 },
-  { key = "profit", label = "PROFIT", r = -184 },
+  { key = "sell", label = "AH PRICE", r = -276 },
+  { key = "profit", label = "PROFIT*", r = -184 },
   { key = "margin", label = "MARGIN", r = -100 },
   { key = "sold", label = "SOLD/DAY", r = -14 },
 }
 local NAME_RIGHT = -440
 
 local function money(v) return v and FI.Coins(v) or "-" end
+-- how old a price is, short: "5 h", "3 d"
+local function age(t)
+  if not t then return nil end
+  local a = time() - t
+  if a < 3600 then return math.max(1, math.floor(a / 60)) .. " min" end
+  if a < 86400 then return math.floor(a / 3600) .. " h" end
+  return math.floor(a / 86400) .. " d"
+end
+-- a recipe whose prices aren't current: "· prices 3 d old" / "· not on the AH now"
+local function staleNote(row)
+  if row.unlisted then return "  |cffe8b84a· none listed now|r" end
+  if (row.unlistedMats or 0) > 0 then return "  |cffe8b84a· a material isn't listed now|r" end
+  if row.oldest and time() - row.oldest > 86400 then return ("  |cffe8b84a· prices %s old|r"):format(age(row.oldest)) end
+  return ""
+end
 -- a cost with unpriced reagents: "?" alone if nothing is priced yet
 local function costText(row)
   if row.missing > 0 then
@@ -89,6 +104,7 @@ local function makeRow(parent)
     if id then
       GameTooltip:SetOwner(self, "ANCHOR_CURSOR_RIGHT")
       GameTooltip:SetItemByID(id)
+      if self.e.kind == "recipe" then K:AddBreakdown(self.e.row) end
       GameTooltip:AddLine(self.e.kind == "recipe" and "|cff8b95a3Click to show what it takes to craft.|r" or "|cff8b95a3Click to open its chart.|r")
       GameTooltip:Show()
     end
@@ -119,6 +135,36 @@ local function clearCells(r)
   for _, fs in pairs(r.cells) do fs:SetText(""); setColor(fs, C.text) end
 end
 
+-- The numbers behind a recipe, for its tooltip
+function K:AddBreakdown(row)
+  local soft = C.soft
+  local function line(l, v, c)
+    c = c or C.text
+    GameTooltip:AddDoubleLine(l, v, soft[1], soft[2], soft[3], c[1], c[2], c[3])
+  end
+  GameTooltip:AddLine(" ")
+  if row.noSell then
+    line("AH price", "not seen on the AH", C.muted)
+  else
+    local n = row.rec.n
+    line(n == 1 and "AH price" or ("AH price (%s made)"):format(n % 1 == 0 and n or ("%.1f"):format(n)), FI.Money(row.ahValue))
+    line("AH cut (5%)", "-" .. FI.Money(row.cut), C.down)
+    line("You get", FI.Money(row.sell))
+  end
+  line("Materials", row.missing > 0 and (FI.Money(row.cost) .. " + ?") or FI.Money(row.cost), C.down)
+  if row.complete then
+    line("Profit", (row.profit >= 0 and "+" or "-") .. FI.Money(math.abs(row.profit)), row.profit >= 0 and C.up or C.down)
+  end
+  if row.unlisted then
+    GameTooltip:AddLine(("None listed in your latest scan: this is the last price seen (%s ago)."):format(age(row.sellT)), C.gold[1], C.gold[2], C.gold[3], true)
+  elseif row.sellT and time() - row.sellT > 86400 then
+    GameTooltip:AddLine(("Its price is %s old: scan the AH for a current one."):format(age(row.sellT)), C.gold[1], C.gold[2], C.gold[3], true)
+  end
+  if (row.unlistedMats or 0) > 0 then
+    GameTooltip:AddLine("A material wasn't listed in your latest scan: its cost is the last price seen.", C.gold[1], C.gold[2], C.gold[3], true)
+  end
+end
+
 local function updateRecipe(r, row)
   r.on = row.recipeID == K.selected
   r.bg:SetAlpha(r.on and 1 or 0)
@@ -130,10 +176,10 @@ local function updateRecipe(r, row)
   r.icon:SetSize(20, 20)
   r.icon:SetTexture(FI:ItemIcon(row.rec.o))
   local made = row.rec.n > 1 and ("  |cff8b95a3x%s|r"):format(row.rec.n % 1 == 0 and row.rec.n or ("%.1f"):format(row.rec.n)) or ""
-  r.name:SetText(row.name .. made)
+  r.name:SetText(row.name .. made .. staleNote(row))
   r.name:SetTextColor(FI:ItemQualityColor(row.rec.o))
   r.cells.cost:SetText(costText(row))
-  r.cells.sell:SetText(row.noSell and "|cff8b95a3no AH data|r" or money(row.sell))
+  r.cells.sell:SetText(row.noSell and "|cff8b95a3no AH data|r" or money(row.ahValue))
   local c = FI.ChangeColor(row.profit)
   if row.complete then
     r.cells.profit:SetText((row.profit >= 0 and "+" or "") .. FI.Coins(row.profit))
@@ -164,8 +210,13 @@ local function updateReagent(r, g)
   if g.price then
     r.cells.cost:SetText(FI.Coins(g.price) .. " ea")
     setColor(r.cells.cost, C.soft)
-    r.cells.sell:SetText(g.src == "vendor" and "VENDOR" or "AH")
-    setColor(r.cells.sell, g.src == "vendor" and C.up or C.muted)
+    local where = g.src == "vendor" and "VENDOR" or "AH"
+    if g.src == "ah" then
+      if g.unlisted then where = "AH · none now"
+      elseif g.t and time() - g.t > 86400 then where = "AH · " .. age(g.t) .. " old" end
+    end
+    r.cells.sell:SetText(where)
+    setColor(r.cells.sell, g.src == "vendor" and C.up or ((g.unlisted or (g.t and time() - g.t > 86400)) and C.gold or C.muted))
     r.cells.profit:SetText(FI.Coins(g.price * g.qty))
     setColor(r.cells.profit, C.gold)
   else
@@ -187,10 +238,11 @@ local function updateTotal(r, row)
   r.icon:SetSize(16, 16)
   r.icon:SetTexture(nil)
   clearCells(r)
-  r.name:SetText("|cff8b95a3Total to craft|r")
+  r.name:SetText(row.noSell and "|cff8b95a3Total to craft|r"
+    or ("|cff8b95a3Total to craft  ·  you get %s after the 5%% AH cut|r"):format(FI.Money(row.sell)))
   r.cells.cost:SetText(costText(row))
   setColor(r.cells.cost, C.gold)
-  r.cells.sell:SetText(row.noSell and "|cff8b95a3no AH data|r" or FI.Coins(row.sell))
+  r.cells.sell:SetText(row.noSell and "|cff8b95a3no AH data|r" or FI.Coins(row.ahValue))
   if row.complete then
     local c = FI.ChangeColor(row.profit)
     r.cells.profit:SetText((row.profit >= 0 and "+" or "") .. FI.Coins(row.profit))
@@ -258,7 +310,7 @@ local function buildDetail(tab)
   sum:SetPoint("RIGHT", -14, 0)
   sum:SetHeight(1)
   d.totals = {}
-  local labels = { "Cost to craft", "Sells for (after 5% AH cut)", "Profit per craft" }
+  local labels = { "Cost to craft", "AH price, minus the 5% cut", "Profit per craft" }
   for i, label in ipairs(labels) do
     local l = W.Text(d, 12, C.soft)
     l:SetPoint("TOPLEFT", 14, -84 - 8 * 28 - 14 - (i - 1) * 22)
@@ -311,14 +363,15 @@ function K:ShowDetail(row)
       l:Show()
       l.icon:SetTexture(FI:ItemIcon(g.id))
       l.name:SetText(("%s x%d"):format(FI:ItemName(g.id), g.qty))
-      l.src:SetText(g.src == "vendor" and "VENDOR" or (g.src == "ah" and "AH" or "NO PRICE"))
+      l.src:SetText(g.src == "vendor" and "VENDOR" or (g.src == "ah" and (g.unlisted and "AH · NONE NOW"
+        or (g.t and time() - g.t > 86400 and ("AH · " .. age(g.t):upper() .. " OLD")) or "AH") or "NO PRICE"))
       l.price:SetText(g.price and FI.Coins(g.price * g.qty) or "-")
     else
       l:Hide()
     end
   end
   d.totals[1]:SetText(costText(row))
-  d.totals[2]:SetText(row.noSell and "no AH data" or FI.Coins(row.sell))
+  d.totals[2]:SetText(row.noSell and "no AH data" or (FI.Money(row.ahValue) .. " = " .. FI.Coins(row.sell)))
   if row.complete then
     local c = FI.ChangeColor(row.profit)
     d.totals[3]:SetText(("%s%s  (%s)"):format(row.profit >= 0 and "+" or "", FI.Coins(row.profit), row.margin and FI.Percent(row.margin) or "-"))
@@ -456,7 +509,7 @@ function K:Refresh()
   else
     self.empty:Hide()
   end
-  self.footer:SetText(("%d recipes  ·  %d profitable right now  ·  reagents priced at the cheaper of AH and vendor"):format(#all, profitable))
+  self.footer:SetText(("%d recipes  ·  %d profitable right now  ·  *profit is after the 5%% AH cut  ·  materials: what buying them costs now (AH listings or vendor)"):format(#all, profitable))
 
   local keep
   for _, r in ipairs(rows) do if r.recipeID == self.selected then keep = r end end

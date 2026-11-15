@@ -39,7 +39,10 @@ local function reagents(s)
   local slots = s and s.reagentSlotSchematics
   if type(slots) ~= "table" then return out end
   for _, slot in ipairs(slots) do
-    local r = slot.reagents and slot.reagents[1]
+    -- only the materials a craft always uses (not optional or finishing slots)
+    local basic = slot.required ~= false and (slot.reagentType == nil or slot.reagentType == 1
+      or (Enum and Enum.CraftingReagentType and slot.reagentType == Enum.CraftingReagentType.Basic))
+    local r = basic and slot.reagents and slot.reagents[1]
     local id, qty = r and r.itemID, slot.quantityRequired
     if id and qty and not secret(id) and not secret(qty) then
       out[#out + 1] = id
@@ -122,11 +125,37 @@ local function freshMarket(it, maxAge)
   return it.mkt, t
 end
 
-function K:ReagentPrice(itemID)
+-- What buying `qty` of an item on the AH costs right now, per unit: walk the price
+-- levels from the latest scan (cheapest first). When those are older than 6 hours
+-- (or there aren't any), the market price (average of the cheapest 15%) stands in.
+-- Returns unitPrice, dataTime, how ("listings" | "market") or nil.
+local LISTINGS_FRESH = 6 * 3600
+local function ahBuyPrice(it, qty)
+  local mkt, t = freshMarket(it)
+  if not mkt then return nil end
+  qty = math.max(1, qty or 1)
+  local d = it.d
+  if d and #d >= 2 and it.dt and time() - it.dt < LISTINGS_FRESH and (it.qty or 0) > 0 then
+    local got, cost, last = 0, 0, nil
+    for i = 1, #d, 2 do
+      local take = math.min(d[i + 1], qty - got)
+      cost, got, last = cost + take * d[i], got + take, d[i]
+      if got >= qty then break end
+    end
+    if got < qty then cost = cost + (qty - got) * math.max(last or mkt, mkt) end -- past the levels we kept
+    return cost / qty, it.dt, "listings"
+  end
+  return mkt, t, "market"
+end
+
+-- Best price to get a reagent: the cheaper of an NPC vendor and buying it on the AH.
+-- qty: how many you need (the AH price depends on it). Returns unit price,
+-- source ("vendor" | "ah"), dataTime, how — or nil when unknown.
+function K:ReagentPrice(itemID, qty)
   local vendor = FI.db.vendor and FI.db.vendor[itemID]
-  local ah = freshMarket(FI:Realm().items[itemID])
+  local ah, t, how = ahBuyPrice(FI:Realm().items[itemID], qty)
   if vendor and (not ah or vendor <= ah) then return vendor, "vendor" end
-  if ah then return ah, "ah" end
+  if ah then return ah, "ah", t, how end
 end
 
 -- What a crafted item really sells for: you'd have to match the cheapest listing,
@@ -145,17 +174,36 @@ end
 
 -- Profit for one recipe. Fields: cost, sell, profit, margin, missing (reagents with
 -- no price), noSell (crafted item never seen on the AH), soldPerDay
+-- (also: ahValue = what the AH shows for what one craft makes, before the cut;
+-- oldest = time of the oldest AH price used; unlisted = the item wasn't on the AH in
+-- your latest scan, so its price is the last one seen)
+local function unlisted(it, realm)
+  return it and realm.lastScan and it.seen and it.seen < realm.lastScan and (it.qty or 0) == 0
+end
 function K:Evaluate(rec)
+  local realm = FI:Realm()
   local res = { cost = 0, missing = 0, reagents = {} }
   for i = 1, #rec.r, 2 do
     local id, qty = rec.r[i], rec.r[i + 1]
-    local p, src = self:ReagentPrice(id)
-    res.reagents[#res.reagents + 1] = { id = id, qty = qty, price = p, src = src }
+    local p, src, t, how = self:ReagentPrice(id, qty)
+    local g = { id = id, qty = qty, price = p, src = src, t = t, how = how }
+    if src == "ah" then
+      g.unlisted = unlisted(realm.items[id], realm)
+      if t and (not res.oldest or t < res.oldest) then res.oldest = t end
+      if g.unlisted then res.unlistedMats = (res.unlistedMats or 0) + 1 end
+    end
+    res.reagents[#res.reagents + 1] = g
     if p then res.cost = res.cost + p * qty else res.missing = res.missing + 1 end
   end
-  local it = FI:Realm().items[rec.o]
+  local it = realm.items[rec.o]
   local unit = self:SellPrice(rec.o)
   if unit then
+    local t = math.max(it.seen or 0, it.imported or 0)
+    if not res.oldest or t < res.oldest then res.oldest = t end
+    res.sellT, res.unit = t, unit
+    res.unlisted = unlisted(it, realm)
+    res.ahValue = unit * rec.n
+    res.cut = res.ahValue * self.AH_CUT
     res.sell = unit * rec.n * (1 - self.AH_CUT)
     res.profit = res.sell - res.cost
     if res.cost > 0 then res.margin = res.profit / res.cost * 100 end

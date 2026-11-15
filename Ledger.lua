@@ -205,7 +205,7 @@ function L:RecordCraft(itemID, qty, t, linkName)
   local used = {}
   for i = 1, #rec.r, 2 do
     local id, n = rec.r[i], rec.r[i + 1]
-    local price, source = FI.Crafting:ReagentPrice(id)
+    local price, source = FI.Crafting:ReagentPrice(id, n)
     local mat = FI:ItemName(id)
     if not mat then return false end -- can't tell what went in yet: better not guess
     -- { name, count, unit price at the time, bought from a vendor }

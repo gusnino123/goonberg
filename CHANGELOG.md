@@ -1,5 +1,12 @@
 # Goonberg Terminal
 
+## 0.26.1 - Crafting values match the AH
+
+- **AH PRICE column shows what the AH shows**: the lowest listing for what one craft makes (before, "Sells for" was already minus the 5% AH cut, so it never matched the AH). Profit is still after the cut; hover a recipe for the full breakdown: AH price, AH cut, what you get, materials, profit.
+- **Materials cost what buying them costs now.** The exact amount a recipe needs is priced from the listings in your latest scan, cheapest first (3 leather when 2 are listed at 50c and the rest at 80c = 1s 80c), instead of an average of the cheapest 15% of the whole market. Older data falls back to the market price; vendor materials are unchanged.
+- **Old prices are labelled.** A recipe says "none listed now" when its item wasn't on the AH in your latest scan, "a material isn't listed now" for a material, or "prices 3 d old" when a price is over a day old. Material lines say "AH · 3 d old" / "AH · none now".
+- Optional material slots, if the profession window reports any, no longer count toward a recipe's cost.
+
 ## 0.26.0 - More accurate disenchant deals
 
 Disenchant deals now try harder to be money you can actually make, not just money on paper.
