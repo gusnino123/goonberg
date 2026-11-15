@@ -19,7 +19,7 @@ function L:Data()
   return d
 end
 
--- entries: flat list of { t, kind ("sale"|"buy"|"craft"|"use"), item, qty, gross, fee, deal }
+-- entries: flat list of { t, kind ("sale"|"buy"|"craft"|"use"|"de"), item, qty, gross, fee, deal }
 -- deal = true: a purchase of something you'd just opened from the Deals tab
 local DEAL_WINDOW = 3 * DAY
 function L:TagDeal(d, e)
@@ -190,8 +190,43 @@ function L:Bought()
   return self.boughtSet
 end
 
+-- Disenchanting: the spell goes off, the item leaves your bags, the dust lands in
+-- them. We note the cast and what you loot right after, and when the bag watcher sees
+-- the item gone it's logged as a disenchant (its cost moves onto the dust) instead of "used".
+local DISENCHANT = 13262
+local LOOT_ONE = toPattern(_G.LOOT_ITEM_SELF or "You receive loot: %s.")
+local LOOT_MANY = toPattern(_G.LOOT_ITEM_SELF_MULTIPLE or "You receive loot: %sx%d.")
+local PUSH_ONE = toPattern(_G.LOOT_ITEM_PUSHED_SELF or "You receive item: %s.")
+local PUSH_MANY = toPattern(_G.LOOT_ITEM_PUSHED_SELF_MULTIPLE or "You receive item: %sx%d.")
+FI:On("UNIT_SPELLCAST_SUCCEEDED", function(_, unit, _, spellID)
+  if unit ~= "player" then return end
+  local isDE = spellID == DISENCHANT
+  if not isDE and GetSpellInfo and spellID then
+    local n = GetSpellInfo(spellID)
+    isDE = n ~= nil and n == GetSpellInfo(DISENCHANT)
+  end
+  if isDE then L.de = { t = time(), out = {} } end
+end)
+FI:On("CHAT_MSG_LOOT", function(_, msg)
+  local de = L.de
+  if not de or type(msg) ~= "string" or time() - de.t > 6 then return end
+  local link, n = msg:match(LOOT_MANY)
+  if not link then link, n = msg:match(PUSH_MANY) end
+  if not link then link = msg:match(LOOT_ONE) or msg:match(PUSH_ONE) end
+  local id = link and tonumber(link:match("item:(%d+)"))
+  if not id then return end
+  local name = nameOf(id, link)
+  local mkt = L:PriceByName(name)
+  de.out[#de.out + 1] = { name, tonumber(n) or 1, mkt or 0 }
+end)
+
 function L:CheckUsed()
   if next(busy) then self.carried = nil; return end -- moving things around: start fresh after
+  -- a disenchant whose dust hasn't landed yet: give it a moment
+  if self.de and #self.de.out == 0 and time() - self.de.t < 4 then
+    FI:Debounce("ledgerUse", USE_DELAY, function() L:CheckUsed() end)
+    return
+  end
   if (CursorHasItem and CursorHasItem()) or (InCombatLockdown and InCombatLockdown()) then
     FI:Debounce("ledgerUse", USE_DELAY, function() L:CheckUsed() end) -- try again shortly
     return
@@ -217,6 +252,21 @@ function L:CheckUsed()
   -- only units you still had from the AH (not farmed copies)
   local open = self:Summary(0, "flips").open
   local d, added = self:Data(), 0
+  -- the item you just disenchanted
+  local de = self.de
+  if de and time() - de.t <= 10 and #de.out > 0 then
+    local target
+    for name, use in pairs(gone) do
+      if (open[name] or 0) > 0 and use > 0 and not target then target = name end
+    end
+    if target then
+      d.entries[#d.entries + 1] = { t = time(), k = "de", i = target, q = 1, out = de.out }
+      gone[target] = gone[target] - 1
+      open[target] = open[target] - 1
+      added = added + 1
+    end
+    self.de = nil
+  end
   for name, use in pairs(gone) do
     local q = math.min(use, open[name] or 0)
     if q > 0 then
@@ -260,7 +310,7 @@ function L:Summary(since, mode)
 
   if mode == "all" then
     for _, e in ipairs(d.entries) do
-      if e.t >= since and e.k ~= "craft" and e.k ~= "use" then -- crafts and uses move no money
+      if e.t >= since and (e.k == "sale" or e.k == "buy") then -- crafts, uses and disenchants move no money
         local per = s.items[e.i] or { net = 0 }
         s.items[e.i] = per
         if e.k == "sale" then
@@ -283,81 +333,126 @@ function L:Summary(since, mode)
     -- the period: a sale this week can use stock bought last month
     local list = {}
     for _, e in ipairs(d.entries) do list[#list + 1] = e end
-    local ORDER = { buy = 1, craft = 2, use = 3, sale = 4 }
+    local ORDER = { buy = 1, craft = 2, de = 2, use = 3, sale = 4 }
     table.sort(list, function(x, y)
       if x.t ~= y.t then return x.t < y.t end
       return (ORDER[x.k] or 4) < (ORDER[y.k] or 4)
     end)
     -- your own materials (not bought on the AH): at market price, or free
     local ownAtMarket = (FI.settings and FI.settings.ownMats or "market") ~= "free"
-    local lots = {} -- item -> { { qty, unitCost, fromDeal, crafted }, ... } oldest first
+    -- lots: item -> { { qty, unitCost, fromDeal, crafted, root }, ... } oldest first.
+    -- root: the entry that started the position these units belong to. A craft, a
+    -- disenchant or a sale that uses units from several positions joins them into one
+    -- (like a stock position: it stays one position until you're flat).
+    local lots = {}
+    local parent = {}
+    local function find(x)
+      while parent[x] and parent[x] ~= x do x = parent[x] end
+      return x
+    end
+    local function join(roots, fallback)
+      local r
+      for _, x in ipairs(roots) do
+        x = find(x)
+        if not r then r = x elseif x ~= r then parent[x] = r end
+      end
+      r = r or fallback
+      parent[r] = parent[r] or r
+      return r
+    end
+    s.steps, s.find, s.lots = {}, find, lots
+    local function step(t) s.steps[#s.steps + 1] = t; return t end
     local farmItems = {}
     s.farmGross, s.farmFees, s.dealSales, s.dealNet, s.dealCost = 0, 0, 0, 0, 0
     s.craftSales, s.craftNet, s.craftCost, s.crafts, s.craftCostOf, s.craftOf = 0, 0, 0, 0, {}, {}
     s.used, s.uses, s.usedUnits, s.usedOf, s.usedCostOf = 0, 0, 0, {}, {}
+    s.deCostOf = {}
+    -- take `need` units of an item from the oldest lots
     local function take(name, need)
-      local cost, got = 0, 0
+      local r = { cost = 0, got = 0, dealGot = 0, dealCost = 0, craftGot = 0, craftCost = 0, roots = {} }
       local queue = lots[name]
       while need > 0 and queue and queue[1] do
         local lot = queue[1]
         local n = math.min(need, lot[1])
-        cost = cost + n * lot[2]
-        got = got + n
-        need = need - n
+        local c = n * lot[2]
+        r.cost, r.got, need = r.cost + c, r.got + n, need - n
+        if lot[3] then r.dealGot, r.dealCost = r.dealGot + n, r.dealCost + c end
+        if lot[4] then r.craftGot, r.craftCost = r.craftGot + n, r.craftCost + c end
+        r.roots[#r.roots + 1] = lot[5]
         lot[1] = lot[1] - n
         if lot[1] <= 0 then table.remove(queue, 1) end
       end
-      return cost, got
+      return r
+    end
+    local function put(name, q, unit, deal, crafted, root)
+      lots[name] = lots[name] or {}
+      table.insert(lots[name], { q, unit, deal, crafted, root })
     end
     for _, e in ipairs(list) do
       local q = math.max(1, e.q or 1)
       if e.k == "buy" then
-        lots[e.i] = lots[e.i] or {}
-        table.insert(lots[e.i], { q, e.g / q, e.deal })
+        parent[e] = e
+        put(e.i, q, e.g / q, e.deal, nil, e)
+        step({ e = e, root = e, kind = "buy", q = q, cost = e.g })
       elseif e.k == "craft" then
         -- bought materials at what they cost you; your own at market (or free);
         -- vendor materials always at the vendor price
-        local cost = 0
+        local cost, own, roots, mats = 0, 0, {}, {}
         for _, m in ipairs(e.r or {}) do
-          local c, got = take(m[1], m[2])
-          local own = m[2] - got
-          if own > 0 then cost = cost + own * ((m[4] or ownAtMarket) and (m[3] or 0) or 0) end
-          cost = cost + c
+          local r = take(m[1], m[2])
+          local mine = m[2] - r.got
+          local c = (mine > 0) and mine * ((m[4] or ownAtMarket) and (m[3] or 0) or 0) or 0
+          own = own + c
+          cost = cost + c + r.cost
+          for _, x in ipairs(r.roots) do roots[#roots + 1] = x end
+          mats[#mats + 1] = { name = m[1], n = m[2], bought = r.got, vendor = m[4], cost = c + r.cost }
         end
-        lots[e.i] = lots[e.i] or {}
-        table.insert(lots[e.i], { q, cost / q, nil, true })
+        local root = join(roots, e)
+        put(e.i, q, cost / q, nil, true, root)
         s.craftCostOf[e] = cost
+        step({ e = e, root = root, kind = "craft", q = q, cost = cost, own = own, mats = mats })
         if e.t >= since then s.crafts = s.crafts + 1 end
+      elseif e.k == "de" then
+        -- disenchanted something you bought: its cost moves onto the dust and shards,
+        -- shared out by what each was worth at the time
+        local r = take(e.i, q)
+        if r.got > 0 then
+          local root = join(r.roots, e)
+          local total, outs = 0, e.out or {}
+          for _, o in ipairs(outs) do total = total + math.max(1, o[3] or 0) * o[2] end
+          for _, o in ipairs(outs) do
+            local share = (total > 0) and (math.max(1, o[3] or 0) * o[2] / total) or (1 / #outs)
+            put(o[1], o[2], r.cost * share / o[2], nil, true, root)
+          end
+          s.deCostOf[e] = r.cost
+          step({ e = e, root = root, kind = "de", q = r.got, cost = r.cost, outs = outs })
+        end
       elseif e.k == "use" then
         -- used it yourself: what it cost leaves "holding", but it isn't a loss on a flip
-        local cost, got = take(e.i, q)
-        s.usedOf[e], s.usedCostOf[e] = got, cost
-        if e.t >= since and got > 0 then
-          s.used, s.uses, s.usedUnits = s.used + cost, s.uses + 1, s.usedUnits + got
+        local r = take(e.i, q)
+        s.usedOf[e], s.usedCostOf[e] = r.got, r.cost
+        if r.got > 0 then
+          step({ e = e, root = join(r.roots, e), kind = "use", q = r.got, cost = r.cost })
+          if e.t >= since then
+            s.used, s.uses, s.usedUnits = s.used + r.cost, s.uses + 1, s.usedUnits + r.got
+          end
         end
       elseif e.k == "sale" then
-        local need, cost, got, dealGot, dealCost, craftGot, craftCost = q, 0, 0, 0, 0, 0, 0
-        local queue = lots[e.i]
-        while need > 0 and queue and queue[1] do
-          local lot = queue[1]
-          local take = math.min(need, lot[1])
-          cost = cost + take * lot[2]
-          got = got + take
-          if lot[3] then dealGot = dealGot + take; dealCost = dealCost + take * lot[2] end
-          if lot[4] then craftGot = craftGot + take; craftCost = craftCost + take * lot[2] end
-          need = need - take
-          lot[1] = lot[1] - take
-          if lot[1] <= 0 then table.remove(queue, 1) end
-        end
+        local r = take(e.i, q)
+        local got, cost = r.got, r.cost
         s.flipOf[e] = got
-        s.craftOf[e] = craftGot
+        s.craftOf[e] = r.craftGot
+        local share = got / q
+        if got > 0 then
+          step({ e = e, root = join(r.roots, e), kind = "sale", q = got, of = q, cost = cost,
+            gross = e.g * share, fee = e.f * share, net = (e.g - e.f) * share })
+        end
         if e.t >= since then
-          if craftGot > 0 then
+          if r.craftGot > 0 then
             s.craftSales = s.craftSales + 1
-            s.craftCost = s.craftCost + craftCost
-            s.craftNet = s.craftNet + (e.g - e.f) * craftGot / q - craftCost
+            s.craftCost = s.craftCost + r.craftCost
+            s.craftNet = s.craftNet + (e.g - e.f) * r.craftGot / q - r.craftCost
           end
-          local share = got / q
           if got > 0 then
             local income, fee = e.g * share, e.f * share
             s.income = s.income + income
@@ -368,11 +463,10 @@ function L:Summary(since, mode)
             s.items[e.i] = per
             per.net = per.net + income - fee - cost
           end
-          if dealGot > 0 then
-            local ds = dealGot / q
+          if r.dealGot > 0 then
             s.dealSales = s.dealSales + 1
-            s.dealCost = s.dealCost + dealCost
-            s.dealNet = s.dealNet + (e.g - e.f) * ds - dealCost
+            s.dealCost = s.dealCost + r.dealCost
+            s.dealNet = s.dealNet + (e.g - e.f) * r.dealGot / q - r.dealCost
           end
           if got < q then
             local fs = 1 - share
@@ -411,6 +505,126 @@ function L:Summary(since, mode)
     if not s.best or per.net > s.best.net then s.best = { name = name, net = per.net } end
   end
   return s
+end
+
+-- Market price by item name (the ledger knows names, the price data knows IDs)
+function L:PriceByName(name)
+  local realm = FI:Realm()
+  if not self.nameIndex or self.nameIndexAt ~= realm then
+    self.nameIndex, self.nameIndexAt = {}, realm
+    for id, it in pairs(realm.items) do
+      local n = it.n or FI.GetItemInfo(id)
+      if n then self.nameIndex[n] = id end
+    end
+  end
+  local id = self.nameIndex[name]
+  if id == nil then
+    -- not indexed: look once, and remember a miss until the next scan
+    for i, it in pairs(realm.items) do if it.n == name then id = i; break end end
+    self.nameIndex[name] = id or false
+  end
+  local it = id and realm.items[id]
+  return it and it.mkt, id
+end
+
+FI:On("FI_SCAN_DONE", function() L.nameIndex = nil end)
+FI:On("FI_DATA_MERGED", function() L.nameIndex = nil end)
+
+-- Positions: each chain from buying to selling, like a broker's trade history.
+-- Bought 20 Light Leather -> crafted 4 gloves -> sold 2, sold 2 = one position.
+-- Units from different purchases that end up in the same craft or sale join into
+-- one position; a position is closed once none of its units are left.
+-- Returns a list of { steps, cost, proceeds, soldCost, usedCost, realized, roi,
+-- openUnits, openCost, openValue, opened, closed, last, status, name, deal }
+local AH_CUT = 0.05
+function L:Positions(since)
+  since = since or 0
+  local s = self:Summary(0, "flips")
+  local find, groups, order = s.find, {}, {}
+  for _, st in ipairs(s.steps) do
+    local r = find(st.root)
+    local g = groups[r]
+    if not g then
+      g = { steps = {}, cost = 0, own = 0, proceeds = 0, gross = 0, fees = 0, soldCost = 0, usedCost = 0,
+        openUnits = 0, openCost = 0, openValue = 0, unpriced = 0, opened = st.e.t, last = st.e.t, ins = {}, outs = {} }
+      groups[r] = g
+      order[#order + 1] = g
+    end
+    g.steps[#g.steps + 1] = st
+    g.last = math.max(g.last, st.e.t)
+    g.opened = math.min(g.opened, st.e.t)
+    if st.kind == "buy" then
+      g.cost = g.cost + st.cost
+      g.ins[st.e.i] = true
+      if st.e.deal then g.deal = true end
+    elseif st.kind == "craft" then
+      g.own = g.own + st.own
+      g.cost = g.cost + st.own -- your own and vendor materials join the cost
+      g.ownMats = g.ownMats or {}
+      for _, m in ipairs(st.mats or {}) do if m.bought < m.n then g.ownMats[m.name] = true end end
+      g.crafted = true
+    elseif st.kind == "de" then
+      g.disenchanted = true
+    elseif st.kind == "use" then
+      g.usedCost = g.usedCost + st.cost
+    elseif st.kind == "sale" then
+      g.proceeds = g.proceeds + st.net
+      g.gross = g.gross + st.gross
+      g.fees = g.fees + st.fee
+      g.soldCost = g.soldCost + st.cost
+      g.outs[st.e.i] = true
+      g.closed = st.e.t
+    end
+  end
+  -- what's still held, and what it's worth now (after the AH cut)
+  for name, queue in pairs(s.lots) do
+    for _, lot in ipairs(queue) do
+      local g = lot[5] and groups[find(lot[5])]
+      if g and lot[1] > 0 then
+        g.openUnits = g.openUnits + lot[1]
+        g.openCost = g.openCost + lot[1] * lot[2]
+        local mkt = self:PriceByName(name)
+        if mkt then g.openValue = g.openValue + lot[1] * mkt * (1 - AH_CUT) else g.unpriced = g.unpriced + lot[1] end
+        g.held = g.held or {}
+        g.held[name] = (g.held[name] or 0) + lot[1]
+      end
+    end
+  end
+  local out = {}
+  for _, g in ipairs(order) do
+    table.sort(g.steps, function(a, b)
+      if a.e.t ~= b.e.t then return a.e.t < b.e.t end
+      local O = { buy = 1, craft = 2, de = 2, use = 3, sale = 4 }
+      return O[a.kind] < O[b.kind]
+    end)
+    g.realized = g.proceeds - g.soldCost
+    if g.soldCost > 0 then g.roi = g.realized / g.soldCost * 100 end
+    g.status = g.openUnits > 0 and "open" or "closed"
+    if g.status == "open" then
+      g.closed = nil
+      g.unrealized = g.openValue - g.openCost
+    end
+    -- a name: what went in -> what came out
+    local function names(set, skip)
+      local list = {}
+      for n in pairs(set) do if not (skip and skip[n]) then list[#list + 1] = n end end
+      table.sort(list)
+      if #list > 2 then return list[1] .. " +" .. (#list - 1) end
+      return table.concat(list, " + ")
+    end
+    -- (made only from your own materials: those are what went in)
+    local ins = names(next(g.ins) and g.ins or (g.ownMats or {}))
+    local outs = names(g.outs, g.ins)
+    if outs == "" and g.held then outs = names(g.held, g.ins) end
+    g.name = (ins ~= "" and outs ~= "") and (ins .. " > " .. outs) or (ins ~= "" and ins or outs)
+    -- only positions that did something in the period (a sale only counts when it
+    -- closed a position, an open one counts while it's open)
+    if g.last >= since or g.status == "open" then
+      -- positions with nothing bought or sold (a craft from your own mats, not sold) aren't trades
+      if g.cost > 0 or g.proceeds > 0 then out[#out + 1] = g end
+    end
+  end
+  return out, s
 end
 
 -- What your bags would fetch at market price right now (not yet sold, so "unrealized")

@@ -1,6 +1,6 @@
 -- Goonberg Terminal: P&L tab with a shareable card (goblin included)
 local _, FI = ...
-local P = { period = "7D", show = "All", tradeSort = { sort = "t", dir = -1 } }
+local P = { period = "7D", show = "All", view = "Summary", tradeSort = { sort = "t", dir = -1 } }
 FI.PnLTab = P
 local W = FI.Widgets
 local C = FI.colors
@@ -25,6 +25,7 @@ local function since(period)
   local p = PERIODS[period]
   return p.span and (now - p.span) or 0
 end
+P.since = since
 
 local function stat(parent, label)
   local f = CreateFrame("Frame", nil, parent)
@@ -133,7 +134,7 @@ end
 local function buildCard(tab)
   local card = W.Box(tab, C.side, C.gold)
   card:SetSize(660, 420)
-  card:SetPoint("TOPLEFT", 24, -24)
+  card:SetPoint("TOPLEFT", 24, -52)
   P.card = card
 
   local band = W.Tex(card, C.gold, 1, "BORDER")
@@ -186,6 +187,7 @@ local function buildSide(tab)
   local periods = W.Choice(side, { "Today", "7D", "30D", "All" }, "seg", function(v) P.period = v; P:Refresh() end, 26)
   periods:SetPoint("TOPLEFT", 14, -14)
   periods:Select(P.period)
+  P.periodChoice = periods
 
   local share = W.Button(side, "Share in chat", nil, 28, "gold")
   share:SetPoint("TOPLEFT", 14, -52)
@@ -256,17 +258,17 @@ local function buildSide(tab)
     local sale = e.k == "sale"
     local KINDS = {
       flip = { "Flip", C.up }, farmed = { "Farmed", C.soft }, part = { "Flip+", C.up }, crafted = { "Crafted", C.up },
-      buy = { "Bought", C.down }, deal = { "Deal", C.gold }, made = { "Made", C.gold }, used = { "Used", C.soft },
+      buy = { "Bought", C.down }, deal = { "Deal", C.gold }, made = { "Made", C.gold }, used = { "Used", C.soft }, de = { "DE'd", C.gold },
     }
     local c = KINDS[kind][2]
     r.kind:SetText(KINDS[kind][1])
     r.kind:SetTextColor(c[1], c[2], c[3])
     r.item:SetText((e.q and e.q > 1) and (e.i .. " x" .. e.q) or e.i)
     r.item:SetTextColor(C.text[1], C.text[2], C.text[3])
-    if kind == "made" or kind == "used" then
+    if kind == "made" or kind == "used" or kind == "de" then
       -- a craft or a use moves no gold: show what it cost you (muted)
       local s = P.summary
-      local cost = s and (kind == "made" and s.craftCostOf[e] or s.usedCostOf[e])
+      local cost = s and ((kind == "made" and s.craftCostOf[e]) or (kind == "de" and s.deCostOf[e]) or s.usedCostOf[e])
       if kind == "used" and s and (s.usedOf[e] or 0) ~= (e.q or 1) then
         r.item:SetText((s.usedOf[e] or 0) > 1 and (e.i .. " x" .. s.usedOf[e]) or e.i)
       end
@@ -290,7 +292,7 @@ local function buildSide(tab)
   note:SetPoint("BOTTOMLEFT", 14, 14)
   note:SetPoint("RIGHT", -14, 0)
   note:SetWordWrap(true)
-  note:SetText("Flip: bought on the AH first. Made: a craft (its materials' cost). Crafted: sold after crafting. Deal: from the Deals tab. Used: bought, then used yourself.")
+  note:SetText("Flip: bought on the AH first. Made: a craft. Crafted: sold after crafting. Deal: from the Deals tab. Used: used it yourself. DE'd: disenchanted.")
 end
 
 function P:Build(parent)
@@ -298,10 +300,29 @@ function P:Build(parent)
   tab:SetAllPoints()
   self.frame = tab
   self.recent = {}
-  buildCard(tab)
-  buildSide(tab)
+  -- Summary (the card) or Positions (each buy-to-sale chain)
+  local views = W.Choice(tab, { "Summary", "Positions" }, "seg", function(v) P.view = v; P:Refresh() end, 26)
+  views:SetPoint("TOPLEFT", 16, -14)
+  views:Select(self.view)
+  self.viewChoice = views
+  for v, b in pairs(views.buttons) do
+    b:HookScript("OnEnter", function(btn)
+      GameTooltip:SetOwner(btn, "ANCHOR_BOTTOM")
+      GameTooltip:AddLine(v == "Summary" and "Your P&L card and recent trades" or "Positions: every buy-to-sale chain")
+      GameTooltip:AddLine(v == "Summary" and "Totals for flipping and farming, ready to share."
+        or "What you bought and at what price, what you crafted or disenchanted it into, what it sold for, and the P&L.", 0.76, 0.79, 0.83, true)
+      GameTooltip:Show()
+    end)
+    b:HookScript("OnLeave", GameTooltip_Hide)
+  end
+  local summary = CreateFrame("Frame", nil, tab)
+  summary:SetAllPoints()
+  self.summaryFrame = summary
+  buildCard(summary)
+  buildSide(summary)
+  self.positionsFrame = FI.PositionsView:Build(tab)
   -- the card shrinks a little on narrow windows; the trade list takes the rest
-  tab:SetScript("OnSizeChanged", function(_, w)
+  summary:SetScript("OnSizeChanged", function(_, w)
     P.card:SetWidth(math.max(600, math.min(700, w - 48 - 24 - 320)))
   end)
   tab.Refresh = function() P:Refresh() end
@@ -313,6 +334,7 @@ end
 function P:Kind(e)
   if e.k == "craft" then return "made" end
   if e.k == "use" then return "used" end
+  if e.k == "de" then return "de" end
   if e.k ~= "sale" then return e.deal and "deal" or "buy" end
   local s = self.summary
   local got = s and s.flipOf[e] or 0
@@ -327,6 +349,12 @@ local function colorOf(v) return v >= 0 and C.up or C.down end
 
 function P:Refresh()
   if not self.frame then return end
+  self.viewChoice:Select(self.view)
+  local positions = self.view == "Positions"
+  self.summaryFrame:SetShown(not positions)
+  self.positionsFrame:SetShown(positions)
+  if positions then FI.PositionsView:Refresh(); return end
+  self.periodChoice:Select(self.period)
   local card = self.card
   card.goblin.Load()
   local from = since(self.period)
@@ -394,10 +422,10 @@ function P:Refresh()
   card.stamp:SetText(date("%B %d, %Y"))
 
   local recent = {}
-  local want = ({ Flips = { flip = true, part = true, crafted = true, made = true }, Farmed = { farmed = true, part = true },
+  local want = ({ Flips = { flip = true, part = true, crafted = true, made = true, de = true }, Farmed = { farmed = true, part = true },
     Bought = { buy = true, deal = true }, Used = { used = true } })[self.show]
   for _, e in ipairs(FI.Ledger:Data().entries) do
-    local shown = e.k ~= "use" or (s.usedOf[e] or 0) > 0 -- a use of farmed copies isn't listed
+    local shown = (e.k ~= "use" or (s.usedOf[e] or 0) > 0) and (e.k ~= "de" or s.deCostOf[e]) -- uses of farmed copies aren't listed
     if shown and e.t >= from and (not want or want[self:Kind(e)]) then recent[#recent + 1] = e end
   end
   -- in the order picked by the headers (amount: what it added or cost you)
@@ -407,6 +435,7 @@ function P:Refresh()
       if e.k == "sale" then return e.g - e.f end
       if e.k == "use" then return -(P.summary.usedCostOf[e] or 0) end
       if e.k == "craft" then return -(P.summary.craftCostOf[e] or 0) end
+      if e.k == "de" then return -(P.summary.deCostOf[e] or 0) end
       return -(e.g or 0)
     end,
     k = function(e) return P:Kind(e) end,

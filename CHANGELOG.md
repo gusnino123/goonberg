@@ -1,5 +1,14 @@
 # Goonberg Terminal
 
+## 0.24.0
+
+- **New: Positions (P&L tab → Positions).** Your AH trading as a broker's trade history. Each position is one chain from buying to selling: what you bought and at what price, what you crafted or disenchanted it into, what you sold it for, and the P&L. Click a position to see every step with its price per unit and the profit of each sale.
+  - Stats up top: realized P&L, win rate, return, open positions (cost vs worth now, after the AH cut) and your best position.
+  - Filter All / Open / Closed, pick the period, sort by any column.
+  - Units from several purchases that go into the same craft or sale join one position, which closes once nothing is left (like a stock position going flat).
+- **Disenchanting is tracked.** Disenchant something you bought on the AH and its cost moves onto the dust, essences and shards (split by what each is worth), so selling them closes the position with a real P&L. Shows as "DE'd" in Recent trades.
+- The P&L card moved down a little to make room for the Summary / Positions switch.
+
 ## 0.23.0
 
 - **Tracks what you buy on the AH and then use yourself.** Drink a potion, equip a piece of gear, burn mats on an enchant or disenchant something you bought, and the P&L logs it as **Used** (with what those units cost you) instead of leaving it in "holding" forever. Uses don't count against your flipping profit.
