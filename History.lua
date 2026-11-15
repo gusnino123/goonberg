@@ -136,6 +136,7 @@ function H.Record(realm, itemID, now, mkt, minPrice, qty, listings, depth)
     it.mkt = mkt
     it.min = minPrice
     it.seen = now
+    it.src = nil
   else
     it.min = nil
   end
@@ -500,6 +501,7 @@ end
 -- data that day. With opts.fine (guild catch-up, intraday data) a point is skipped
 -- only when one already exists within 10 minutes of it. Importing twice, or next to
 -- your own scans, never double counts. Returns how many points were added.
+local OWN_PRICE_WINS = 2 * DAY -- a scan of yours (or a guildmate's) this recent is the price
 function H.Merge(realm, itemID, points, opts)
   opts = opts or {}
   local it = realm.items[itemID]
@@ -555,12 +557,16 @@ function H.Merge(realm, itemID, points, opts)
   if opts.fine then
     -- guild data: the newest point becomes the current price (lowest-now is unknown)
     if not it.seen or last[1] > it.seen then
-      it.mkt, it.qty, it.seen, it.min, it.shared = last[2], last[3], last[1], nil, true
+      it.mkt, it.qty, it.seen, it.min, it.shared, it.src = last[2], last[3], last[1], nil, true, nil
     end
-  elseif not it.seen or last[1] > it.seen then
-    -- an item we've never scanned ourselves takes its latest imported price
+  elseif last[1] > (it.seen or 0) and not (it.seen and time() - it.seen < OWN_PRICE_WINS) then
+    -- Daily data from elsewhere (Auctionator, older guild history) only becomes the
+    -- current price when you have no recent price of your own: Auctionator keeps the
+    -- lowest single listing it saw that day, which can be one cheap auction that was
+    -- bought right away, so it must never replace a real scan's market price.
     it.mkt = last[2]
-    it.imported = last[1]
+    it.imported = math.min(last[1], time()) -- (points sit at midday: never "newer than now")
+    it.src = opts.source or "import"
   end
   return added
 end
@@ -591,6 +597,7 @@ function H.RecordShared(realm, itemID, t, mkt, minPrice, qty, listings)
   h[n + 1], h[n + 2], h[n + 3], h[n + 4] = t, mkt, qty, sold
   it.mkt, it.min, it.qty, it.cnt, it.seen = mkt, minPrice, qty, listings, t
   it.shared = true
+  it.src = nil
   it.adds = (it.adds or 0) + 1
   if it.adds >= 24 then
     it.h = H.Compact(h, t, STRIDE, 4)
@@ -688,3 +695,31 @@ function H.LongTerm(it, now)
     market = H.FairValue(it, now),
   }
 end
+
+-- One-time repair (0.26.2): before, a day of Auctionator data newer than your last
+-- scan replaced the scan's market price with Auctionator's lowest listing of that day.
+-- Where a scan of yours from within 2 days of it is in the history, its price comes back.
+function H.RepairImportedPrices(realm)
+  local fixed = 0
+  for _, it in pairs(realm.items) do
+    if it.imported and it.seen and it.imported > it.seen and it.imported - it.seen < OWN_PRICE_WINS and not it.src then
+      local h = it.h or {}
+      for i = #h - STRIDE + 1, 1, -STRIDE do
+        if h[i] == it.seen then
+          if h[i + 1] and h[i + 1] > 0 and h[i + 1] ~= it.mkt then it.mkt = h[i + 1]; fixed = fixed + 1 end
+          break
+        end
+      end
+      it.imported = nil
+    end
+  end
+  return fixed
+end
+FI:On("PLAYER_LOGIN", function()
+  if not FI.db or FI.db.repairedImports then return end
+  local ok, fixed = pcall(H.RepairImportedPrices, FI:Realm())
+  FI.db.repairedImports = true
+  if ok and fixed > 0 then
+    FI:Print("Fixed %s prices that an Auctionator import had replaced with a single cheap listing.", FI.Number(fixed))
+  end
+end)

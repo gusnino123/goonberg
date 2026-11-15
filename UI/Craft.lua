@@ -163,6 +163,13 @@ function K:AddBreakdown(row)
   if (row.unlistedMats or 0) > 0 then
     GameTooltip:AddLine("A material wasn't listed in your latest scan: its cost is the last price seen.", C.gold[1], C.gold[2], C.gold[3], true)
   end
+  for _, g in ipairs(row.reagents) do
+    if g.how and g.how ~= "listings" and g.how ~= "market" then
+      GameTooltip:AddLine(("%s: price from %s%s, not your own scan."):format(FI:ItemName(g.id), g.how,
+        g.how == "Auctionator" and " (the lowest listing it saw that day)" or ""), C.gold[1], C.gold[2], C.gold[3], true)
+    end
+  end
+  GameTooltip:AddLine("|cff8b95a3/goon price <item> shows where any price comes from.|r")
 end
 
 local function updateRecipe(r, row)
@@ -210,7 +217,7 @@ local function updateReagent(r, g)
   if g.price then
     r.cells.cost:SetText(FI.Coins(g.price) .. " ea")
     setColor(r.cells.cost, C.soft)
-    local where = g.src == "vendor" and "VENDOR" or "AH"
+    local where = g.src == "vendor" and "VENDOR" or ((g.how == "Auctionator" or g.how == "import") and "AUCTIONATOR" or "AH")
     if g.src == "ah" then
       if g.unlisted then where = "AH · none now"
       elseif g.t and time() - g.t > 86400 then where = "AH · " .. age(g.t) .. " old" end

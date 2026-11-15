@@ -68,7 +68,7 @@ worker:SetScript("OnUpdate", function(self)
         end
       end
       table.sort(points, function(a, b) return a[1] < b[1] end)
-      local added = FI.History.Merge(realm, tonumber(key), points)
+      local added = FI.History.Merge(realm, tonumber(key), points, { source = "Auctionator" })
       -- Auctionator scanned on these days too (used to judge how rare items are)
       realm.scanDays = realm.scanDays or {}
       for _, pt in ipairs(points) do realm.scanDays[math.floor(pt[1] / 86400)] = true end

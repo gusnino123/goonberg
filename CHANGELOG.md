@@ -1,5 +1,11 @@
 # Goonberg Terminal
 
+## 0.26.2 - Imported prices no longer replace your scans
+
+- **Fixed: crafting (and anything else using the current price) could show a price far below the AH.** Auctionator only keeps the lowest single listing it saw each day. When it had a day you hadn't scanned, that one listing (often a cheap auction bought right away) became the item's current price, so Heavy Hide could show 2s while the AH was at 12s. Imported days still go into the history and charts, but they only become the current price when you (or a guildmate) haven't scanned the item in the last 2 days. Prices already replaced this way are restored from your own scan the first time you log in.
+- **New: `/goon price [item]`** shows every source behind an item's price: the current market price and where it came from (your scan, a guildmate, Auctionator), the cheapest listings, recent history, any recorded vendor price, and what crafting uses. `/goon price [item] forget vendor` drops a wrong vendor price.
+- Crafting labels materials priced from Auctionator ("AUCTIONATOR" on the material line, and a note in the recipe tooltip).
+
 ## 0.26.1 - Crafting values match the AH
 
 - **AH PRICE column shows what the AH shows**: the lowest listing for what one craft makes (before, "Sells for" was already minus the 5% AH cut, so it never matched the AH). Profit is still after the cut; hover a recipe for the full breakdown: AH price, AH cut, what you get, materials, profit.

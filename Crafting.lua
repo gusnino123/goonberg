@@ -118,11 +118,19 @@ end)
 -- An AH price is only used if it's from the last 7 days; older ones are too stale
 -- to plan crafting around (the recipe shows "?" until the item is seen again).
 K.MAX_PRICE_AGE = 7 * 86400
+-- where an item's current price came from: "scan" (yours), "guild", or an import
+-- ("Auctionator": the lowest listing it saw that day)
+local function priceSource(it)
+  if it.imported and it.imported > (it.seen or 0) then return it.src or "import" end
+  if it.shared then return "guild" end
+  return "scan"
+end
+K.PriceSource = priceSource
 local function freshMarket(it, maxAge)
-  if not it or not it.mkt then return nil end
+  if not it or not it.mkt or it.mkt <= 0 then return nil end
   local t = math.max(it.seen or 0, it.imported or 0)
   if time() - t > (maxAge or K.MAX_PRICE_AGE) then return nil end
-  return it.mkt, t
+  return it.mkt, t, priceSource(it)
 end
 
 -- What buying `qty` of an item on the AH costs right now, per unit: walk the price
@@ -145,7 +153,8 @@ local function ahBuyPrice(it, qty)
     if got < qty then cost = cost + (qty - got) * math.max(last or mkt, mkt) end -- past the levels we kept
     return cost / qty, it.dt, "listings"
   end
-  return mkt, t, "market"
+  local _, _, from = freshMarket(it)
+  return mkt, t, from == "scan" and "market" or from
 end
 
 -- Best price to get a reagent: the cheaper of an NPC vendor and buying it on the AH.

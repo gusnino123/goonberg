@@ -365,7 +365,7 @@ local function onHistory(from, rest)
     if d and p and p > 0 then points[#points + 1] = { d * 86400 + 43200, p, q } end
   end
   table.sort(points, function(a, b) return a[1] < b[1] end)
-  local added = H.Merge(FI:Realm(), id, points)
+  local added = H.Merge(FI:Realm(), id, points, { source = "guild history" })
   Y.histItems = (Y.histItems or 0) + (added > 0 and 1 or 0)
   Y.histPoints = (Y.histPoints or 0) + added
   Y.histFrom = from

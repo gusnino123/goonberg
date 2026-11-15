@@ -499,6 +499,56 @@ local help = {
 
 SLASH_GOONBERG1 = "/goon"
 SLASH_GOONBERG2 = "/goonberg"
+-- /goon price: every source behind an item's price, so a wrong number can be traced
+function FI:ExplainPrice(id, forgetVendor)
+  local it = self:Realm().items[id]
+  local now = time()
+  local function ago(t)
+    if not t then return "never" end
+    local a = now - t
+    if a < 3600 then return math.floor(a / 60) .. " min ago" end
+    if a < 86400 then return math.floor(a / 3600) .. " h ago" end
+    return math.floor(a / 86400) .. " d ago"
+  end
+  self:Print("Price of %s (item %d):", self:ItemLink(id) or self:ItemName(id) or "?", id)
+  if forgetVendor and self.db.vendor and self.db.vendor[id] then
+    self.db.vendor[id] = nil
+    self:Print("  Vendor price forgotten.")
+    self:Fire("FI_DATA_MERGED", "vendor")
+  end
+  if not it then
+    self:Print("  Never seen on the AH.")
+  else
+    local src = self.Crafting.PriceSource and self.Crafting.PriceSource(it) or "?"
+    self:Print("  Current market price: %s  (from %s, %s)", self.Money(it.mkt or 0),
+      src == "scan" and "your scan" or src == "guild" and "a guildmate's scan" or (src .. ", the lowest listing it saw that day"),
+      ago(math.max(it.seen or 0, it.imported or 0)))
+    if it.seen then
+      self:Print("  Last seen listed: %s  ·  %s listed%s", ago(it.seen), self.Number(it.qty or 0),
+        it.min and ("  ·  lowest " .. self.Money(it.min)) or "")
+    end
+    if it.d and it.dt and #it.d >= 2 then
+      local lv = {}
+      for i = 1, math.min(#it.d, 8), 2 do lv[#lv + 1] = ("%s x%d"):format(self.Money(it.d[i]), it.d[i + 1]) end
+      self:Print("  Cheapest listings (%s): %s", ago(it.dt), table.concat(lv, ", "))
+    end
+    local h = it.h or {}
+    local pts = {}
+    for i = #h - 3, math.max(1, #h - 4 * 4 + 1), -4 do
+      if h[i] then pts[#pts + 1] = ("%s %s"):format(date("%b %d %H:%M", h[i]), h[i + 1] > 0 and self.Money(h[i + 1]) or "none listed") end
+    end
+    if #pts > 0 then self:Print("  History (newest first): %s", table.concat(pts, "  ·  ")) end
+  end
+  local vendor = self.db.vendor and self.db.vendor[id]
+  if vendor then
+    self:Print("  Vendor price recorded: %s  (|cffe8b84acrafting uses it when it's cheaper than the AH|r; wrong? /goon price [item] forget vendor)", self.Money(vendor))
+  end
+  local p, from, _, how = self.Crafting:ReagentPrice(id, 1)
+  local sell = self.Crafting:SellPrice(id)
+  self:Print("  Crafting uses: buying %s (%s)  ·  selling %s", p and self.Money(p) or "no price",
+    from == "vendor" and "vendor" or (how or "-"), sell and self.Money(sell) or "no price")
+end
+
 SlashCmdList.GOONBERG = function(msg)
   msg = msg or ""
   local cmd, rest = msg:match("^%s*(%S*)%s*(.-)%s*$")
@@ -553,6 +603,13 @@ SlashCmdList.GOONBERG = function(msg)
     local id = FI:FindItem(rest)
     if not id then return FI:Print("Couldn't find that item. Shift-click it into the command, or scan the AH first.") end
     if cmd == "watch" then FI.Alerts:Watch(id) else FI.Alerts:Unwatch(id) end
+  elseif cmd == "price" then
+    -- where an item's price comes from: /goon price [item]  (add "forget vendor" to drop a vendor price)
+    local forget = rest:lower():match("%s*forget vendor%s*$")
+    if forget then rest = rest:gsub("%s*[Ff][Oo][Rr][Gg][Ee][Tt] [Vv][Ee][Nn][Dd][Oo][Rr]%s*$", "") end
+    local id = FI:FindItem(rest)
+    if not id then return FI:Print("Usage: /goon price [item]  (shift-click the item in)") end
+    FI:ExplainPrice(id, forget)
   elseif cmd == "alert" then
     local itemText, dir, priceText = rest:match("^(.-)%s+(below)%s+(.+)$")
     if not itemText then itemText, dir, priceText = rest:match("^(.-)%s+(above)%s+(.+)$") end
