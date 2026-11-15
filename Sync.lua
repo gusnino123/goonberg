@@ -73,6 +73,18 @@ local function offlineInGuild(name)
   end
   return false -- not in the roster we have: let the game decide
 end
+-- What we just said to the guild, until we know how addon chat names us (see isMe)
+local recentGuild = {}
+local selfName
+-- History and catch-up answers ("bulk") are hundreds of messages: everything else
+-- (scans, scan replies, "I'm answering", hellos) goes out ahead of them, so a scan
+-- never waits minutes behind someone's history.
+local function nextIndex()
+  for i = 1, #queue do
+    if queue[i][4] ~= "bulk" then return i end
+  end
+  return 1
+end
 local sender = CreateFrame("Frame")
 sender:Hide()
 sender.acc = 0
@@ -83,7 +95,7 @@ sender:SetScript("OnUpdate", function(self, e)
     self.acc = self.acc % 1
   end
   while tokens >= 1 and queue[1] do
-    local m = table.remove(queue, 1)
+    local m = table.remove(queue, nextIndex())
     local to = m[2] == "WHISPER" and baseName(m[3])
     if to and Y.RefreshRoster then Y.RefreshRoster() end
     if to and (gone[to] or offlineInGuild(to)) then
@@ -92,6 +104,7 @@ sender:SetScript("OnUpdate", function(self, e)
     else
       tokens = tokens - 1
       if to then whispered[to] = GetTime() end
+      if m[2] == "GUILD" and not selfName then recentGuild[m[1]] = GetTime() end
       CI.SendAddonMessage(PREFIX, m[1], m[2], m[3])
     end
   end
@@ -149,8 +162,10 @@ if ChatFrame_AddMessageEventFilter then
   end)
 end
 
-local function send(msg, channel, target, tag)
-  queue[#queue + 1] = { msg, channel or "GUILD", target, tag }
+-- `first`: put it at the front of the line (short notices that must not wait)
+local function send(msg, channel, target, tag, first)
+  local m = { msg, channel or "GUILD", target, tag }
+  if first then table.insert(queue, 1, m) else queue[#queue + 1] = m end
   sender:Show()
 end
 
@@ -383,26 +398,29 @@ local function sendHistory(target)
     for d, v in pairs(days) do entries[#entries + 1] = b36(d) .. "," .. b36(v[1]) .. "," .. b36(v[2]) end
     if #entries > 0 then
       table.sort(entries)
-      packed("H" .. b36(id) .. ":", entries, "WHISPER", target)
+      packed("H" .. b36(id) .. ":", entries, "WHISPER", target, "bulk")
       sent = sent + 1
     end
   end
-  send("F" .. b36(sent), "WHISPER", target)
+  send("F" .. b36(sent), "WHISPER", target, "bulk")
 end
 
 -- One guildmate answers each request: everyone who could waits a moment, the one
 -- whose wait ends first says so ("R"), and the others stand down. Fresher data
--- means a shorter wait, so the best-informed guildmate usually answers.
+-- means a shorter wait, so the best-informed guildmate usually answers. A guildmate
+-- already busy sending waits longer, so one with nothing to send answers instead.
+-- "R" jumps the line: stuck behind other messages it used to arrive too late, and
+-- three or four guildmates would all send the same history.
 local responding = {}
 local function answer(kind, from, fn, age)
   local key = kind .. ":" .. from
   responding[key] = false
   age = age or (time() - (FI:Realm().lastScan or 0))
-  local wait = 1 + math.min(5, age / 3600) + math.random() * 0.5
+  local wait = 1 + math.min(5, age / 3600) + math.min(10, #queue / 20) + math.random() * 2
   C_Timer.After(wait, function()
     if responding[key] == false then
       responding[key] = true
-      send("R" .. key)
+      send("R" .. key, nil, nil, nil, true)
       fn()
     end
   end)
@@ -473,11 +491,11 @@ local function sendCatchup(target, since)
       end
       local entries = {}
       for _, p in ipairs(keep) do entries[#entries + 1] = b36(p[1]) .. "," .. b36(p[2]) .. "," .. b36(p[3]) end
-      packed("K" .. b36(id) .. ":", entries, "WHISPER", target)
+      packed("K" .. b36(id) .. ":", entries, "WHISPER", target, "bulk")
       sent = sent + 1
     end
   end
-  send("G" .. b36(sent), "WHISPER", target)
+  send("G" .. b36(sent), "WHISPER", target, "bulk")
 end
 
 local function onCatchupRequest(from, rest)
@@ -564,6 +582,25 @@ local function me()
   return name
 end
 
+-- Is this message our own, come back to us? The guild channel echoes what we send.
+-- Some servers name players in addon chat with a surname ("Trenjamin Fentinyahoo")
+-- while UnitName says "Trenjamin", so comparing names alone missed our own messages:
+-- we answered our own requests (minutes of whispers to ourselves) and counted
+-- ourselves as a guildmate. Our first guild message coming back, under a name that
+-- starts with ours, tells us the name addon chat uses for us.
+local function isMe(who, text, channel)
+  local mine = me()
+  if not who or who == mine or who == selfName then return true end
+  if selfName or not mine or channel ~= "GUILD" then return false end
+  local at = recentGuild[text]
+  if at and GetTime() - at < 30 and who:sub(1, #mine + 1) == mine .. " " then
+    selfName = who
+    wipe(recentGuild)
+    return true
+  end
+  return false
+end
+
 -- ---------------------------------------------------------------------------
 -- Dungeon loot: one short message per boss kill, so everyone's drop chances
 -- learn from the whole guild's kills. The corpse's ID means a kill looted by five
@@ -601,8 +638,8 @@ end
 FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
   if prefix ~= PREFIX or not text or FI.settings.guildSync == false then return end
   local who = shortName(from)
-  if who == me() then return end
   if channel ~= "GUILD" and channel ~= "WHISPER" then return end
+  if isMe(who, text, channel) then return end
   H = H or FI.History
   local kind, rest = text:sub(1, 1), text:sub(2)
   Y.peers[who] = time()
@@ -665,6 +702,13 @@ FI:On("PLAYER_LOGIN", function()
   if CI and CI.RegisterAddonMessagePrefix then CI.RegisterAddonMessagePrefix(PREFIX) end
   Y.ready = true
   local realm = FI:Realm()
+  -- Guildmates heard from in the last day, kept across reloads and relogs: a scan is
+  -- only sent when someone is listening, and an empty list after a /reload used to
+  -- keep your scans to yourself until a guildmate happened to say something.
+  local peers, now = realm.syncPeers or {}, time()
+  for who, t in pairs(peers) do if now - t >= 86400 then peers[who] = nil end end
+  for who, t in pairs(Y.peers) do peers[who] = math.max(peers[who] or 0, t) end
+  realm.syncPeers, Y.peers = peers, peers
   local offlineSince = realm.lastOnline
   realm.lastOnline = time()
   C_Timer.After(15, function()

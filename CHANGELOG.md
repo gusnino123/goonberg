@@ -1,5 +1,13 @@
 # Goonberg Terminal
 
+## 0.29.4
+
+- **Guild scans arrive in seconds, not 15–20 minutes.** Guildmates' scans were waiting behind hundreds of price-history messages:
+  - **Goonberg recognizes its own messages again** on servers where addon chat names players with a surname ("Trenjamin Fentinyahoo" while your character is "Trenjamin"). It used to take its own messages for a guildmate's: it answered its own history requests with minutes of whispers to itself, and `/goon sync` listed you as a guildmate.
+  - **Scans go first.** Your scans, the scan a guildmate gets at login and short notices go out ahead of any price history or catch-up you're sending.
+  - **One guildmate answers each history request again.** The "I'm answering" notice now goes out right away instead of waiting in line, so the others hear it in time and stand down (three or four of them used to send the same history). A guildmate already busy sending leaves the answer to someone who isn't.
+- Guildmates running Goonberg are remembered for a day across `/reload` and relogs, so your scans keep going out after a reload.
+
 ## 0.29.3
 
 - **Fixed: a guildmate's scans sometimes never reached the guild.** Goonberg only sends a scan when it knows another guildmate runs Goonberg, and it learns that from the hello everyone says at login. Guildmates answered your hello only once a day, so after a `/reload` or relog your Goonberg could think nobody was listening and keep your scans to itself, with no message. Now every hello gets an answer. The guildmates who scan need this version for it to help.

@@ -395,6 +395,7 @@ end
 ---@field lastOnline integer?
 ---@field liveScan integer?            the newest scan with listings (yours or a guildmate's), not a catch-up
 ---@field lastShared {from: string, t: integer, items: integer}?  the latest guildmate scan
+---@field syncPeers table<string, integer>?  Sync.lua: guildmates running Goonberg, when last heard from
 ---@field ledger table?                 Ledger.lua
 ---@field recipes table?                Crafting.lua, per character
 ---@field marketBuilt integer?          Seed.lua
