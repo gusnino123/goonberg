@@ -395,7 +395,13 @@ end
 function K:BuildProfBar()
   local profs = FI.Crafting:Professions()
   local key = table.concat(profs, "|")
-  if key == self.profKey then return end
+  if key == self.profKey then
+    -- same professions: just keep the highlight on the one being shown
+    -- (clicking a profession on the overview changes it)
+    if K.prof ~= "All" and not tContains(profs, K.prof) then K.prof = "All" end
+    self.profChoice:Select(K.prof)
+    return
+  end
   self.profKey = key
   if self.profChoice then self.profChoice:Hide() end
   local values = { "All" }
@@ -455,5 +461,6 @@ function K:Refresh()
   self:ShowDetail(keep)
 end
 
-FI:On("FI_RECIPES_CHANGED", function() if K.frame and K.frame:IsShown() then K:Refresh() end end)
-FI:On("FI_SCAN_DONE", function() if K.frame and K.frame:IsShown() then K:Refresh() end end)
+-- (scans and merged prices refresh the open tab from the main window)
+FI:On("FI_RECIPES_CHANGED", function() if K.frame and K.frame:IsVisible() then K:Refresh() end end)
+FI:On("FI_LEDGER_CHANGED", function() if K.frame and K.frame:IsVisible() and K.view == "Overview" then K:Refresh() end end)

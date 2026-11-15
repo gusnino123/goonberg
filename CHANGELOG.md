@@ -1,5 +1,10 @@
 # Goonberg Terminal
 
+## 0.22.2
+
+- **Crafting page updates properly.** Clicking a profession on the crafting overview now also moves the highlight on the profession buttons, so the buttons and the recipe list always agree. Newly learned recipes and professions show up without reopening the window.
+- **Crafting page is faster.** Price-history lookups are much quicker, and the crafting overview is reused until new prices, recipes, sales or vendor prices come in, so switching tabs and re-sorting no longer stutter (about 120 ms down to 1–2 ms with 500 recipes).
+
 ## 0.22.1
 
 - **Loot tab: every dungeon starts closed.** You see one line per dungeon (level range, item count, best drop, gold per run); click it to open its drops, click again to close. "Expand all" opens them all.

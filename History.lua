@@ -118,27 +118,35 @@ function H.Record(realm, itemID, now, mkt, minPrice, qty, listings, depth)
 end
 
 -- Price at or before time `t` (the last point with something listed)
-local function priceAt(h, t)
-  local p
-  for i = 1, #h, STRIDE do
-    if h[i] > t then break end
-    if h[i + 1] > 0 then p = h[i + 1] end
+-- Index of the last point at or before t (history is in time order): a binary
+-- search, so looking up old prices stays fast however long the history gets.
+local function lastAtOrBefore(h, t)
+  local n = #h / STRIDE
+  if n < 1 or h[1] > t then return nil end
+  local lo, hi = 1, n
+  while lo < hi do
+    local mid = math.floor((lo + hi + 1) / 2)
+    if h[(mid - 1) * STRIDE + 1] <= t then lo = mid else hi = mid - 1 end
   end
-  return p
+  return (lo - 1) * STRIDE + 1
+end
+
+-- the last price (> 0) at or before t, and not older than `oldest` if given
+local function priceAt(h, t, oldest)
+  local i = lastAtOrBefore(h, t)
+  while i and i >= 1 do
+    if oldest and h[i] < oldest then return nil end
+    if h[i + 1] > 0 then return h[i + 1] end
+    i = i - STRIDE
+  end
+  return nil
 end
 
 -- Market price of an item as it was at time t (nil if no data that old). With
 -- maxAge, the point must be no older than t - maxAge (no stale stand-ins).
 function H.PriceAt(it, t, maxAge)
   if not it then return nil end
-  local h = it.h or {}
-  if not maxAge then return priceAt(h, t) end
-  local p
-  for i = 1, #h, STRIDE do
-    if h[i] > t then break end
-    if h[i + 1] > 0 and h[i] >= t - maxAge then p = h[i + 1] end
-  end
-  return p
+  return priceAt(it.h or {}, t, maxAge and (t - maxAge) or nil)
 end
 
 local function change(from, to)

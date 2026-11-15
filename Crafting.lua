@@ -214,7 +214,22 @@ local function median(list)
 end
 
 -- Everything the crafting overview shows, in one pass
+-- The overview is cached until something it depends on changes (or 5 minutes pass:
+-- its "7 days ago" moves on), so switching tabs and sorting don't redo the work.
+local OVERVIEW_TTL = 300
+for _, e in ipairs({ "FI_SCAN_DONE", "FI_DATA_MERGED", "FI_RECIPES_CHANGED", "FI_LEDGER_CHANGED", "MERCHANT_SHOW" }) do
+  FI:On(e, function() K.ovCache = nil end)
+end
+
 function K:Overview()
+  local c = self.ovCache
+  if c and c.realm == FI:Realm() and time() - c.at < OVERVIEW_TTL then return c.data end
+  local data = self:BuildOverview()
+  self.ovCache = { realm = FI:Realm(), at = time(), data = data }
+  return data
+end
+
+function K:BuildOverview()
   local now = time()
   local rows = self:Rows("All")
   local o = { known = #rows, priced = 0, profitable = 0, pool = 0, profs = {}, movers = {}, days = {} }
