@@ -1,5 +1,19 @@
 # Goonberg Terminal
 
+## 0.28.0
+
+**Looks like part of the game.** Goonberg Terminal now uses WoW's own window pieces wherever the game has them, and is easier to read.
+
+- **The game's own controls:** red buttons, dropdowns, search boxes, tabs on the window and small tabs for views (Summary / Positions, Overview / Recipes, Items / Dungeons), checkboxes for on/off options (MA 7/25, Usual price, Watch), and the game's scroll bars with arrows.
+- **Panels have the tooltip's border.** The P&L share card has the gold dialog border.
+- **Coin icons for money**, like your bags, so gold, silver and copper can't be mixed up. Chat messages and price boxes still use g/s/c. Money columns line up on the right, and only show copper when nothing in the column reaches 1 gold.
+- **Easier to scan:** Title Case instead of ALL CAPS, numbers a size larger, stripes on every other row, and the AH's own highlight on the row under the mouse. The item on the chart and the open recipe get the game's selection glow. Gold is kept for headings and what's selected; each Deals row has one green number, its profit.
+- **Plain colored text** for the chart's change and the P&L ROI, instead of colored boxes.
+- **Loot and Positions** use the quest log's +/- to open and close groups. The Loot footer fits on one line; hover it for where drop chances come from.
+- **P&L:** the trade types are explained in the Type header's tooltip. The old-trades notice is a warning icon with text.
+- **Fixed: "Item 8156" instead of a name.** Names fill in as soon as the game loads the item (Deals, Overview, Crafting), and the P&L never saves a stand-in name for a craft or its materials.
+- **Fixed:** the chart's "Back to now" button covered "Usual price". It now sits in the chart's corner.
+
 ## 0.27.1
 
 - **No more deal pop-ups when a guildmate scans.** Their prices still update the Deals tab, quietly; the "new deals" pop-up (and its sound) only comes after your own scans. Want them back? `/goon deals guildalerts on` (`off` to undo). Price alerts you set on an item are unchanged.
