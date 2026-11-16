@@ -622,6 +622,16 @@ SlashCmdList.GOONBERG = function(msg)
     local id = FI:FindItem(rest)
     if not id then return FI:Print("Couldn't find that item. Shift-click it into the command, or scan the AH first.") end
     if cmd == "watch" then FI.Alerts:Watch(id) else FI.Alerts:Unwatch(id) end
+  elseif cmd == "share" then
+    -- the guild leaderboard: /goon share on|off
+    local arg = rest:lower()
+    if arg == "on" or arg == "off" then
+      FI.Sync:SetSharing(arg == "on")
+      FI:Print(arg == "on" and "You're on your guild's leaderboard: guildmates see your P&L totals (today, 7 and 30 days), nothing else."
+        or "Stopped sharing: your row is gone from your guild's leaderboard.")
+    else
+      FI:Print("Leaderboard sharing is %s. /goon share on|off  (P&L tab > Leaderboard)", FI.Sync:Sharing() and "on" or "off")
+    end
   elseif cmd == "price" then
     -- where an item's price comes from: /goon price [item]  (add "forget vendor" to drop a vendor price)
     local forget = rest:lower():match("%s*forget vendor%s*$")

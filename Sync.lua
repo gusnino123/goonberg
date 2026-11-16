@@ -653,6 +653,8 @@ FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
     elseif kind == "C" then onCatchupRequest(who, rest)
     elseif kind == "R" then onResponding(rest)
     elseif kind == "L" then onKill(rest)
+    elseif kind == "P" then Y:OnTotals(who, rest)
+    elseif kind == "T" then Y:OnTotalsRequest(who, rest)
     elseif kind == "V" then
       Y:NoteVersion(who, rest)
       -- hello: say hello back so both sides know. Every time, not once a day: a hello
@@ -802,3 +804,137 @@ function Y:Status()
   if #vs > 0 then FI:Print("Versions: %s  (you: %s)", table.concat(vs, ", "), FI.version or "?") end
   self:RemindUpdate()
 end
+
+-- ---------------------------------------------------------------------------
+-- Leaderboard: who in the guild makes the most on the AH. Opt-in only: nothing is
+-- sent unless you turn sharing on (/goon share on, or the button on the board).
+-- What's shared: your P&L totals for today, 7 and 30 days (total made, flipping,
+-- farming, number of sales). Never single trades, your gold or your bags.
+--   P1:<today>|<7d>|<30d>   each "total,flip,farm,sales" (signed base 36)
+--   P1:off                   stopped sharing: take me off
+--   T1                       someone opened the board: sharers, send your totals
+-- ---------------------------------------------------------------------------
+local BOARD_KEEP = 30 * 86400
+local SHARE_EVERY = 300 -- at most one update every 5 minutes (plus answers to requests)
+local PERIODS = { "today", "week", "month" }
+local function sb36(n) n = math.floor((n or 0) + 0.5); return n < 0 and ("-" .. b36(-n)) or b36(n) end
+local function sn36(s)
+  if not s then return nil end
+  if s:sub(1, 1) == "-" then local v = n36(s:sub(2)); return v and -v end
+  return n36(s)
+end
+Y.sb36, Y.sn36 = sb36, sn36
+
+local function periodStart(p, now)
+  now = now or time()
+  if p == "today" then
+    local d = date("*t", now)
+    d.hour, d.min, d.sec = 0, 0, 0
+    return time(d)
+  end
+  return now - (p == "week" and 7 or 30) * 86400
+end
+Y.PeriodStart = periodStart
+
+-- your totals for the three periods
+function Y:MyTotals()
+  local out = {}
+  for _, p in ipairs(PERIODS) do
+    local s = FI.Ledger:Summary(periodStart(p), "flips")
+    out[p] = { total = s.total, flip = s.net, farm = s.farmed, sales = (s.sales or 0) + (s.farmedSales or 0) }
+  end
+  return out
+end
+
+function Y:Board()
+  local realm = FI:Realm()
+  realm.board = realm.board or {}
+  local now = time()
+  for who, e in pairs(realm.board) do
+    if now - (e.t or 0) > BOARD_KEEP then realm.board[who] = nil end
+  end
+  return realm.board
+end
+
+function Y:Sharing() return FI.settings.sharePnl == true end
+
+function Y:ShareTotals(force)
+  if not self:Sharing() or not canSync() then return end
+  local now = time()
+  if not force and self.lastShare and now - self.lastShare < SHARE_EVERY then
+    -- too soon: send once the wait is over
+    if not self.sharePending then
+      self.sharePending = true
+      C_Timer.After(SHARE_EVERY - (now - self.lastShare) + 1, function()
+        Y.sharePending = nil
+        Y:ShareTotals(true)
+      end)
+    end
+    return
+  end
+  self.lastShare = now
+  local t, parts = self:MyTotals(), {}
+  for _, p in ipairs(PERIODS) do
+    local v = t[p]
+    parts[#parts + 1] = table.concat({ sb36(v.total), sb36(v.flip), sb36(v.farm), sb36(v.sales) }, ",")
+  end
+  send("P" .. PROTO .. ":" .. table.concat(parts, "|"), "GUILD", nil, "board", true)
+end
+
+function Y:SetSharing(on)
+  if on == self:Sharing() then return end
+  FI.settings.sharePnl = on or nil
+  if on then
+    self.lastShare = nil
+    self:ShareTotals(true)
+  elseif canSync() then
+    send("P" .. PROTO .. ":off", "GUILD", nil, "board", true)
+  end
+  FI:Fire("FI_BOARD_CHANGED")
+end
+
+function Y:OnTotals(who, rest)
+  local proto, body = rest:match("^(%d+):(.*)$")
+  if proto ~= PROTO or not body then return end
+  local board = self:Board()
+  if body == "off" then
+    board[who] = nil
+    return FI:Fire("FI_BOARD_CHANGED", who)
+  end
+  local e = { t = time(), v = self.versions and self.versions[who] }
+  local i = 0
+  for chunk in body:gmatch("[^|]+") do
+    i = i + 1
+    local a, b, c, d = chunk:match("^(%-?%w+),(%-?%w+),(%-?%w+),(%-?%w+)$")
+    local p = PERIODS[i]
+    if not p or not a then return end -- malformed: ignore it all
+    e[p] = { total = sn36(a), flip = sn36(b), farm = sn36(c), sales = sn36(d) }
+  end
+  if i ~= #PERIODS then return end
+  board[who] = e
+  FI:Fire("FI_BOARD_CHANGED", who)
+end
+
+-- someone opened the board: sharers answer (a little apart, so not all at once)
+function Y:OnTotalsRequest(who, rest)
+  if rest ~= PROTO or not self:Sharing() then return end
+  if self.lastShare and time() - self.lastShare < 60 then return end -- just did
+  C_Timer.After(1 + math.random() * 4, function() Y:ShareTotals(true) end)
+end
+
+function Y:RequestTotals()
+  if not canSync() then return false end
+  local now = time()
+  if self.lastAsk and now - self.lastAsk < 60 then return false end
+  self.lastAsk = now
+  send("T" .. PROTO, "GUILD", nil, "board", true)
+  return true
+end
+
+-- keep yours current while you trade (at most every 5 minutes), and say it at login
+FI:On("FI_LEDGER_CHANGED", function()
+  if Y:Sharing() then FI:Debounce("shareTotals", 30, function() Y:ShareTotals() end) end
+end)
+FI:On("PLAYER_LOGIN", function()
+  C_Timer.After(25, function() if Y:Sharing() then Y:ShareTotals(true) end end)
+end)

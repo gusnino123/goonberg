@@ -1,5 +1,12 @@
 # Goonberg Terminal
 
+## 0.31.0 - Guild leaderboard
+
+- **New: Leaderboard (P&L tab > Leaderboard).** Who in your guild makes the most on the AH: guildmates ranked by total made, with their flipping, farming and number of sales, for today, the last 7 days or the last 30 days. Gold, silver and bronze for the top three; sort by any column; hover a row for the breakdown.
+- **Opt-in.** Nobody is on the board unless they choose to be: press "Share my totals" (or `/goon share on`). What's shared is only those totals, never your trades, your gold or your bags. "Stop sharing" (or `/goon share off`) takes your row off everyone's board. Your own row is always shown to you, marked private until you share.
+- Totals refresh when you open the board ("Ask the guild" asks again) and at most every 5 minutes while you trade. A "today" from yesterday isn't ranked today.
+- Guildmates need 0.31.0 or newer to share or see the board.
+
 ## 0.30.0
 
 - **Goonberg tells you when there's a newer version.** When a guildmate runs a newer Goonberg than yours, you get a green line in chat saying which version is out and how to update (your addon manager, or the GitHub releases page). The main window shows "Update available" in its title bar (hover it for how to update), and every login reminds you until you've updated. `/goon sync` mentions it too. It learns about new versions from guildmates' hellos, since addons can't check the internet themselves.

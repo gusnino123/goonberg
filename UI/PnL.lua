@@ -337,16 +337,20 @@ function P:Build(parent)
   self.frame = tab
   self.recent = {}
   -- Summary (the card) or Positions (each buy-to-sale chain)
-  local views = W.Choice(tab, { "Summary", "Positions" }, "seg", function(v) P.view = v; P:Refresh() end, 26)
+  local views = W.Choice(tab, { "Summary", "Positions", "Leaderboard" }, "seg", function(v) P.view = v; P:Refresh() end, 26)
   views:SetPoint("TOPLEFT", 16, -14)
   views:Select(self.view)
   self.viewChoice = views
   for v, b in pairs(views.buttons) do
     b:HookScript("OnEnter", function(btn)
       GameTooltip:SetOwner(btn, "ANCHOR_BOTTOM")
-      GameTooltip:AddLine(v == "Summary" and "Your P&L card and recent trades" or "Positions: every buy-to-sale chain")
-      GameTooltip:AddLine(v == "Summary" and "Totals for flipping and farming, ready to share."
-        or "What you bought and at what price, what you crafted or disenchanted it into, what it sold for, and the P&L.", 0.82, 0.82, 0.82, true)
+      local tips = {
+        Summary = { "Your P&L card and recent trades", "Totals for flipping and farming, ready to share." },
+        Positions = { "Positions: every buy-to-sale chain", "What you bought and at what price, what you crafted or disenchanted it into, what it sold for, and the P&L." },
+        Leaderboard = { "Leaderboard: who in your guild makes the most", "Guildmates who chose to share their totals, ranked by what they made on the AH. Yours stay private until you share them." },
+      }
+      GameTooltip:AddLine(tips[v][1])
+      GameTooltip:AddLine(tips[v][2], 0.82, 0.82, 0.82, true)
       GameTooltip:Show()
     end)
     b:HookScript("OnLeave", GameTooltip_Hide)
@@ -407,6 +411,7 @@ function P:Build(parent)
   note.hide:HookScript("OnLeave", GameTooltip_Hide)
   self.oldNote = note
   self.positionsFrame = FI.PositionsView:Build(tab)
+  self.boardFrame = FI.LeaderboardView:Build(tab)
   -- the card shrinks a little on narrow windows; the trade list takes the rest
   summary:SetScript("OnSizeChanged", function(_, w)
     P.card:SetWidth(math.max(600, math.min(700, w - 48 - 24 - 320)))
@@ -506,10 +511,17 @@ local function colorOf(v) return v >= 0 and C.up or C.down end
 function P:Refresh()
   if not self.frame then return end
   self.viewChoice:Select(self.view)
-  local positions = self.view == "Positions"
-  self.summaryFrame:SetShown(not positions)
+  local positions, board = self.view == "Positions", self.view == "Leaderboard"
+  self.summaryFrame:SetShown(not positions and not board)
   self.positionsFrame:SetShown(positions)
+  self.boardFrame:SetShown(board)
   if positions then FI.PositionsView:Refresh(); return end
+  if board then
+    -- opening the board: ask the guild for fresh totals (at most once a minute)
+    FI.Sync:RequestTotals()
+    FI.LeaderboardView:Refresh()
+    return
+  end
   self.periodChoice:Select(self.period)
   local old = FI.Ledger:LegacyCount()
   local note = self.oldNote
