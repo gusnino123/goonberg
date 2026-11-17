@@ -377,7 +377,7 @@ function V:Refresh()
   self.empty:SetText(#list > 0 and ("No " .. self.show:lower() .. " positions in this period.") or EMPTY)
 end
 
-for _, ev in ipairs({ "FI_LEDGER_CHANGED", "FI_SCAN_DONE", "FI_DATA_MERGED" }) do
+for _, ev in ipairs({ "FI_LEDGER_CHANGED", "FI_SCAN_DONE", "FI_DATA_MERGED", "FI_MARKET_CHANGED" }) do
   FI:On(ev, function()
     V.cache = nil
     if ev == "FI_LEDGER_CHANGED" and V.frame and V.frame:IsVisible() then V:Refresh() end

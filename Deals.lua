@@ -399,6 +399,11 @@ FI:On("FI_SCAN_DONE", function(_, _, from)
   end)
 end)
 
+-- Looking at the other market: its deals (quietly)
+FI:On("FI_MARKET_CHANGED", function()
+  FI:Debounce("deals", 0.2, function() DL:Run() end)
+end)
+
 -- Found out an item can't be disenchanted (or can): search again without alerts
 FI:On("FI_DISENCHANT_LEARNED", function()
   FI:Debounce("deals", 1, function() DL:Run() end)

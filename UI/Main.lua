@@ -177,8 +177,27 @@ function UI:Build()
   scan:SetScript("OnClick", function() FI.Scanner:Start(true) end)
   self.scanButton = scan
 
+  -- which auction house's prices the tabs show: yours, or the neutral one (Booty Bay)
+  local market = W.Dropdown(head, {
+    { FI:MarketName("home"), "home" },
+    { "Neutral AH (Booty Bay)", "neutral" },
+  }, function(v) FI:SetMarket(v) end, 184)
+  market:SetPoint("RIGHT", scan, "LEFT", -12, 0)
+  market:Select(FI.market)
+  if market.HookScript then
+    market:HookScript("OnEnter", function(b)
+      GameTooltip:SetOwner(b, "ANCHOR_BOTTOM")
+      GameTooltip:AddLine("Which auction house's prices to show")
+      GameTooltip:AddLine("Your faction's AH and the neutral one (Booty Bay, Gadgetzan, Everlook) are separate markets with their own prices. Scans are kept apart; at a neutral AH this switches by itself.", 1, 1, 1, true)
+      GameTooltip:AddLine("Your P&L, recipes, watchlist and the leaderboard are the same in both.", 0.7, 0.7, 0.7, true)
+      GameTooltip:Show()
+    end)
+    market:HookScript("OnLeave", GameTooltip_Hide)
+  end
+  self.marketChoice = market
+
   local status = W.Text(head, 11, C.muted)
-  status:SetPoint("RIGHT", scan, "LEFT", -12, 0)
+  status:SetPoint("RIGHT", market, "LEFT", -12, 0)
   status:SetPoint("LEFT", tabs, "RIGHT", 34, 0) -- never runs into the tabs: cut short instead
   status:SetJustifyH("RIGHT")
   status:SetWordWrap(false)
@@ -252,6 +271,8 @@ function UI:UpdateStatus()
     text, color = "Waiting for the Auction House...", C.gold
   elseif S.state == "processing" then
     text, color = ("Scanning %d%%"):format(math.floor((S:Progress() or 0) * 100)), C.gold
+  elseif FI.market == "neutral" and (realm.lastScan or 0) == 0 then
+    text, color = "No Booty Bay scans yet: scan at a neutral AH", C.gold
   else
     local scans = realm.scans or 0
     local shared = realm.lastShared
@@ -371,8 +392,9 @@ for _, e in ipairs({ "FI_SCAN_STATE", "FI_SCAN_PROGRESS" }) do
   FI:On(e, function() UI:UpdateStatus() end)
 end
 
-for _, e in ipairs({ "FI_SCAN_DONE", "FI_DATA_MERGED" }) do
+for _, e in ipairs({ "FI_SCAN_DONE", "FI_DATA_MERGED", "FI_MARKET_CHANGED" }) do
   FI:On(e, function()
+    if e == "FI_MARKET_CHANGED" then UI:UpdateStatus(); if UI.marketChoice then UI.marketChoice:Select(FI.market) end end
     if UI.frame and UI.frame:IsShown() and UI.current and UI.tabs[UI.current].Refresh then
       UI.tabs[UI.current]:Refresh()
     end

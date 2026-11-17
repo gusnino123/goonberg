@@ -45,7 +45,7 @@ local clock = debugprofilestop
 
 worker:SetScript("OnUpdate", function(self)
   local A = _G.Auctionator
-  local realm = FI:Realm()
+  local realm = FI:Market("home")
   local startMs = clock and clock() or 0
   local last = math.min(#I.keys, I.i + PER_FRAME)
   for n = I.i + 1, last do

@@ -79,7 +79,7 @@ SD.queue = {}
 local function start(job)
   job.ids, job.i, job.points, job.count = {}, 0, 0, 0
   for id in pairs(job.data.items) do job.ids[#job.ids + 1] = id end
-  local realm = FI:Realm()
+  local realm = FI:Market("home")
   realm.scanDays = realm.scanDays or {}
   for d in (job.data.days or ""):gmatch("%w+") do realm.scanDays[job.data.base + n36(d)] = true end
   SD.job = job
@@ -88,7 +88,7 @@ end
 
 local function done(job)
   SD.job = nil
-  local realm = FI:Realm()
+  local realm = FI:Market("home")
   realm[job.field] = job.built
   FI.History.cache = nil
   if job.points > 0 then
@@ -102,7 +102,7 @@ end
 worker:SetScript("OnUpdate", function()
   local job = SD.job
   if not job then worker:Hide(); return end
-  local realm = FI:Realm()
+  local realm = FI:Market("home")
   local began = debugprofilestop()
   while true do
     job.i = job.i + 1
@@ -144,13 +144,13 @@ function SD:MarketStatus()
   if not addonExists(name) then return market, "missing", name end
   local meta = api("GetAddOnMetadata")
   local built = tonumber(meta and meta(name, "X-Goonberg-Built") or "")
-  local realm = FI:Realm()
+  local realm = FI:Market("home")
   if built and realm.marketBuilt == built then return market, "current", name, built end
   return market, "new", name, built
 end
 
 function SD:Run(force)
-  local realm = FI:Realm()
+  local realm = FI:Market("home")
   local queued = false
   -- 1) bundled history from players' saved data
   local data = pick(bundled, { FI.realmKey, self:Market() })

@@ -437,22 +437,92 @@ end
 
 ---This realm and faction's data (nil only before the addon has loaded).
 ---@return GT.Realm
-function FI:Realm()
+-- ---------------------------------------------------------------------------
+-- Markets. Your faction's auction house and the neutral one (Booty Bay, Gadgetzan,
+-- Everlook) are separate markets with their own prices, so each keeps its own
+-- prices and scans: "Realm - Horde" and "Realm - Neutral AH". Your own things
+-- (P&L, recipes, watchlist, leaderboard, guildmates) live with your faction's
+-- market and are the same whichever market you look at.
+-- FI.market is the market the tabs show ("home" or "neutral").
+-- ---------------------------------------------------------------------------
+FI.market = "home"
+local PERSONAL = { ledger = true, recipes = true, watch = true, board = true, syncPeers = true, lastOnline = true }
+
+local function newMarket()
+  return { items = {}, index = {}, watch = {}, lastScan = 0, scans = 0 }
+end
+
+---This realm's market: "home" (your faction's AH) or "neutral".
+---@param which ("home"|"neutral")?
+---@return GT.Realm
+function FI:Market(which)
   ---@diagnostic disable-next-line: return-type-mismatch
   if not self.db then return nil end
   if not self.realmKey then
     local faction = UnitFactionGroup("player") or "Neutral"
     self.realmKey = (GetRealmName() or "Unknown") .. " - " .. faction
+    self.neutralKey = (GetRealmName() or "Unknown") .. " - Neutral AH"
   end
-  local r = self.db.realms[self.realmKey]
-  if not r then
-    r = { items = {}, index = {}, watch = {}, lastScan = 0, scans = 0 }
-    self.db.realms[self.realmKey] = r
+  local home = self.db.realms[self.realmKey]
+  if not home then
+    home = newMarket()
+    self.db.realms[self.realmKey] = home
   end
-  r.items = r.items or {}
-  r.index = r.index or {}
-  r.watch = r.watch or {}
-  return r
+  home.items = home.items or {}
+  home.index = home.index or {}
+  home.watch = home.watch or {}
+  if which ~= "neutral" then return home end
+  local n = self.db.realms[self.neutralKey]
+  if not n then
+    n = newMarket()
+    n.watch = nil
+    self.db.realms[self.neutralKey] = n
+  end
+  n.items = n.items or {}
+  n.index = n.index or {}
+  -- your own things come from (and go to) your faction's market
+  if getmetatable(n) == nil then
+    setmetatable(n, {
+      __index = function(_, k) if PERSONAL[k] then return home[k] end end,
+      __newindex = function(t, k, v) if PERSONAL[k] then home[k] = v else rawset(t, k, v) end end,
+    })
+  end
+  return n
+end
+
+---The market the tabs are showing (a scan in progress uses its own, see Scanner.lua).
+---@return GT.Realm
+function FI:Realm()
+  return self:Market(self.marketOverride or self.market)
+end
+
+-- Show the other market. Caches that depend on prices are dropped and the open tab
+-- redraws (FI_MARKET_CHANGED).
+function FI:SetMarket(which)
+  which = which == "neutral" and "neutral" or "home"
+  if which == self.market then return end
+  self.market = which
+  self:Fire("FI_MARKET_CHANGED", which)
+end
+
+function FI:MarketName(which)
+  which = which or self.market
+  if which == "neutral" then return "Neutral AH" end
+  local f = UnitFactionGroup("player")
+  return (f == "Horde" or f == "Alliance") and (f .. " AH") or "Your AH"
+end
+
+-- Is the auction house that's open the neutral one? The goblin auctioneers of
+-- Booty Bay, Gadgetzan and Everlook belong to no faction; the zones say it too.
+local NEUTRAL_ZONES = { [1434] = true, [1446] = true, [1452] = true } -- Stranglethorn, Tanaris, Winterspring
+function FI:AtNeutralAH()
+  if UnitExists and UnitExists("npc") then
+    -- faction auctioneers are Alliance or Horde; the goblins are neither
+    local f = UnitFactionGroup("npc")
+    return f ~= "Alliance" and f ~= "Horde"
+  end
+  local map = C_Map and C_Map.GetBestMapForUnit and C_Map.GetBestMapForUnit("player")
+  return map ~= nil and NEUTRAL_ZONES[map] == true
 end
 
 FI:On("ADDON_LOADED", function(_, name)
@@ -473,10 +543,16 @@ end)
 -- ---------------------------------------------------------------------------
 local function ahShown()
   FI.ahOpen = true
+  -- at Booty Bay (and co.) the tabs show the neutral market while you're there
+  FI.ahMarket = FI:AtNeutralAH() and "neutral" or "home"
+  FI.marketBeforeAH = FI.market
+  FI:SetMarket(FI.ahMarket)
   FI:Fire("FI_AH_OPEN")
 end
 local function ahHidden()
   FI.ahOpen = false
+  if FI.marketBeforeAH and FI.market == FI.ahMarket then FI:SetMarket(FI.marketBeforeAH) end
+  FI.marketBeforeAH = nil
   FI:Fire("FI_AH_CLOSED")
 end
 FI:On("AUCTION_HOUSE_SHOW", ahShown)

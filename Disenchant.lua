@@ -139,6 +139,7 @@ D.LAST_KNOWN = math.huge
 
 local resultsCache = {}
 function D:ForgetCache() resultsCache = {} end
+FI:On("FI_MARKET_CHANGED", function() resultsCache = {} end) -- mats cost something else there
 ---@param itemID integer
 ---@return GT.DEResult[]?
 function D:Results(itemID)

@@ -105,7 +105,9 @@ end
 local function finish()
   worker:Hide()
   H = H or FI.History
-  local realm = FI:Realm()
+  -- the market of the auction house this scan was read at (not whatever is on screen now)
+  local market = S.market or FI.ahMarket or "home"
+  local realm = FI:Market(market)
   local now = time()
   local acc = S.acc
   S.acc = nil
@@ -161,7 +163,7 @@ local function finish()
   S.lastFinished = now
   setState("idle")
   FI:Print("Scan done: %s auctions, %s items in %.1fs.", FI.Number(auctions), FI.Number(items), GetTime() - (S.requested or GetTime()))
-  FI:Fire("FI_SCAN_DONE", now)
+  FI:Fire("FI_SCAN_DONE", now, nil, market)
 end
 
 local function step()
@@ -198,6 +200,7 @@ local function begin(total)
   S.total = total or 0
   S.done = 0
   S.acc = {}
+  S.market = FI.ahMarket or FI.market -- which auction house this scan belongs to
   setState("processing")
   if S.total == 0 then
     local ok, err = pcall(finish)

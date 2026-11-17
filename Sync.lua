@@ -11,6 +11,11 @@ local _, FI = ...
 local Y = { peers = {}, sessions = {}, sent = {}, greeted = {} }
 FI.Sync = Y
 local PREFIX = "GoonbergSync"
+-- Neutral auction house (Booty Bay...) scans travel on their own prefix: versions
+-- before 0.32 don't listen to it, so they can't mix them into faction prices.
+local NPREFIX = "GoonbergSyncN"
+-- guild sync works with your faction's market; only neutral scans touch the other
+local function home() return FI:Market("home") end
 local PROTO = "1"
 -- Kept deliberately light (Blizzard's addon policy: no harm to realm performance):
 local MAX_ITEMS = 600          -- per broadcast scan, busiest first, changed items only
@@ -105,7 +110,7 @@ sender:SetScript("OnUpdate", function(self, e)
       tokens = tokens - 1
       if to then whispered[to] = GetTime() end
       if m[2] == "GUILD" and not selfName then recentGuild[m[1]] = GetTime() end
-      CI.SendAddonMessage(PREFIX, m[1], m[2], m[3])
+      CI.SendAddonMessage(m[5] or PREFIX, m[1], m[2], m[3])
     end
   end
   if not queue[1] then self:Hide() end
@@ -163,8 +168,8 @@ if ChatFrame_AddMessageEventFilter then
 end
 
 -- `first`: put it at the front of the line (short notices that must not wait)
-local function send(msg, channel, target, tag, first)
-  local m = { msg, channel or "GUILD", target, tag }
+local function send(msg, channel, target, tag, first, prefix)
+  local m = { msg, channel or "GUILD", target, tag, prefix }
   if first then table.insert(queue, 1, m) else queue[#queue + 1] = m end
   sender:Show()
 end
@@ -172,17 +177,17 @@ end
 function Y:QueueLength() return #queue end
 
 -- Packs "entry;entry;..." into messages under the size limit
-local function packed(head, entries, channel, target, tag)
+local function packed(head, entries, channel, target, tag, prefix)
   if channel == "WHISPER" and Y.RefreshRoster then Y.RefreshRoster() end
   local cur = head
   for _, e in ipairs(entries) do
     if #cur + #e + 1 > MSG_MAX then
-      send(cur, channel, target, tag)
+      send(cur, channel, target, tag, nil, prefix)
       cur = head
     end
     cur = (cur == head) and (cur .. e) or (cur .. ";" .. e)
   end
-  if cur ~= head then send(cur, channel, target, tag) end
+  if cur ~= head then send(cur, channel, target, tag, nil, prefix) end
 end
 
 -- ---------------------------------------------------------------------------
@@ -205,9 +210,9 @@ end
 
 -- The items of scan t worth sending, busiest first. Each comes back as the entry
 -- to send and the item ID. `keep` filters further (nil = all of them).
-local function scanEntries(t, keep)
+local function scanEntries(t, keep, realm)
   local list = {}
-  for id, it in pairs(FI:Realm().items) do
+  for id, it in pairs((realm or home()).items) do
     if it.seen == t and it.mkt and (it.qty or 0) > 0 and (not keep or keep(id, it)) then list[#list + 1] = { id, it } end
   end
   table.sort(list, function(a, b) return a[2].mkt * a[2].qty > b[2].mkt * b[2].qty end)
@@ -231,30 +236,40 @@ local function refreshRoster()
 end
 Y.RefreshRoster = refreshRoster
 
-local function sendScan(t, entries, channel, target, tag)
+local function sendScan(t, entries, channel, target, tag, prefix)
   if channel == "WHISPER" then refreshRoster() end
   local tt = b36(t)
-  send("S" .. PROTO .. ":" .. tt .. ":" .. b36(#entries), channel, target, tag)
-  packed("B" .. tt .. ":", entries, channel, target, tag)
-  send("E" .. tt, channel, target, tag)
+  send("S" .. PROTO .. ":" .. tt .. ":" .. b36(#entries), channel, target, tag, nil, prefix)
+  packed("B" .. tt .. ":", entries, channel, target, tag, prefix)
+  send("E" .. tt, channel, target, tag, nil, prefix)
 end
 
-function Y:BroadcastScan(t)
+function Y:BroadcastScan(t, market)
   if not canSync() then return end
   -- nobody in the guild runs Goonberg: send nothing at all
   if self:ActivePeers() == 0 then return end
-  local realm = FI:Realm()
-  local entries, ids = scanEntries(t, function(id, it) return changed(id, it, t) end)
+  local neutral = market == "neutral"
+  local realm = FI:Market(neutral and "neutral" or "home")
+  -- (what was sent is remembered per market: the same item has two prices)
+  local sent = neutral and self.sentN or self.sent
+  local entries, ids
+  if neutral then
+    entries, ids = scanEntries(t, nil, realm)
+  else
+    entries, ids = scanEntries(t, function(id, it) return changed(id, it, t) end, realm)
+  end
   for _, id in ipairs(ids) do
     local it = realm.items[id]
-    self.sent[id] = { mkt = it.mkt, qty = it.qty or 0, t = t }
+    sent[id] = { mkt = it.mkt, qty = it.qty or 0, t = t }
   end
   if #entries == 0 then return end
   -- a newer scan replaces one that's still going out
-  for i = #queue, 1, -1 do if queue[i][4] == "scan" then table.remove(queue, i) end end
-  sendScan(t, entries, "GUILD", nil, "scan")
-  self.lastSent = t
+  local tag = neutral and "nscan" or "scan"
+  for i = #queue, 1, -1 do if queue[i][4] == tag then table.remove(queue, i) end end
+  sendScan(t, entries, "GUILD", nil, tag, neutral and NPREFIX or nil)
+  if not neutral then self.lastSent = t end
 end
+Y.sentN = {}
 
 -- ---------------------------------------------------------------------------
 -- Receiving
@@ -286,24 +301,24 @@ Y.LiveScan = liveScan
 
 -- A scan arrives as S (start), B (batches), E (end). `key` tells sessions apart;
 -- `reply` marks the scan we asked for at login (whispered, see below).
-local function onStart(key, rest, reply)
+local function onStart(key, rest, reply, market)
   local proto, tt = rest:match("^(%d+):(%w+)")
   if proto ~= PROTO then return end
   local t = n36(tt)
-  local realm = FI:Realm()
+  local realm = FI:Market(market or "home")
   -- ignore scans older than what we already have. A login catch-up may already have
   -- brought this scan's prices (but not its listings), so the reply is judged by
   -- the listings we hold.
   local have = reply and liveScan(realm) or (realm.lastScan or 0)
   if not t or t <= have or t > time() + 300 then return end
-  Y.sessions[key] = { t = t, prev = snapshot(realm), items = 0, reply = reply }
+  Y.sessions[key] = { t = t, prev = snapshot(realm), items = 0, reply = reply, market = market or "home" }
 end
 
 local function onBatch(key, rest)
   local tt, body = rest:match("^(%w+):(.*)$")
   local s = Y.sessions[key]
   if not s or not tt or n36(tt) ~= s.t then return end
-  local realm = FI:Realm()
+  local realm = FI:Market(s.market)
   for entry in body:gmatch("[^;]+") do
     local a, b, c, d, e = entry:match("^(%w+),(%w+),(%w+),(%w+),(%w+)$")
     local id, mkt, mn, qty, cnt = n36(a), n36(b), n36(c), n36(d), n36(e)
@@ -324,7 +339,7 @@ local function onEnd(key, from, rest)
   local s = Y.sessions[key]
   Y.sessions[key] = nil
   if not s or n36(rest) ~= s.t or s.items == 0 then return end
-  local realm = FI:Realm()
+  local realm = FI:Market(s.market)
   local newer = s.t > (realm.lastScan or 0)
   if newer then
     realm.lastScan = s.t
@@ -337,7 +352,7 @@ local function onEnd(key, from, rest)
     realm.lastShared = { from = from, t = s.t, items = s.items }
     H.cache = nil
     if s.reply then Y.wantScan = false end
-    FI:Fire("FI_SCAN_DONE", s.t, from)
+    FI:Fire("FI_SCAN_DONE", s.t, from, s.market)
   end
 end
 
@@ -350,7 +365,7 @@ function Y:RequestScan(manual)
     return
   end
   self.wantScan = true
-  send("N" .. PROTO .. ":" .. b36(liveScan(FI:Realm())))
+  send("N" .. PROTO .. ":" .. b36(liveScan(home())))
   if manual then FI:Print("Asked your guild for its newest scan...") end
 end
 
@@ -359,7 +374,7 @@ end
 -- ---------------------------------------------------------------------------
 -- How much history we have: number of items with at least 3 days of data
 local function historyDepth()
-  local realm, now, n = FI:Realm(), time(), 0
+  local realm, now, n = home(), time(), 0
   for _, it in pairs(realm.items) do
     local h = it.h
     if h and h[1] and now - h[1] > 3 * 86400 then n = n + 1 end
@@ -379,7 +394,7 @@ end
 
 -- Daily closes of our busiest items, one message per item
 local function sendHistory(target)
-  local realm, now = FI:Realm(), time()
+  local realm, now = home(), time()
   local list = {}
   for id, it in pairs(realm.items) do
     if it.mkt and it.h and it.h[1] then list[#list + 1] = { id, it } end
@@ -415,7 +430,7 @@ local responding = {}
 local function answer(kind, from, fn, age)
   local key = kind .. ":" .. from
   responding[key] = false
-  age = age or (time() - (FI:Realm().lastScan or 0))
+  age = age or (time() - (home().lastScan or 0))
   local wait = 1 + math.min(5, age / 3600) + math.min(10, #queue / 20) + math.random() * 2
   C_Timer.After(wait, function()
     if responding[key] == false then
@@ -442,7 +457,7 @@ local function onScanRequest(from, rest)
   local proto, h36 = rest:match("^(%d+):(%w+)$")
   local have = n36(h36)
   if proto ~= PROTO or not have then return end
-  local realm = FI:Realm()
+  local realm = home()
   local t = liveScan(realm)
   if t <= have or not hasListings(realm, t) then return end
   local relayed = realm.lastShared and realm.lastShared.t == t
@@ -466,7 +481,7 @@ end
 
 -- Points newer than `since` for our busiest items, at most 24 per item
 local function sendCatchup(target, since)
-  local realm = FI:Realm()
+  local realm = home()
   local list = {}
   for id, it in pairs(realm.items) do
     if it.mkt and it.seen and it.seen > since then list[#list + 1] = { id, it } end
@@ -503,7 +518,7 @@ local function onCatchupRequest(from, rest)
   local since = n36(s36)
   if proto ~= PROTO or not since then return end
   -- only answer if we actually saw something after they left
-  if (FI:Realm().lastScan or 0) <= since then return end
+  if (home().lastScan or 0) <= since then return end
   answer("c", from, function() sendCatchup(from, since) end)
 end
 
@@ -520,7 +535,7 @@ local function onCatchup(from, rest)
     if t and p and p > 0 and t > (Y.catchSince or 0) and t <= time() + 300 then points[#points + 1] = { t, p, q } end
   end
   table.sort(points, function(a, b) return a[1] < b[1] end)
-  local realm = FI:Realm()
+  local realm = home()
   local added = H.Merge(realm, id, points, { fine = true })
   if added > 0 then
     Y.catchItems = (Y.catchItems or 0) + 1
@@ -533,7 +548,7 @@ end
 local function onCatchupDone(from)
   if not Y.wantCatchup then return end
   Y.wantCatchup = false
-  local realm = FI:Realm()
+  local realm = home()
   if (Y.catchItems or 0) > 0 then
     if (Y.catchNewest or 0) > (realm.lastScan or 0) then
       realm.lastScan = Y.catchNewest
@@ -559,7 +574,7 @@ local function onHistory(from, rest)
     if d and p and p > 0 then points[#points + 1] = { d * 86400 + 43200, p, q } end
   end
   table.sort(points, function(a, b) return a[1] < b[1] end)
-  local added = H.Merge(FI:Realm(), id, points, { source = "guild history" })
+  local added = H.Merge(home(), id, points, { source = "guild history" })
   Y.histItems = (Y.histItems or 0) + (added > 0 and 1 or 0)
   Y.histPoints = (Y.histPoints or 0) + added
   Y.histFrom = from
@@ -636,10 +651,22 @@ local function shortName(full)
 end
 
 FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
-  if prefix ~= PREFIX or not text or FI.settings.guildSync == false then return end
+  if (prefix ~= PREFIX and prefix ~= NPREFIX) or not text or FI.settings.guildSync == false then return end
   local who = shortName(from)
   if channel ~= "GUILD" and channel ~= "WHISPER" then return end
   if isMe(who, text, channel) then return end
+  if prefix == NPREFIX then
+    -- a guildmate's scan of the neutral auction house: into the neutral market
+    if channel ~= "GUILD" then return end
+    H = H or FI.History
+    local kind, rest = text:sub(1, 1), text:sub(2)
+    Y.peers[who] = time()
+    if kind == "S" then onStart("n:" .. who, rest, nil, "neutral")
+    elseif kind == "B" then onBatch("n:" .. who, rest)
+    elseif kind == "E" then onEnd("n:" .. who, who, rest)
+    end
+    return
+  end
   H = H or FI.History
   local kind, rest = text:sub(1, 1), text:sub(2)
   Y.peers[who] = time()
@@ -679,11 +706,11 @@ FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
   end
 end)
 
-FI:On("FI_SCAN_DONE", function(_, t, from)
-  local realm = FI:Realm()
+FI:On("FI_SCAN_DONE", function(_, t, from, market)
+  local realm = FI:Market(market or "home")
   if t > (realm.liveScan or 0) then realm.liveScan = t end
   -- only our own scans are broadcast (shared ones carry a sender)
-  if from == nil and FI.Scanner and FI.Scanner.lastFinished == t then Y:BroadcastScan(t) end
+  if from == nil and FI.Scanner and FI.Scanner.lastFinished == t then Y:BroadcastScan(t, market) end
 end)
 
 -- When we were last online (to know what to ask for at the next login)
@@ -693,17 +720,20 @@ clock:SetScript("OnUpdate", function(self, e)
   self.acc = self.acc + e
   if self.acc >= 60 and FI.db then
     self.acc = 0
-    FI:Realm().lastOnline = time()
+    home().lastOnline = time()
   end
 end)
-FI:On("PLAYER_LOGOUT", function() if FI.db then FI:Realm().lastOnline = time() end end)
+FI:On("PLAYER_LOGOUT", function() if FI.db then home().lastOnline = time() end end)
 
 FI:On("PLAYER_LOGIN", function()
   H = FI.History
   if FI.settings.guildSync == nil then FI.settings.guildSync = true end
-  if CI and CI.RegisterAddonMessagePrefix then CI.RegisterAddonMessagePrefix(PREFIX) end
+  if CI and CI.RegisterAddonMessagePrefix then
+    CI.RegisterAddonMessagePrefix(PREFIX)
+    CI.RegisterAddonMessagePrefix(NPREFIX)
+  end
   Y.ready = true
-  local realm = FI:Realm()
+  local realm = home()
   -- Guildmates heard from in the last day, kept across reloads and relogs: a scan is
   -- only sent when someone is listening, and an empty list after a /reload used to
   -- keep your scans to yourself until a guildmate happened to say something.
@@ -787,7 +817,7 @@ function Y:Status()
     if now - t < 86400 then n = n + 1; names[#names + 1] = who end
   end
   table.sort(names)
-  local realm = FI:Realm()
+  local realm = home()
   FI:Print("Guild sync is %s. %d guildmate%s with Goonberg seen today%s.",
     FI.settings.guildSync == false and "off" or "on", n, n == 1 and "" or "s",
     n > 0 and (": " .. table.concat(names, ", ", 1, math.min(#names, 10))) or "")
@@ -847,7 +877,7 @@ function Y:MyTotals()
 end
 
 function Y:Board()
-  local realm = FI:Realm()
+  local realm = home()
   realm.board = realm.board or {}
   local now = time()
   for who, e in pairs(realm.board) do

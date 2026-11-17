@@ -1,5 +1,14 @@
 # Goonberg Terminal
 
+## 0.32.0 - Booty Bay prices, kept apart
+
+- **Your faction's AH and the neutral AH (Booty Bay, Gadgetzan, Everlook) are now separate markets.** Before, a scan at a neutral AH went into your faction's prices, so one Booty Bay scan could throw off Deals, Crafting and the charts. Now each keeps its own prices, scans and history.
+- **Market selector** in the window's header: "Horde AH" / "Alliance AH" or "Neutral AH (Booty Bay)". Every tab (Overview, Deals, Loot, Chart, Crafting, P&L values, tooltips) shows the market you pick. At a neutral AH it switches by itself (the goblin auctioneers belong to no faction) and switches back when you leave.
+- A scan stays with the auction house it was read at, even if it finishes after you've walked away or switched the view.
+- **Guild sync:** neutral scans are shared on their own channel, so they reach guildmates' Booty Bay market and never their faction prices (versions before 0.32 don't listen to it, so they can't mix them in either). Price history, catch-ups and the login scan stay on your faction's market.
+- Your P&L, recipes, watchlist and the leaderboard are the same whichever market you look at. Price alerts only fire on scans of your faction's AH.
+- Neutral prices already mixed into your faction's history before this version can't be told apart; scans from now on are clean.
+
 ## 0.31.0 - Guild leaderboard
 
 - **New: Leaderboard (P&L tab > Leaderboard).** Who in your guild makes the most on the AH: guildmates ranked by total made, with their flipping, farming and number of sales, for today, the last 7 days or the last 30 days. Gold, silver and bronze for the top three; sort by any column; hover a row for the breakdown.

@@ -772,7 +772,7 @@ function H.RepairImportedPrices(realm)
 end
 FI:On("PLAYER_LOGIN", function()
   if not FI.db or FI.db.repairedImports then return end
-  local ok, fixed = pcall(H.RepairImportedPrices, FI:Realm())
+  local ok, fixed = pcall(H.RepairImportedPrices, FI:Market("home"))
   FI.db.repairedImports = true
   if ok and fixed > 0 then
     FI:Print("Fixed %s prices that an Auctionator import had replaced with a single cheap listing.", FI.Number(fixed))

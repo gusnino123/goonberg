@@ -178,8 +178,10 @@ function A:Check(itemID, w, it, quiet)
   return fired
 end
 
-FI:On("FI_SCAN_DONE", function()
-  local realm = FI:Realm()
+-- (your alerts are about your faction's auction house: neutral scans don't fire them)
+FI:On("FI_SCAN_DONE", function(_, _, _, market)
+  if market == "neutral" then return end
+  local realm = FI:Market("home")
   for itemID, w in pairs(realm.watch) do
     A:Check(itemID, w, realm.items[itemID], false)
   end
