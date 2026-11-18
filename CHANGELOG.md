@@ -1,5 +1,10 @@
 # Goonberg Terminal
 
+## 0.33.1
+
+- **Your bank's worth is now on the bank window itself.** Open your bank and a small panel under the game's bank window shows what's in it at AH prices (the market picked in Goonberg). Hover it for item by item, unpriced and soulbound counts, and your other characters' banks with a total. With a bag addon that replaces the bank window, the panel shows at the top of the screen instead; drag it where you like. `/goon bank off` hides it (`on` brings it back); `/goon bank` still prints the breakdown in chat.
+- The P&L card's Farming panel is back to "Bags worth ... at market".
+
 ## 0.33.0
 
 - **Your bank's worth at AH prices.** The P&L card's Farming panel now reads "Bags X · Bank Y at market". The game only shows your bank at a banker, so Goonberg keeps a copy each time you open it (and when anything in it changes while it's open) and values that copy at today's prices, for the market you're viewing. Like bags, only things you could sell count (not soulbound items, not items without an AH price).

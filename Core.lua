@@ -700,6 +700,11 @@ SlashCmdList.GOONBERG = function(msg)
     if cmd == "watch" then FI.Alerts:Watch(id) else FI.Alerts:Unwatch(id) end
   elseif cmd == "bank" then
     -- what's in your bank (as of your last visit) at market prices
+    if rest:lower() == "off" or rest:lower() == "on" then
+      FI.settings.bankValue = rest:lower() == "on" or false
+      if FI.settings.bankValue == false and FI.BankValue then FI.BankValue:Hide() end
+      return FI:Print("The bank worth panel on the bank window is now %s.", rest:lower())
+    end
     local L = FI.Ledger
     local total, list, t = L:BankValue()
     if not total then return FI:Print("Open your bank at a banker once and it's counted from then on.") end
