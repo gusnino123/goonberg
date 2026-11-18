@@ -1,5 +1,11 @@
 # Goonberg Terminal
 
+## 0.33.0
+
+- **Your bank's worth at AH prices.** The P&L card's Farming panel now reads "Bags X · Bank Y at market". The game only shows your bank at a banker, so Goonberg keeps a copy each time you open it (and when anything in it changes while it's open) and values that copy at today's prices, for the market you're viewing. Like bags, only things you could sell count (not soulbound items, not items without an AH price).
+- Hover that line for your bank item by item (most valuable first), when it was last seen, and your other characters' banks on the realm with a total.
+- `/goon bank` prints the same in chat.
+
 ## 0.32.0 - Booty Bay prices, kept apart
 
 - **Your faction's AH and the neutral AH (Booty Bay, Gadgetzan, Everlook) are now separate markets.** Before, a scan at a neutral AH went into your faction's prices, so one Booty Bay scan could throw off Deals, Crafting and the charts. Now each keeps its own prices, scans and history.

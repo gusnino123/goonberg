@@ -446,7 +446,7 @@ end
 -- FI.market is the market the tabs show ("home" or "neutral").
 -- ---------------------------------------------------------------------------
 FI.market = "home"
-local PERSONAL = { ledger = true, recipes = true, watch = true, board = true, syncPeers = true, lastOnline = true }
+local PERSONAL = { ledger = true, recipes = true, watch = true, board = true, syncPeers = true, lastOnline = true, bank = true }
 
 local function newMarket()
   return { items = {}, index = {}, watch = {}, lastScan = 0, scans = 0 }
@@ -698,6 +698,22 @@ SlashCmdList.GOONBERG = function(msg)
     local id = FI:FindItem(rest)
     if not id then return FI:Print("Couldn't find that item. Shift-click it into the command, or scan the AH first.") end
     if cmd == "watch" then FI.Alerts:Watch(id) else FI.Alerts:Unwatch(id) end
+  elseif cmd == "bank" then
+    -- what's in your bank (as of your last visit) at market prices
+    local L = FI.Ledger
+    local total, list, t = L:BankValue()
+    if not total then return FI:Print("Open your bank at a banker once and it's counted from then on.") end
+    FI:Print("Your bank: %s at market (%s), as of %s.", FI.Money(total), FI:MarketName(), FI.Ago and FI.Ago(t) or date("%b %d %H:%M", t))
+    for i = 1, math.min(10, #list) do
+      local e = list[i]
+      FI:Print("  %s%s  %s", e.n > 1 and (e.n .. "x ") or "", FI:ItemLink(e.id) or FI:ItemName(e.id) or e.id, FI.Money(e.value))
+    end
+    local banks = L:Banks()
+    if #banks > 1 then
+      local sum = 0
+      for _, b in ipairs(banks) do sum = sum + b.total end
+      FI:Print("All your banks on this realm: %s (%d characters).", FI.Money(sum), #banks)
+    end
   elseif cmd == "share" then
     -- the guild leaderboard: /goon share on|off
     local arg = rest:lower()

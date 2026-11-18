@@ -842,6 +842,87 @@ function L:Positions(since)
 end
 
 -- What your bags would fetch at market price right now (not yet sold, so "unrealized")
+-- ---------------------------------------------------------------------------
+-- Your bank. The game only shows it while you're at a banker, so we keep a copy of
+-- what's in it (per character) each time it's open and anything in it changes, and
+-- value that copy at today's prices. Like bags: only things you could sell (not
+-- soulbound). Kept with your own things (it's the same in both markets).
+-- ---------------------------------------------------------------------------
+local BANK = (Enum and Enum.BagIndex and Enum.BagIndex.Bank) or _G.BANK_CONTAINER or -1
+local function bankBags()
+  local first = (_G.NUM_BAG_SLOTS or 4) + 1
+  local list = { BANK }
+  for b = first, first + (_G.NUM_BANKBAGSLOTS or 6) - 1 do list[#list + 1] = b end
+  return list
+end
+L.bankOpen = false
+
+function L:SnapshotBank()
+  if not self.bankOpen or not C_Container or not C_Container.GetContainerNumSlots then return end
+  local items, bound, slots = {}, 0, 0
+  for _, bag in ipairs(bankBags()) do
+    for slot = 1, C_Container.GetContainerNumSlots(bag) or 0 do
+      slots = slots + 1
+      local info = C_Container.GetContainerItemInfo(bag, slot)
+      if info and info.itemID then
+        if info.isBound then bound = bound + 1
+        else items[info.itemID] = (items[info.itemID] or 0) + (info.stackCount or 1) end
+      end
+    end
+  end
+  if slots == 0 then return end -- not loaded: keep the last copy
+  local realm = FI:Market("home")
+  realm.bank = realm.bank or {}
+  realm.bank[UnitName("player") or "?"] = { t = time(), items = items, bound = bound }
+  FI:Fire("FI_BANK_CHANGED")
+end
+
+FI:On("BANKFRAME_OPENED", function()
+  L.bankOpen = true
+  C_Timer.After(0.3, function() L:SnapshotBank() end) -- (its slots fill in a moment after)
+end)
+FI:On("BANKFRAME_CLOSED", function() L.bankOpen = false end)
+for _, e in ipairs({ "PLAYERBANKSLOTS_CHANGED", "PLAYERBANKBAGSLOTS_CHANGED", "BAG_UPDATE_DELAYED" }) do
+  FI:On(e, function()
+    if L.bankOpen then FI:Debounce("bankSnapshot", 0.5, function() L:SnapshotBank() end) end
+  end)
+end
+
+-- What a character's bank would fetch at market prices (the market you're viewing).
+-- Returns total, { {id, count, value}... } most valuable first, last seen time,
+-- unpriced count (items with no price yet) — or nil if that bank was never seen.
+function L:BankValue(who)
+  local banks = FI:Market("home").bank
+  local b = banks and banks[who or UnitName("player") or "?"]
+  if not b then return nil end
+  local realm = FI:Realm()
+  local total, list, unpriced = 0, {}, 0
+  for id, n in pairs(b.items or {}) do
+    local it = realm.items[id]
+    if it and it.mkt and it.mkt > 0 then
+      local v = it.mkt * n
+      total = total + v
+      list[#list + 1] = { id = id, n = n, value = v }
+    else
+      unpriced = unpriced + 1
+    end
+  end
+  table.sort(list, function(a, c) return a.value > c.value end)
+  return total, list, b.t, unpriced, b.bound or 0
+end
+
+-- every character's bank you've opened on this realm
+function L:Banks()
+  local banks = FI:Market("home").bank or {}
+  local out = {}
+  for who in pairs(banks) do
+    local total, _, t = self:BankValue(who)
+    out[#out + 1] = { who = who, total = total or 0, t = t }
+  end
+  table.sort(out, function(a, c) return a.total > c.total end)
+  return out
+end
+
 function L:BagValue()
   if not C_Container or not C_Container.GetContainerNumSlots then return 0 end
   local realm = FI:Realm()

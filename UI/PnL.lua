@@ -197,6 +197,19 @@ local function buildCard(tab)
   })
   card.farm:SetPoint("TOPLEFT", card, "TOP", 6, -196)
   card.farm:SetPoint("BOTTOMRIGHT", -16, 46)
+  -- hovering the "Bags / Bank worth" line: what's in your bank, and your other characters'
+  for _, key in ipairs({ "line2", "line3" }) do
+    local fs = card.farm[key]
+    local hit = CreateFrame("Frame", nil, card.farm)
+    hit:SetPoint("TOPLEFT", fs, "TOPLEFT", -2, 3)
+    hit:SetPoint("BOTTOMRIGHT", fs, "BOTTOMRIGHT", 2, -3)
+    hit:EnableMouse(true)
+    hit:SetScript("OnEnter", function(self)
+      if card.farm.worthLine ~= key then return end
+      P:BankTooltip(self)
+    end)
+    hit:SetScript("OnLeave", GameTooltip_Hide)
+  end
 
   local foot = W.Tex(card, C.border, 1)
   foot:SetPoint("BOTTOMLEFT", 1, 34); foot:SetPoint("BOTTOMRIGHT", -1, 34); foot:SetHeight(1)
@@ -489,6 +502,41 @@ function P:TradeTooltip(owner, e)
   GameTooltip:Show()
 end
 
+-- The bank, item by item, and your other characters' banks
+function P:BankTooltip(owner)
+  local L = FI.Ledger
+  local total, list, t, unpriced, bound = L:BankValue()
+  GameTooltip:SetOwner(owner, "ANCHOR_TOP")
+  GameTooltip:AddLine("Your bank at market prices (" .. FI:MarketName() .. ")")
+  if not total then
+    GameTooltip:AddLine("Not seen yet: open your bank at a banker once and it's counted from then on.", 0.82, 0.82, 0.82, true)
+  else
+    tip("Worth", money(total), C.gold)
+    for i = 1, math.min(8, #list) do
+      local e = list[i]
+      tip(("  %s%s"):format(e.n > 1 and (e.n .. "x ") or "", FI:ItemName(e.id) or ("item " .. e.id)), money(e.value))
+    end
+    if #list > 8 then tip(("  and %d more"):format(#list - 8), "") end
+    if unpriced > 0 then GameTooltip:AddLine(("%d kind%s of item without an AH price (not counted)."):format(unpriced, unpriced == 1 and "" or "s"), 0.55, 0.58, 0.64, true) end
+    if bound > 0 then GameTooltip:AddLine(("%d soulbound item%s (can't be sold, not counted)."):format(bound, bound == 1 and "" or "s"), 0.55, 0.58, 0.64, true) end
+    local ago = time() - t
+    GameTooltip:AddLine(("As of your last visit to the bank, %s."):format(
+      ago < 3600 and (math.max(1, math.floor(ago / 60)) .. " min ago") or ago < 86400 and (math.floor(ago / 3600) .. " h ago") or (math.floor(ago / 86400) .. " days ago")),
+      0.55, 0.58, 0.64, true)
+  end
+  local me, others, sum = UnitName("player"), {}, 0
+  for _, b in ipairs(L:Banks()) do
+    if b.who ~= me then others[#others + 1] = b; sum = sum + b.total end
+  end
+  if #others > 0 then
+    GameTooltip:AddLine(" ")
+    GameTooltip:AddLine("Your other characters' banks")
+    for _, b in ipairs(others) do tip("  " .. b.who, money(b.total)) end
+    tip("All banks", money(sum + (total or 0)), C.gold)
+  end
+  GameTooltip:Show()
+end
+
 -- what a trade was: flip (bought on the AH first), part (partly), crafted (made
 -- from your materials), farmed, buy, deal, made (a craft)
 function P:Kind(e)
@@ -606,12 +654,18 @@ function P:Refresh()
   m.stats[3].value:SetText(FI.Number(s.farmedSales))
   m.line1:SetText(s.farmTop and ("Top seller: |cffe6e0d1%s|r |cff66c761+%s|r"):format(s.farmTop.name, FI.Coins(s.farmTop.net))
     or "Nothing farmed and sold yet.")
+  -- what you're holding, at market: bags (always known) and bank (as of your last visit)
+  local bank = FI.Ledger:BankValue()
+  local worth = ("Bags |cffe6e0d1%s|r  ·  Bank %s  at market"):format(FI.Coins(FI.Ledger:BagValue()),
+    bank and ("|cffe6e0d1" .. FI.Coins(bank) .. "|r") or "|cff8b95a3(open your bank once)|r")
   if (s.ownMatsSold or 0) > 0 then
     m.line2:SetText(("incl. |cff66c761+%s|r from your own mats in crafts you sold"):format(FI.Coins(s.ownMatsSold)))
-    m.line3:SetText(("Bags worth |cffe6e0d1%s|r at market right now"):format(FI.Coins(FI.Ledger:BagValue())))
+    m.line3:SetText(worth)
+    m.worthLine = "line3"
   else
-    m.line2:SetText(("Bags worth |cffe6e0d1%s|r at market right now"):format(FI.Coins(FI.Ledger:BagValue())))
+    m.line2:SetText(worth)
     m.line3:SetText("")
+    m.worthLine = "line2"
   end
   card.stamp:SetText(date("%B %d, %Y"))
 
@@ -657,6 +711,8 @@ function P:Share()
   SendChatMessage(table.concat(parts, " - "), IsInGuild() and "GUILD" or "SAY")
 end
 
-FI:On("FI_LEDGER_CHANGED", function()
-  if P.frame and P.frame:IsShown() then P:Refresh() end
-end)
+for _, e in ipairs({ "FI_LEDGER_CHANGED", "FI_BANK_CHANGED" }) do
+  FI:On(e, function()
+    if P.frame and P.frame:IsShown() then P:Refresh() end
+  end)
+end
