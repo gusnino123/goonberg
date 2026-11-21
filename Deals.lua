@@ -311,18 +311,18 @@ runner:SetScript("OnUpdate", function(self)
   if not job then self:Hide(); return end
   local items = FI:Realm().items
   local last = math.min(#job.ids, job.i + PER_FRAME)
-  local start = debugprofilestop()
+  local stopAt = FI:WorkUntil(6)
   for n = job.i + 1, last do
-    -- at most ~6 ms of work per frame
-    if n > job.i + 10 and debugprofilestop() - start > 6 then last = n - 1; break end
+    -- at most ~6 ms of work per frame (less when other background work ran this frame)
+    if n > job.i + 10 and debugprofilestop() > stopAt then last = n - 1; break end
     local id = job.ids[n]
     local it = items[id]
     local d = it and evaluate(id, it, job.now)
-    if d then job.raw[#job.raw + 1] = d end
+    -- (finished here, inside the time limit: all at the end was one long frame)
+    if d then finish(d, job.now); job.raw[#job.raw + 1] = d end
   end
   job.i = last
   if job.i >= #job.ids then
-    for _, d in ipairs(job.raw) do finish(d, job.now) end
     DL.last = { scan = job.scan, raw = job.raw, at = job.now }
     DL.job = nil
     self:Hide()

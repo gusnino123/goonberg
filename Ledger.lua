@@ -720,27 +720,41 @@ function L:Summary(since, mode)
 end
 
 -- Market price by item name (the ledger knows names, the price data knows IDs)
+-- The index is built from names we already keep. It used to ask the game about every
+-- item without one, after every scan (a guildmate's too): for items the game hadn't
+-- loaded, that's a server request each, thousands at once.
 function L:PriceByName(name)
   local realm = FI:Realm()
   if not self.nameIndex or self.nameIndexAt ~= realm then
     self.nameIndex, self.nameIndexAt = {}, realm
     for id, it in pairs(realm.items) do
-      local n = it.n or FI.GetItemInfo(id)
-      if n then self.nameIndex[n] = id end
+      if it.n then self.nameIndex[it.n] = id end
     end
   end
   local id = self.nameIndex[name]
   if id == nil then
-    -- not indexed: look once, and remember a miss until the next scan
-    for i, it in pairs(realm.items) do if it.n == name then id = i; break end end
+    -- not indexed: the game knows it by name if it's loaded (in your bags, just
+    -- looted). Remember a miss until the next scan.
+    local _, link = FI.GetItemInfo(name)
+    id = FI:ItemIDFromLink(link)
+    if id and not realm.items[id] then id = nil end
     self.nameIndex[name] = id or false
   end
   local it = id and realm.items[id]
   return it and it.mkt, id
 end
 
-FI:On("FI_SCAN_DONE", function() L.nameIndex = nil end)
-FI:On("FI_DATA_MERGED", function() L.nameIndex = nil end)
+-- names learned later go straight in (FI:ItemName); a new scan can price a miss
+function L:NoteName(name, id)
+  if self.nameIndex and self.nameIndexAt == FI:Realm() then self.nameIndex[name] = id end
+end
+local function forgetMisses()
+  local idx = L.nameIndex
+  if not idx then return end
+  for name, id in pairs(idx) do if id == false then idx[name] = nil end end
+end
+FI:On("FI_SCAN_DONE", forgetMisses)
+FI:On("FI_DATA_MERGED", forgetMisses)
 
 -- Positions: each chain from buying to selling, like a broker's trade history.
 -- Bought 20 Light Leather -> crafted 4 gloves -> sold 2, sold 2 = one position.

@@ -9,7 +9,6 @@ local S = { state = "idle" }
 FI.Scanner = S
 
 S.COOLDOWN = 15 * 60
-local PER_FRAME = 1500
 local H -- History, set on first use
 
 function S:Mode()
@@ -97,81 +96,130 @@ worker:Hide()
 
 local function stop(why)
   worker:Hide()
-  S.acc = nil
+  S.acc, S.fin = nil, nil
   setState("idle")
   FI:Print("Scan stopped: %s. Try /goon scan again.", tostring(why))
 end
 
-local function finish()
-  worker:Hide()
+-- Reading and saving a scan both work in slices of at most BUDGET_MS per frame. A
+-- big AH is tens of thousands of auctions and thousands of items: done in one go,
+-- that froze the game for a moment at the end of every scan.
+local BUDGET_MS = 8
+local clock = debugprofilestop
+
+-- After the last auction is read: one quick pass to learn what the last scan had
+-- listed (and which of those are missing now), then the slices below.
+local function startFinish()
   H = H or FI.History
   -- the market of the auction house this scan was read at (not whatever is on screen now)
   local market = S.market or FI.ahMarket or "home"
   local realm = FI:Market(market)
-  local now = time()
   local acc = S.acc
   S.acc = nil
-
-  local prevPrices = {}
-  for itemID, it in pairs(realm.items) do
-    if it.mkt and it.seen == realm.lastScan then prevPrices[itemID] = it.mkt end
-  end
-
-  local items, auctions = 0, 0
-  for itemID, e in pairs(acc) do
-    -- e is a flat array: unit, count, unit, count...; sort it by unit price
-    local pairsList = {}
-    for i = 1, #e, 2 do pairsList[#pairsList + 1] = { e[i], e[i + 1] } end
-    table.sort(pairsList, function(a, b) return a[1] < b[1] end)
-    local flat, qty = {}, 0
-    for i, p in ipairs(pairsList) do
-      flat[i * 2 - 1] = p[1]
-      flat[i * 2] = p[2]
-      qty = qty + p[2]
-    end
-    H.Record(realm, itemID, now, H.MarketPrice(flat, qty), flat[1], qty, #pairsList, H.Depth(flat, 10))
-    items = items + 1
-    auctions = auctions + #pairsList
-  end
-
-  -- Items listed last scan and gone now: everything sold or expired.
-  -- Skipped when this scan looks incomplete (far fewer items than last time),
-  -- so a cut-off scan can't mark the whole AH as sold out.
+  local job = { realm = realm, market = market, now = time(), lastScan = realm.lastScan, acc = acc,
+    ids = {}, gone = {}, prev = {}, i = 0, auctions = 0, phase = "record" }
   local lastCount = 0
-  for _, it in pairs(realm.items) do
-    if it.seen == realm.lastScan and (it.qty or 0) > 0 then lastCount = lastCount + 1 end
-  end
-  if lastCount < 200 or items >= lastCount * 0.5 then
-    for itemID, it in pairs(realm.items) do
-      if not acc[itemID] and it.seen == realm.lastScan and (it.qty or 0) > 0 then
-        H.Record(realm, itemID, now, 0, nil, 0, 0, nil)
-      end
+  for itemID, it in pairs(realm.items) do
+    if it.seen == job.lastScan and (it.qty or 0) > 0 then
+      lastCount = lastCount + 1
+      if not acc[itemID] then job.gone[#job.gone + 1] = itemID end
     end
-  else
-    FI:Print("This scan only had %s of the %s items seen last time; items missing from it aren't counted as sold.",
-      FI.Number(items), FI.Number(lastCount))
+  end
+  job.lastCount = lastCount
+  for itemID in pairs(acc) do job.ids[#job.ids + 1] = itemID end
+  S.fin = job
+end
+
+-- One item's listings: sorted by unit price, then into the history. Sorting their
+-- positions avoids a table per auction (the listings are a flat unit, count array).
+local sortList
+local function byPrice(a, b) return sortList[a] < sortList[b] end
+local function recordItem(job, itemID)
+  local e = job.acc[itemID]
+  local k = #e / 2
+  local flat = e
+  if k > 1 then
+    local order = {}
+    for i = 1, k do order[i] = i * 2 - 1 end
+    sortList = e
+    table.sort(order, byPrice)
+    sortList = nil
+    flat = {}
+    for i = 1, k do
+      local pos = order[i]
+      flat[i * 2 - 1], flat[i * 2] = e[pos], e[pos + 1]
+    end
+  end
+  local qty = 0
+  for i = 2, #flat, 2 do qty = qty + flat[i] end
+  -- its price in the previous scan, for the Goonberg Index
+  local it = job.realm.items[itemID]
+  if it and it.mkt and it.seen == job.lastScan then job.prev[itemID] = it.mkt end
+  H.Record(job.realm, itemID, job.now, H.MarketPrice(flat, qty), flat[1], qty, k, H.Depth(flat, 10))
+  job.auctions = job.auctions + k
+end
+
+local function finishStep()
+  local job = S.fin
+  local stopAt = FI:WorkUntil(BUDGET_MS)
+  local realm = job.realm
+  if job.phase == "record" then
+    while job.i < #job.ids do
+      job.i = job.i + 1
+      recordItem(job, job.ids[job.i])
+      if job.i % 25 == 0 and clock() > stopAt then return end
+    end
+    -- Items listed last scan and gone now: everything sold or expired. Skipped when
+    -- this scan looks incomplete (far fewer items than last time), so a cut-off scan
+    -- can't mark the whole AH as sold out.
+    local items = #job.ids
+    if not (job.lastCount < 200 or items >= job.lastCount * 0.5) then
+      job.gone = {}
+      FI:Print("This scan only had %s of the %s items seen last time; items missing from it aren't counted as sold.",
+        FI.Number(items), FI.Number(job.lastCount))
+    end
+    job.phase, job.i = "gone", 0
+  end
+  if job.phase == "gone" then
+    while job.i < #job.gone do
+      job.i = job.i + 1
+      local itemID = job.gone[job.i]
+      local it = realm.items[itemID]
+      if it and it.seen == job.lastScan and (it.qty or 0) > 0 then
+        H.Record(realm, itemID, job.now, 0, nil, 0, 0, nil)
+      end
+      if job.i % 50 == 0 and clock() > stopAt then return end
+    end
+    job.phase = "done"
+    return -- the index and what listens for the scan get a frame of their own
   end
 
+  local now = job.now
   realm.lastScan = now
   realm.scans = (realm.scans or 0) + 1
   realm.scanDays = realm.scanDays or {}
   realm.scanDays[math.floor(now / 86400)] = true
   FI.db.lastFullScan = (S.mode == "replicate") and now or FI.db.lastFullScan
-  H.UpdateIndex(realm, prevPrices, now)
+  H.UpdateIndex(realm, job.prev, now)
   H.cache = nil
+  S.fin = nil
+  worker:Hide()
 
   S.lastFinished = now
   setState("idle")
-  FI:Print("Scan done: %s auctions, %s items in %.1fs.", FI.Number(auctions), FI.Number(items), GetTime() - (S.requested or GetTime()))
-  FI:Fire("FI_SCAN_DONE", now, nil, market)
+  FI:Print("Scan done: %s auctions, %s items in %.1fs.", FI.Number(job.auctions), FI.Number(#job.ids), GetTime() - (S.requested or GetTime()))
+  FI:Fire("FI_SCAN_DONE", now, nil, job.market)
 end
 
 local function step()
   local read = S.mode == "replicate" and readReplicate or readLegacy
   local acc = S.acc
-  local last = math.min(S.total, S.done + PER_FRAME)
+  local total = S.total
+  local n = S.done
   local offset = S.mode == "replicate" and -1 or 0 -- replicate indexes are 0-based
-  for n = S.done + 1, last do
+  local stopAt = FI:WorkUntil(BUDGET_MS)
+  while n < total do
+    n = n + 1
     -- one auction the client can't read is skipped, not the whole scan
     local ok, count, buyout, itemID = pcall(read, n + offset)
     if ok and type(itemID) == "number" and count and count > 0 and buyout and buyout > 0 then
@@ -180,15 +228,17 @@ local function step()
       e[#e + 1] = math.floor(buyout / count + 0.5)
       e[#e + 1] = count
     end
+    if n % 200 == 0 and clock() > stopAt then break end
   end
-  S.done = last
+  S.done = n
   FI:Fire("FI_SCAN_PROGRESS", S.done, S.total)
-  if S.done >= S.total then finish() end
+  if S.done >= S.total then startFinish() end
 end
 
 worker:SetScript("OnUpdate", function()
-  if not S.acc then worker:Hide(); return end
-  local ok, err = pcall(step)
+  local fn = (S.fin and finishStep) or (S.acc and step)
+  if not fn then worker:Hide(); return end
+  local ok, err = pcall(fn)
   if not ok then
     stop(err)
     local handler = geterrorhandler and geterrorhandler()
@@ -203,11 +253,10 @@ local function begin(total)
   S.market = FI.ahMarket or FI.market -- which auction house this scan belongs to
   setState("processing")
   if S.total == 0 then
-    local ok, err = pcall(finish)
-    if not ok then stop(err) end
-  else
-    worker:Show()
+    local ok, err = pcall(startFinish)
+    if not ok then stop(err); return end
   end
+  worker:Show()
 end
 
 FI:On("REPLICATE_ITEM_LIST_UPDATE", function()
@@ -253,8 +302,8 @@ end)
 FI:On("FI_AH_CLOSED", function()
   if S.state == "waiting" then setState("idle") end
   -- Data already received is processed even if the AH closes, except the
-  -- legacy API, which drops results on close.
-  if S.state == "processing" and S.mode == "legacy" then
+  -- legacy API, which drops results on close (once read, it's saved regardless).
+  if S.state == "processing" and S.mode == "legacy" and S.acc then
     worker:Hide()
     S.acc = nil
     setState("idle")

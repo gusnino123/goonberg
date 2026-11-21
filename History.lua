@@ -81,9 +81,11 @@ function H.Compact(h, now, stride, sumField)
     local t = h[i]
     local age = now - t
     if age <= 90 * DAY then
+      -- buckets are numbers (days negative, 6-hour slots positive): building a
+      -- string per point made garbage on every compaction
       local bucket
-      if age > 14 * DAY then bucket = "d" .. math.floor(t / DAY)
-      elseif age > 2 * DAY then bucket = "q" .. math.floor(t / 21600) end
+      if age > 14 * DAY then bucket = -1 - math.floor(t / DAY)
+      elseif age > 2 * DAY then bucket = math.floor(t / 21600) end
       if bucket and bucket == lastBucket then
         local prevSum = sumField and out[lastIdx + sumField - 1] or 0
         for k = 0, stride - 1 do
@@ -100,6 +102,17 @@ function H.Compact(h, now, stride, sumField)
     end
   end
   return out
+end
+
+-- Counts a new point and thins the history every 24 or so. Every item gets a point
+-- per scan, so a plain "every 24th" made thousands of items compact on the same
+-- scan; restarting the count at a different place per item spreads them out.
+local function countAdd(it, itemID, now)
+  it.adds = (it.adds or 0) + 1
+  if it.adds >= 24 then
+    it.h = H.Compact(it.h, now, STRIDE, 4)
+    it.adds = itemID % 12
+  end
 end
 
 -- Adds one scan's result for an item. qty 0 means it wasn't listed this scan.
@@ -145,11 +158,7 @@ function H.Record(realm, itemID, now, mkt, minPrice, qty, listings, depth)
   it.d = depth
   it.dt = depth and now or nil -- depth is only trusted from the scan that made it
 
-  it.adds = (it.adds or 0) + 1
-  if it.adds >= 24 then
-    it.h = H.Compact(h, now, STRIDE, 4)
-    it.adds = 0
-  end
+  countAdd(it, itemID, now)
   return it
 end
 
@@ -399,6 +408,22 @@ H.INDEX_SIZE = 25
 H.INDEX_VERSION = 2
 local INDEX_MIN_QTY, INDEX_MIN_SOLD = 20, 20
 
+-- Units sold in the last 7 days: the same sum H.Stats gives as sold7, without
+-- reading further back (Stats looks up to two months back for its % changes). The
+-- index needs only this, for thousands of items at the end of every scan.
+local function sold7(h, now)
+  local stop, total = now - 7 * DAY, 0
+  local i = #h - STRIDE + 1
+  while i >= 1 do
+    local t = h[i]
+    if t < stop then break end
+    total = total + h[i + 3]
+    i = i - STRIDE
+  end
+  return total
+end
+H.Sold7 = sold7
+
 function H.UpdateIndex(realm, prevPrices, now)
   local idx = realm.index
   local last = idx[#idx] or 100
@@ -410,9 +435,9 @@ function H.UpdateIndex(realm, prevPrices, now)
       local h = it.h
       local prevQty = h and #h >= 2 * STRIDE and h[#h - 2 * STRIDE + 3] or 0
       if classID ~= 2 and classID ~= 4 and prevQty >= INDEX_MIN_QTY then
-        local s = H.Stats(it, now)
-        if s.sold7 >= INDEX_MIN_SOLD then
-          cands[#cands + 1] = { w = prev * s.sold7, r = math.max(0.8, math.min(1.25, it.mkt / prev)) }
+        local sold = sold7(h, now)
+        if sold >= INDEX_MIN_SOLD then
+          cands[#cands + 1] = { w = prev * sold, r = math.max(0.8, math.min(1.25, it.mkt / prev)) }
         end
       end
     end
@@ -512,7 +537,7 @@ local BUILD_MS = 8
 builder:SetScript("OnUpdate", function(self)
   local b = H.building
   if not b or b.realm ~= FI:Realm() then H.building = nil; self:Hide(); return end
-  local start = debugprofilestop()
+  local stopAt = FI:WorkUntil(BUILD_MS)
   local items = b.realm.items
   local n = 0
   while true do
@@ -528,7 +553,7 @@ builder:SetScript("OnUpdate", function(self)
     local it = items[id]
     if it then addItem(b, id, it) end
     n = n + 1
-    if n % 25 == 0 and debugprofilestop() - start > BUILD_MS then return end
+    if n % 25 == 0 and debugprofilestop() > stopAt then return end
   end
 end)
 
@@ -557,73 +582,89 @@ end
 -- only when one already exists within 10 minutes of it. Importing twice, or next to
 -- your own scans, never double counts. Returns how many points were added.
 local OWN_PRICE_WINS = 2 * DAY -- a scan of yours (or a guildmate's) this recent is the price
+local function byTime(a, b) return a[1] < b[1] end
+-- (Imports call this for thousands of items in a row, so it builds no lookup tables
+-- and no table per point: the history and the points are both in time order, and one
+-- walk along each does the job. The old way's garbage showed up as stutters later.)
 function H.Merge(realm, itemID, points, opts)
-  opts = opts or {}
+  local fine = opts and opts.fine
   local it = realm.items[itemID]
   if not it then
     it = { h = {} }
     realm.items[itemID] = it
   end
   local h = it.h
-  local days, times = {}, {}
-  for i = 1, #h, STRIDE do
-    days[math.floor(h[i] / DAY)] = true
-    times[#times + 1] = h[i]
+  local nh = #h
+  for k = 2, #points do
+    if points[k][1] < points[k - 1][1] then table.sort(points, byTime); break end
   end
-  -- quick check before any copying: is there anything new at all?
-  if not opts.fine then
-    local any = false
-    for _, p in ipairs(points) do
-      if p[2] and p[2] > 0 and not days[math.floor(p[1] / DAY)] then any = true; break end
-    end
-    if not any then return 0 end
-  end
-  local function taken(t)
-    if not opts.fine then return days[math.floor(t / DAY)] end
-    for _, x in ipairs(times) do if math.abs(x - t) < 600 then return true end end
-    return false
-  end
-  local merged = {}
-  for i = 1, #h, STRIDE do merged[#merged + 1] = { h[i], h[i + 1], h[i + 2], h[i + 3] } end
-  local added = 0
-  for _, p in ipairs(points) do
-    if p[2] and p[2] > 0 and not taken(p[1]) then
-      days[math.floor(p[1] / DAY)] = true
-      times[#times + 1] = p[1]
-      merged[#merged + 1] = { p[1], p[2], p[3] or 0, 0 }
-      added = added + 1
-    end
-  end
-  if added == 0 then return 0 end
-  table.sort(merged, function(a, b) return a[1] < b[1] end)
-  if opts.fine then
-    -- sales between close points can be estimated across the merged series
-    for i = 2, #merged do
-      local a, b = merged[i - 1], merged[i]
-      if b[1] - a[1] <= 12 * 3600 and a[3] > b[3] then b[4] = a[3] - b[3] else b[4] = 0 end
+
+  -- Which points are new. j walks the history: the first point at or after this one
+  -- (fine) or on or after its day (daily).
+  local accept, j, lastAdded = nil, 1, nil
+  for k = 1, #points do
+    local p = points[k]
+    if p[2] and p[2] > 0 then
+      local t, taken = p[1], false
+      if fine then
+        -- skipped when any point we have (or just added) is within 10 minutes of it
+        while j <= nh and h[j] < t do j = j + STRIDE end
+        taken = (j <= nh and h[j] - t < 600) or (j > STRIDE and t - h[j - STRIDE] < 600)
+          or (lastAdded ~= nil and t - lastAdded < 600)
+      else
+        -- skipped when that day already has a point
+        local day = math.floor(t / DAY)
+        while j <= nh and math.floor(h[j] / DAY) < day do j = j + STRIDE end
+        taken = (j <= nh and math.floor(h[j] / DAY) == day)
+          or (lastAdded ~= nil and math.floor(lastAdded / DAY) == day)
+      end
+      if not taken then
+        accept = accept or {}
+        accept[#accept + 1] = k
+        lastAdded = t
+      end
     end
   end
-  local out = {}
-  for _, m in ipairs(merged) do
-    out[#out + 1] = m[1]; out[#out + 1] = m[2]; out[#out + 1] = m[3]; out[#out + 1] = m[4]
+  if not accept then return 0 end
+
+  -- The merged history, in time order
+  local out, n, i, a = {}, 0, 1, 1
+  local prevT, prevQ
+  while i <= nh or a <= #accept do
+    local p = accept[a] and points[accept[a]]
+    local t, m, q, s
+    if p and (i > nh or p[1] < h[i]) then
+      t, m, q, s = p[1], p[2], p[3] or 0, 0
+      a = a + 1
+    else
+      t, m, q, s = h[i], h[i + 1], h[i + 2], h[i + 3]
+      i = i + STRIDE
+    end
+    if fine then
+      -- sales between close points can be estimated across the merged series
+      if prevT then s = (t - prevT <= 12 * 3600 and prevQ > q) and (prevQ - q) or 0 end
+      prevT, prevQ = t, q
+    end
+    out[n + 1], out[n + 2], out[n + 3], out[n + 4] = t, m, q, s
+    n = n + STRIDE
   end
   it.h = out
-  local last = merged[#merged]
-  if opts.fine then
+  local lastT, lastM, lastQ = out[n - 3], out[n - 2], out[n - 1]
+  if fine then
     -- guild data: the newest point becomes the current price (lowest-now is unknown)
-    if not it.seen or last[1] > it.seen then
-      it.mkt, it.qty, it.seen, it.min, it.shared, it.src = last[2], last[3], last[1], nil, true, nil
+    if not it.seen or lastT > it.seen then
+      it.mkt, it.qty, it.seen, it.min, it.shared, it.src = lastM, lastQ, lastT, nil, true, nil
     end
-  elseif last[1] > (it.seen or 0) and not (it.seen and time() - it.seen < OWN_PRICE_WINS) then
+  elseif lastT > (it.seen or 0) and not (it.seen and time() - it.seen < OWN_PRICE_WINS) then
     -- Daily data from elsewhere (Auctionator, older guild history) only becomes the
     -- current price when you have no recent price of your own: Auctionator keeps the
     -- lowest single listing it saw that day, which can be one cheap auction that was
     -- bought right away, so it must never replace a real scan's market price.
-    it.mkt = last[2]
-    it.imported = math.min(last[1], time()) -- (points sit at midday: never "newer than now")
-    it.src = opts.source or "import"
+    it.mkt = lastM
+    it.imported = math.min(lastT, time()) -- (points sit at midday: never "newer than now")
+    it.src = opts and opts.source or "import"
   end
-  return added
+  return #accept
 end
 
 -- A point from a guildmate's scan at time t. Skipped if we already have a point
@@ -653,11 +694,7 @@ function H.RecordShared(realm, itemID, t, mkt, minPrice, qty, listings)
   it.mkt, it.min, it.qty, it.cnt, it.seen = mkt, minPrice, qty, listings, t
   it.shared = true
   it.src = nil
-  it.adds = (it.adds or 0) + 1
-  if it.adds >= 24 then
-    it.h = H.Compact(h, t, STRIDE, 4)
-    it.adds = 0
-  end
+  countAdd(it, itemID, t)
   return true
 end
 

@@ -103,7 +103,7 @@ worker:SetScript("OnUpdate", function()
   local job = SD.job
   if not job then worker:Hide(); return end
   local realm = FI:Market("home")
-  local began = debugprofilestop()
+  local stopAt = FI:WorkUntil(BUDGET_MS)
   while true do
     job.i = job.i + 1
     local id = job.ids[job.i]
@@ -116,7 +116,7 @@ worker:SetScript("OnUpdate", function()
     end
     local added = FI.History.Merge(realm, id, points)
     if added > 0 then job.points = job.points + added; job.count = job.count + 1 end
-    if debugprofilestop() - began > BUDGET_MS then return end
+    if debugprofilestop() > stopAt then return end
   end
 end)
 

@@ -124,6 +124,23 @@ function FI:Debounce(key, delay, fn)
   end)
 end
 
+-- Background work (reading a scan, saving it, the overview, deals, imports) runs in
+-- slices over many frames. Each job has its own limit per frame, and together they
+-- share this one, so several running at once (after a scan) still cost one slice.
+-- GetTime() is the same all frame long, which tells frames apart.
+local FRAME_MS = 10
+local frameT, frameEnd = nil, 0
+---When a background job should stop for this frame (a debugprofilestop() value):
+---its own `ms` from now, or sooner if other jobs already used the frame's share.
+---@param ms number
+---@return number
+function FI:WorkUntil(ms)
+  local now = debugprofilestop()
+  local t = GetTime()
+  if t ~= frameT then frameT, frameEnd = t, now + FRAME_MS end
+  return math.min(now + ms, frameEnd)
+end
+
 -- ---------------------------------------------------------------------------
 -- Printing and formatting
 -- ---------------------------------------------------------------------------
@@ -259,7 +276,10 @@ function FI:ItemName(itemID)
   if name then
     local realm = self:Realm()
     local it = realm and realm.items[itemID]
-    if it and it.n ~= name then it.n = name end
+    if it and it.n ~= name then
+      it.n = name
+      if FI.Ledger then FI.Ledger:NoteName(name, itemID) end
+    end
     return name
   end
   local realm = self:Realm()
@@ -583,6 +603,7 @@ local help = {
   "/goon minimap on|off|reset  - the button under the minimap",
   "/goon de <item>  - what it disenchants into and is worth  |  /goon de watch",
   "/goon sync  - guild sync status  |  /goon sync on|off|history|catchup|scan",
+  "/goon sales on|off  - a chat message when one of your auctions sells",
   "/goon import  - pull price history from Auctionator (also automatic at login; /goon import off)",
   "/goon scale 0.9  |  /goon scale reset  - window size (or drag its corner)",
 }
@@ -798,6 +819,14 @@ SlashCmdList.GOONBERG = function(msg)
       FI.Sync:RequestScan(true)
     else
       FI.Sync:Status()
+    end
+  elseif cmd == "sales" then
+    local arg = rest:lower()
+    if arg == "on" or arg == "off" then
+      FI.settings.saleAlerts = arg == "on"
+      FI:Print("Sale messages in chat are now %s.", arg)
+    else
+      FI:Print("Sale messages in chat are %s (/goon sales on|off).", FI.settings.saleAlerts == false and "off" or "on")
     end
   elseif cmd == "market" then
     local SD = FI.Seed

@@ -67,17 +67,24 @@ function Y:DropWhispers(name)
   end
   return n
 end
--- the guild roster, when the game has it: is this guildmate online?
+-- the guild roster, when the game has it: is this guildmate online? Read into a
+-- name list at most every few seconds (it used to be walked for every message of a
+-- long whispered answer, a whole big guild each time).
+local roster, rosterAt = nil, 0
 local function offlineInGuild(name)
   if not (IsInGuild and IsInGuild()) or not GetNumGuildMembers or not GetGuildRosterInfo then return false end
-  local total = GetNumGuildMembers()
-  if not total or total == 0 then return false end
-  for i = 1, total do
-    local full, _, _, _, _, _, _, _, online = GetGuildRosterInfo(i)
-    if full and baseName(full) == name then return not online end
+  if not roster or GetTime() - rosterAt > 5 then
+    roster, rosterAt = {}, GetTime()
+    for i = 1, GetNumGuildMembers() or 0 do
+      local full, _, _, _, _, _, _, _, online = GetGuildRosterInfo(i)
+      if full then roster[baseName(full)] = online and true or false end
+    end
   end
-  return false -- not in the roster we have: let the game decide
+  local online = roster[name]
+  if online == nil then return false end -- not in the roster we have: let the game decide
+  return not online
 end
+FI:On("GUILD_ROSTER_UPDATE", function() roster = nil end)
 -- What we just said to the guild, until we know how addon chat names us (see isMe)
 local recentGuild = {}
 local selfName
@@ -208,14 +215,25 @@ local function changed(id, it, t)
   return math.abs((it.qty or 0) - last.qty) >= math.max(2, last.qty * 0.10)
 end
 
+-- busiest first: lists of { id, item, gold listed }, the weight worked out once each
+local function byWeight(a, b) return a[3] > b[3] end
+local function busiest(realm, keep)
+  local list = {}
+  for id, it in pairs(realm.items) do
+    if keep(id, it) then list[#list + 1] = { id, it, it.mkt * (it.qty or 0) } end
+  end
+  table.sort(list, byWeight)
+  return list
+end
+
 -- The items of scan t worth sending, busiest first. Each comes back as the entry
 -- to send and the item ID. `keep` filters further (nil = all of them).
 local function scanEntries(t, keep, realm)
   local list = {}
   for id, it in pairs((realm or home()).items) do
-    if it.seen == t and it.mkt and (it.qty or 0) > 0 and (not keep or keep(id, it)) then list[#list + 1] = { id, it } end
+    if it.seen == t and it.mkt and (it.qty or 0) > 0 and (not keep or keep(id, it)) then list[#list + 1] = { id, it, it.mkt * it.qty } end
   end
-  table.sort(list, function(a, b) return a[2].mkt * a[2].qty > b[2].mkt * b[2].qty end)
+  table.sort(list, byWeight)
   local entries, ids = {}, {}
   for i = 1, math.min(MAX_ITEMS, #list) do
     local id, it = list[i][1], list[i][2]
@@ -274,14 +292,6 @@ Y.sentN = {}
 -- ---------------------------------------------------------------------------
 -- Receiving
 -- ---------------------------------------------------------------------------
-local function snapshot(realm)
-  local prev = {}
-  for id, it in pairs(realm.items) do
-    if it.mkt and it.seen == realm.lastScan then prev[id] = it.mkt end
-  end
-  return prev
-end
-
 -- The newest scan we hold listings for. A catch-up moves lastScan but brings no
 -- listings, so it doesn't count. (Saved data from before liveScan existed: lastScan,
 -- if its items still have listings.)
@@ -311,7 +321,9 @@ local function onStart(key, rest, reply, market)
   -- the listings we hold.
   local have = reply and liveScan(realm) or (realm.lastScan or 0)
   if not t or t <= have or t > time() + 300 then return end
-  Y.sessions[key] = { t = t, prev = snapshot(realm), items = 0, reply = reply, market = market or "home" }
+  -- prev: each received item's price in our previous scan (for the Goonberg Index),
+  -- noted as its entry arrives rather than by walking every item up front
+  Y.sessions[key] = { t = t, prev = {}, prevScan = realm.lastScan, items = 0, reply = reply, market = market or "home" }
 end
 
 local function onBatch(key, rest)
@@ -323,6 +335,8 @@ local function onBatch(key, rest)
     local a, b, c, d, e = entry:match("^(%w+),(%w+),(%w+),(%w+),(%w+)$")
     local id, mkt, mn, qty, cnt = n36(a), n36(b), n36(c), n36(d), n36(e)
     if id and mkt and mkt > 0 and qty then
+      local old = realm.items[id]
+      if old and old.mkt and old.seen == s.prevScan and s.prev[id] == nil then s.prev[id] = old.mkt end
       local ok = H.RecordShared(realm, id, s.t, mkt, mn, qty, cnt)
       local it = realm.items[id]
       if not ok and s.reply and it and (it.seen or 0) <= s.t then
@@ -394,12 +408,8 @@ end
 
 -- Daily closes of our busiest items, one message per item
 local function sendHistory(target)
-  local realm, now = home(), time()
-  local list = {}
-  for id, it in pairs(realm.items) do
-    if it.mkt and it.h and it.h[1] then list[#list + 1] = { id, it } end
-  end
-  table.sort(list, function(a, b) return a[2].mkt * (a[2].qty or 0) > b[2].mkt * (b[2].qty or 0) end)
+  local now = time()
+  local list = busiest(home(), function(_, it) return it.mkt and it.h and it.h[1] end)
   local sent = 0
   for i = 1, math.min(HISTORY_ITEMS, #list) do
     local id, it = list[i][1], list[i][2]
@@ -481,12 +491,7 @@ end
 
 -- Points newer than `since` for our busiest items, at most 24 per item
 local function sendCatchup(target, since)
-  local realm = home()
-  local list = {}
-  for id, it in pairs(realm.items) do
-    if it.mkt and it.seen and it.seen > since then list[#list + 1] = { id, it } end
-  end
-  table.sort(list, function(a, b) return a[2].mkt * (a[2].qty or 0) > b[2].mkt * (b[2].qty or 0) end)
+  local list = busiest(home(), function(_, it) return it.mkt and it.seen and it.seen > since end)
   local sent = 0
   for i = 1, math.min(CATCHUP_ITEMS, #list) do
     local id, h = list[i][1], list[i][2].h
@@ -709,8 +714,11 @@ end)
 FI:On("FI_SCAN_DONE", function(_, t, from, market)
   local realm = FI:Market(market or "home")
   if t > (realm.liveScan or 0) then realm.liveScan = t end
-  -- only our own scans are broadcast (shared ones carry a sender)
-  if from == nil and FI.Scanner and FI.Scanner.lastFinished == t then Y:BroadcastScan(t, market) end
+  -- only our own scans are broadcast (shared ones carry a sender). A few seconds
+  -- later, so picking what to send doesn't pile onto the frame the scan finished in.
+  if from == nil and FI.Scanner and FI.Scanner.lastFinished == t then
+    C_Timer.After(3, function() Y:BroadcastScan(t, market) end)
+  end
 end)
 
 -- When we were last online (to know what to ask for at the next login)

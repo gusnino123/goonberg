@@ -46,10 +46,10 @@ local clock = debugprofilestop
 worker:SetScript("OnUpdate", function(self)
   local A = _G.Auctionator
   local realm = FI:Market("home")
-  local startMs = clock and clock() or 0
+  local stopAt = FI:WorkUntil(BUDGET_MS)
   local last = math.min(#I.keys, I.i + PER_FRAME)
   for n = I.i + 1, last do
-    if clock and n > I.i + 10 and clock() - startMs > BUDGET_MS then last = n - 1; break end
+    if n > I.i + 10 and clock() > stopAt then last = n - 1; break end
     local key = I.keys[n]
     local ok, hist = pcall(A.Database.GetPriceHistory, A.Database, key)
     -- skip items whose newest Auctionator day was already imported last login

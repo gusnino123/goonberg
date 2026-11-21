@@ -146,6 +146,18 @@ function UI:Build()
   body.isPanel = true
   self.body = body
 
+  -- The addon's version, small and grey in the bottom-left corner, in the strip the
+  -- tabs leave below their content. Its own frame keeps it above the tabs' panels.
+  local ver = CreateFrame("Frame", nil, f)
+  ver:SetPoint("BOTTOMLEFT", body, "BOTTOMLEFT", 10, 2)
+  ver:SetSize(80, 13)
+  ver:SetFrameLevel(body:GetFrameLevel() + 10)
+  local verText = W.Text(ver, W.SIZE.hint, C.muted)
+  verText:SetPoint("BOTTOMLEFT")
+  local version = FI.version or "dev"
+  verText:SetText(version:match("^%d") and ("v" .. version) or version)
+  self.versionText = verText
+
   -- Tab row: tabs on the left, standing on the body; scan status and button on the right
   local head = CreateFrame("Frame", nil, f)
   head:SetPoint("TOPLEFT", f.native and 58 or 8, -self.TITLE)
@@ -154,9 +166,9 @@ function UI:Build()
   head:SetFrameLevel(body:GetFrameLevel() + 5) -- the tabs overlap the body's top edge
   draggable(head, f)
 
-  local order = { "Overview", "Deals", "Loot", "Chart", "Crafting", "P&L" }
-  local keys = { Overview = "overview", Deals = "deals", Loot = "loot", Chart = "chart", Crafting = "craft", ["P&L"] = "pnl" }
-  self.tabLabels = { overview = "Overview", deals = "Deals", loot = "Loot", chart = "Chart", craft = "Crafting", pnl = "P&L" }
+  local order = { "Overview", "Deals", "Loot", "Chart", "Crafting", "P&L", "Auctions" }
+  local keys = { Overview = "overview", Deals = "deals", Loot = "loot", Chart = "chart", Crafting = "craft", ["P&L"] = "pnl", Auctions = "auctions" }
+  self.tabLabels = { overview = "Overview", deals = "Deals", loot = "Loot", chart = "Chart", craft = "Crafting", pnl = "P&L", auctions = "Auctions" }
   local tabs = W.Choice(head, order, "tab", function(v) UI:Show(keys[v]) end, self.TOP - self.TITLE)
   tabs:SetPoint("BOTTOMLEFT", head, "BOTTOMLEFT", 0, 0)
   if not tabs.native then
@@ -213,6 +225,7 @@ function UI:Build()
   self.tabs.loot = FI.LootTab:Build(body)
   self.tabs.pnl = FI.PnLTab:Build(body)
   self.tabs.craft = FI.CraftTab:Build(body)
+  self.tabs.auctions = FI.AuctionsTab:Build(body)
 
   -- The game's open and close sounds. f.quiet skips them when the window opens and
   -- closes along with the Auction House, which plays its own.
@@ -388,16 +401,23 @@ FI:On("FI_AH_CLOSED", function()
   UI:UpdateStatus()
 end)
 
-for _, e in ipairs({ "FI_SCAN_STATE", "FI_SCAN_PROGRESS" }) do
-  FI:On(e, function() UI:UpdateStatus() end)
-end
+FI:On("FI_SCAN_STATE", function() UI:UpdateStatus() end)
+-- progress comes every frame of a scan: redraw the status only when the % changes
+local lastPct
+FI:On("FI_SCAN_PROGRESS", function(_, done, total)
+  local pct = (total and total > 0) and math.floor((done or 0) / total * 100) or 0
+  if pct ~= lastPct then lastPct = pct; UI:UpdateStatus() end
+end)
 
 for _, e in ipairs({ "FI_SCAN_DONE", "FI_DATA_MERGED", "FI_MARKET_CHANGED" }) do
   FI:On(e, function()
     if e == "FI_MARKET_CHANGED" then UI:UpdateStatus(); if UI.marketChoice then UI.marketChoice:Select(FI.market) end end
-    if UI.frame and UI.frame:IsShown() and UI.current and UI.tabs[UI.current].Refresh then
-      UI.tabs[UI.current]:Refresh()
-    end
+    -- several guildmates' scans (or an import and a scan) can land together: one redraw
+    FI:Debounce("mainRefresh", 0.3, function()
+      if UI.frame and UI.frame:IsShown() and UI.current and UI.tabs[UI.current].Refresh then
+        UI.tabs[UI.current]:Refresh()
+      end
+    end)
   end)
 end
 
@@ -534,6 +554,7 @@ local CHECKS = {
   { "chart" },
   { "craft", "Overview", function(v) FI.CraftTab.view = v end }, { "craft", "Recipes", function(v) FI.CraftTab.view = v end },
   { "pnl", "Summary", function(v) FI.PnLTab.view = v end }, { "pnl", "Positions", function(v) FI.PnLTab.view = v end },
+  { "auctions" },
 }
 
 function UI:CheckLayout()

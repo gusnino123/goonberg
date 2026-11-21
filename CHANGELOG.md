@@ -1,5 +1,13 @@
 # Goonberg Terminal
 
+## 0.34.0 - Your auctions
+
+- **New Auctions tab.** See the auctions you have up: quantity, price each, buyout, current bid and when each one ends. Sort by any column; hover a row for details. Goonberg reads your auctions each time you visit the Auction House (or press Refresh while you're there), so the list stays useful after you walk away.
+- **Mail on the way.** The same tab lists the gold and returned items heading to your mailbox: what sold, the amount before and after the AH cut, and when it should arrive. Entries clear when you open your mailbox.
+- **A chat message when something sells.** When one of your auctions sells, a line in your chat says what sold, how many and for how much (and what you get after the AH cut). `/goon sales off` turns these off; `/goon sales on` brings them back.
+- **Smoother play.** Less work when AH scans come in (yours and guildmates'), when guild sync data arrives, and at the end of every scan, so the game should hitch less while Goonberg is busy.
+- The window shows the Goonberg version in its bottom left corner.
+
 ## 0.33.1
 
 - **Your bank's worth is now on the bank window itself.** Open your bank and a small panel under the game's bank window shows what's in it at AH prices (the market picked in Goonberg). Hover it for item by item, unpriced and soulbound counts, and your other characters' banks with a total. With a bag addon that replaces the bank window, the panel shows at the top of the screen instead; drag it where you like. `/goon bank off` hides it (`on` brings it back); `/goon bank` still prints the breakdown in chat.
