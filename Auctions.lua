@@ -218,29 +218,102 @@ function A:TakeDeposit(e)
   return nil
 end
 
+-- An auction you just posted goes into our copy straight away, so a sale minutes
+-- later is known (quantity, price) even before we next read your list. The next
+-- read matches it and keeps what we noted (when posted, deposit).
+function A:AddPosted(id, q, buy, minBid, dep, stacks)
+  if not id or not q then return end
+  local name = FI:ItemName(id)
+  if not name and GetItemInfo then name = GetItemInfo(id) end
+  if not name then return end
+  local market = FI.ahMarket or "home"
+  local d = self:Data()
+  d.lists[market] = d.lists[market] or {}
+  local now = time()
+  for _ = 1, math.max(1, stacks or 1) do
+    table.insert(d.lists[market], {
+      id = id, n = name, q = q, buy = buy or 0, bid = 0, minBid = minBid or 0,
+      posted = now, dep = dep, m = market,
+    })
+  end
+  self:NotePost(q, buy, dep, stacks)
+  FI:Fire("FI_AUCTIONS_CHANGED")
+  -- and read the real list once the AH has it
+  C_Timer.After(1, function() A:Query() end)
+end
+
 -- Classic AH: PostAuction(minBid, buyout, runTime, stackSize, numStacks). The item is
 -- still in the sell slot as the call returns, so the game can still price its deposit.
-if hooksecurefunc and PostAuction and CalculateAuctionDeposit then
-  hooksecurefunc("PostAuction", function(_, buyout, runTime, stackSize, numStacks)
-    local ok, dep = pcall(CalculateAuctionDeposit, runTime, stackSize, numStacks)
-    if not ok or not dep then return end
-    -- some clients price all the stacks at once: we want one stack's
-    if numStacks and numStacks > 1 then
-      local ok1, one = pcall(CalculateAuctionDeposit, runTime, stackSize, 1)
-      dep = (ok1 and one) or math.floor(dep / numStacks)
+if hooksecurefunc and PostAuction then
+  hooksecurefunc("PostAuction", function(minBid, buyout, runTime, stackSize, numStacks)
+    local dep
+    if CalculateAuctionDeposit then
+      local ok, all = pcall(CalculateAuctionDeposit, runTime, stackSize, numStacks)
+      dep = ok and all or nil
+      -- some clients price all the stacks at once: we want one stack's
+      if dep and numStacks and numStacks > 1 then
+        local ok1, one = pcall(CalculateAuctionDeposit, runTime, stackSize, 1)
+        dep = (ok1 and one) or math.floor(dep / numStacks)
+      end
     end
-    A:NotePost(stackSize or 1, buyout, dep, numStacks)
+    local id
+    if GetAuctionSellItemInfo then
+      local ok, _, _, _, _, _, _, _, itemID = pcall(GetAuctionSellItemInfo)
+      id = ok and itemID or nil
+    end
+    if id then
+      A:AddPosted(id, stackSize or 1, buyout, minBid, dep, numStacks)
+    else
+      A:NotePost(stackSize or 1, buyout, dep, numStacks)
+    end
   end)
 end
+
+-- Modern AH: PostCommodity(itemLocation, duration, quantity, unitPrice) and
+-- PostItem(itemLocation, duration, quantity, bid, buyout). The hook runs as the call
+-- returns, while the item is still in its bag slot waiting on the server.
+local CA = C_AuctionHouse
+local function locItem(loc)
+  if not loc or not C_Item or not C_Item.GetItemID then return nil end
+  local ok, id = pcall(C_Item.GetItemID, loc)
+  return ok and id or nil
+end
+if hooksecurefunc and CA and CA.PostCommodity then
+  hooksecurefunc(CA, "PostCommodity", function(loc, duration, quantity, unitPrice)
+    local id = locItem(loc)
+    if not id or not quantity or not unitPrice then return end
+    local dep
+    if CA.CalculateCommodityDeposit then
+      local ok, v = pcall(CA.CalculateCommodityDeposit, id, duration, quantity)
+      dep = ok and v or nil
+    end
+    A:AddPosted(id, quantity, unitPrice * quantity, 0, dep, 1)
+  end)
+end
+if hooksecurefunc and CA and CA.PostItem then
+  hooksecurefunc(CA, "PostItem", function(loc, duration, quantity, bid, buyout)
+    local id = locItem(loc)
+    if not id then return end
+    local dep
+    if CA.CalculateItemDeposit then
+      local ok, v = pcall(CA.CalculateItemDeposit, loc, duration, quantity)
+      dep = ok and v or nil
+    end
+    A:AddPosted(id, quantity or 1, buyout or 0, bid or 0, dep, 1)
+  end)
+end
+FI:On("AUCTION_HOUSE_AUCTION_CREATED", function() C_Timer.After(0.5, function() A:Query() end) end)
 
 local tries = 0
 function A:Read()
   if not FI.ahOpen then return end
   local list, complete
-  if GetNumAuctionItems and GetAuctionItemInfo then
-    list, complete = readLegacy()
-  elseif C_AuctionHouse and C_AuctionHouse.GetOwnedAuctions then
+  -- with the modern AH window, its own list is the real one
+  local modern = _G.AuctionHouseFrame and C_AuctionHouse and C_AuctionHouse.GetOwnedAuctions
+  if modern then
     list, complete = readModern()
+  elseif GetNumAuctionItems and GetAuctionItemInfo then
+    list, complete = readLegacy()
   else
     return
   end
@@ -258,10 +331,10 @@ end
 -- Ask the game for your auctions (it answers with AUCTION_OWNED_LIST_UPDATE)
 function A:Query()
   if not FI.ahOpen then return false end
-  if GetOwnerAuctionItems then
-    return (pcall(GetOwnerAuctionItems, 0))
-  elseif C_AuctionHouse and C_AuctionHouse.QueryOwnedAuctions then
+  if _G.AuctionHouseFrame and C_AuctionHouse and C_AuctionHouse.QueryOwnedAuctions then
     return (pcall(C_AuctionHouse.QueryOwnedAuctions, {}))
+  elseif GetOwnerAuctionItems then
+    return (pcall(GetOwnerAuctionItems, 0))
   end
   return false
 end
@@ -330,7 +403,10 @@ function A:OnSold(name, now)
     end
     local link = (e.id and FI:ItemLink(e.id)) or name
     if m.gross then
-      text = ("Sold %s x%d for %s (you get %s%s)%s. %s"):format(link, e.q, FI.Money(m.gross), FI.Money(m.net),
+      local price = (e.q or 1) > 1
+        and ("at %s each, %s total"):format(FI.Money(math.floor(m.gross / e.q + 0.5)), FI.Money(m.gross))
+        or ("for %s"):format(FI.Money(m.gross))
+      text = ("Sold %s x%d %s (you get %s%s)%s. %s"):format(link, e.q, price, FI.Money(m.net),
         e.dep and " with your deposit back" or " after the AH cut",
         unsure and ", probably the cheapest of your stacks of it" or "", mailWhen(m))
     else
@@ -342,6 +418,8 @@ function A:OnSold(name, now)
     text = ("Sold %s. %s Open your auctions at the Auction House once and Goonberg will know their prices."):format(name, mailWhen(m))
   end
   FI:Fire("FI_AUCTIONS_CHANGED")
+  -- at the AH, read the real list again (a commodity can sell only part of a stack)
+  if FI.ahOpen then FI:Debounce("ownedAfterSale", 1, function() A:Query() end) end
   return text
 end
 

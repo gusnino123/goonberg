@@ -1,71 +1,72 @@
--- Goonberg Terminal: move the Auction House's buy confirmations.
--- Drag the "buy this?" box anywhere and it opens there from then on:
---   modern AH: the commodity Buy dialog (AuctionHouseFrame.BuyDialog)
---   both AHs: the game's Buyout / Bid confirmation popups
--- /goon buypopup reset puts them back where the game puts them.
+-- Goonberg Terminal: move the Auction House's buy confirmations (and any other
+-- popup that opens at the AH). Hold Alt and drag the popup by its background: it
+-- opens there from then on. /goon buypopup reset puts them all back.
+-- Alt-drag works on whatever frame you grab, so it doesn't depend on knowing the
+-- popup's name in your client. It never starts on a button, so dragging can't press
+-- Buy.
 ---@type string, GoonbergTerminal
 local _, FI = ...
 ---@class GT.AuctionPopups
 local P = {}
 FI.AuctionPopups = P
 
--- the game's AH confirmation popups (StaticPopup "which" names)
-P.WHICH = { BUYOUT_AUCTION = true, BID_AUCTION = true }
-
-local function saved(key)
+local function store()
   FI.settings.ahPopups = FI.settings.ahPopups or {}
-  return FI.settings.ahPopups, FI.settings.ahPopups[key]
+  local s = FI.settings.ahPopups
+  -- spots saved by 0.35.0 under its own names
+  if s.commodity then s["AuctionHouseFrame.BuyDialog"] = s["AuctionHouseFrame.BuyDialog"] or s.commodity; s.commodity = nil end
+  if s.popup then
+    s["popup:BUYOUT_AUCTION"] = s["popup:BUYOUT_AUCTION"] or s.popup
+    s["popup:BID_AUCTION"] = s["popup:BID_AUCTION"] or s.popup
+    s.popup = nil
+  end
+  return s
 end
 
 local function place(f, key)
-  local _, pos = saved(key)
+  local pos = store()[key]
   if not pos then return end
   f:ClearAllPoints()
   f:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
 end
 
--- Make a frame draggable. `canDrag(f)` decides each time (a shared popup frame is
--- only ours to move while it's asking about an auction); `keyOf(f)` names the spot.
-local function movable(f, keyOf, canDrag)
-  if not f or f.goonMovable then return end
-  f.goonMovable = true
-  f:SetMovable(true)
-  f:SetClampedToScreen(true)
-  f:EnableMouse(true)
-  f:RegisterForDrag("LeftButton")
-  f:HookScript("OnDragStart", function(self)
-    if canDrag and not canDrag(self) then return end
-    self.goonMoving = true
-    self:StartMoving()
-  end)
-  f:HookScript("OnDragStop", function(self)
-    if not self.goonMoving then return end
-    self.goonMoving = false
-    self:StopMovingOrSizing()
-    -- keep the spot in Goonberg's settings, not the game's layout cache, which would
-    -- also pin the shared popup for everything else that uses it
-    if self.SetUserPlaced then self:SetUserPlaced(false) end
-    local point, _, relPoint, x, y = self:GetPoint(1)
-    local all = saved(keyOf(self))
-    all[keyOf(self)] = { point, relPoint, math.floor(x + 0.5), math.floor(y + 0.5) }
-  end)
+-- A frame's lasting name: its global name, or its parent's name plus its key
+-- ("AuctionHouseFrame.BuyDialog"). The game's shared popups (StaticPopup1..4) are
+-- named by what they're asking ("popup:BUYOUT_AUCTION"), since the same frame asks
+-- different things.
+local function keyOf(f)
+  if f.which and type(f.which) == "string" then return "popup:" .. f.which end
+  local n = f.GetName and f:GetName()
+  if n then return n end
+  local parent = f:GetParent()
+  local pk = f.GetParentKey and f:GetParentKey()
+  local pn = parent and parent.GetName and parent:GetName()
+  if pk and pn then return pn .. "." .. pk end
+  return nil
 end
 
--- Modern AH: the commodity Buy dialog. It loads with the AH, so we set it up once
--- the AH has opened.
-function P:SetupModern()
-  local ah = _G.AuctionHouseFrame
-  local dlg = ah and ah.BuyDialog
-  if not dlg or dlg.goonMovable then return end
-  dlg.goonHome = { dlg:GetPoint(1) } -- where the game puts it, for a reset
-  movable(dlg, function() return "commodity" end)
-  dlg:HookScript("OnShow", function(self) place(self, "commodity") end)
+local function resolve(key)
+  local f
+  for part in key:gmatch("[^%.]+") do
+    f = (f == nil) and _G[part] or (f and f[part])
+  end
+  return type(f) == "table" and f.GetObjectType and f or nil
 end
 
--- Both AHs: the game's popups are shared frames (StaticPopup1..4) that it places
--- again each time one opens, so ours go back to the saved spot right after.
-local function popupFrames()
+-- frames we put back each time they open
+local hooked = {}
+local function remember(f, key)
+  if hooked[f] or key:find("^popup:") then return end
+  hooked[f] = true
+  f:HookScript("OnShow", function(self) place(self, key) end)
+end
+
+-- the popups we know by name, checked by where the cursor is (a popup's background
+-- often ignores the mouse, so what's "under the mouse" can be the window behind it)
+local function knownPopups()
   local out = {}
+  local ah = _G.AuctionHouseFrame
+  if ah and ah.BuyDialog then out[#out + 1] = ah.BuyDialog end
   for i = 1, (_G.STATICPOPUP_NUMDIALOGS or 4) do
     local f = _G["StaticPopup" .. i]
     if f then out[#out + 1] = f end
@@ -73,34 +74,125 @@ local function popupFrames()
   return out
 end
 
-function P:SetupPopups()
-  if self.popupsDone then return end
-  self.popupsDone = true
-  for _, f in ipairs(popupFrames()) do
-    movable(f, function() return "popup" end, function(self) return P.WHICH[self.which] end)
+local function mouseFocus()
+  if GetMouseFoci then
+    local list = GetMouseFoci()
+    return list and list[1]
+  elseif GetMouseFocus then
+    return GetMouseFocus()
   end
-  if hooksecurefunc and _G.StaticPopup_Show then
-    hooksecurefunc("StaticPopup_Show", function(which)
-      if not P.WHICH[which] then return end
-      for _, f in ipairs(popupFrames()) do
-        if f:IsShown() and f.which == which then place(f, "popup") end
-      end
-    end)
+end
+
+-- the window you grabbed: a known popup under the cursor, or else climb from what's
+-- under the mouse to the frame that sits directly on the screen or on the AH window
+-- (not the AH window itself)
+local function grabbed()
+  local focus = mouseFocus()
+  if focus and focus.IsObjectType and focus:IsObjectType("Button") then return nil, "button" end
+  for _, f in ipairs(knownPopups()) do
+    if f:IsShown() and f:IsMouseOver() then return f end
+  end
+  if not focus or focus == WorldFrame or not focus.GetParent then return nil, "nothing" end
+  local ah = _G.AuctionHouseFrame or _G.AuctionFrame
+  local f = focus
+  while f do
+    local parent = f:GetParent()
+    if not parent or parent == UIParent or parent == ah then break end
+    f = parent
+  end
+  if not f or f == UIParent or f == ah then return nil, "nothing" end
+  return f
+end
+
+local moving
+local function startMove()
+  local f, why = grabbed()
+  if not f then
+    if why == "button" then
+      FI:Print("Grab the popup by its background, not a button, to move it.")
+    elseif not P.toldNothing then
+      P.toldNothing = true
+      local focus = mouseFocus()
+      FI:Print("Found no popup to move there (under the cursor: %s).",
+        focus and (focus.GetDebugName and focus:GetDebugName() or tostring(focus)) or "nothing")
+    end
+    return
+  end
+  local key = keyOf(f)
+  if not key then return end
+  if not f:IsMovable() then f:SetMovable(true) end
+  f:SetClampedToScreen(true)
+  local ok = pcall(f.StartMoving, f)
+  if ok then moving = { f = f, key = key } end
+end
+
+local function stopMove()
+  local m = moving
+  moving = nil
+  if not m then return end
+  m.f:StopMovingOrSizing()
+  -- keep the spot in Goonberg's settings, not the game's layout cache
+  if m.f.SetUserPlaced then pcall(m.f.SetUserPlaced, m.f, false) end
+  local point, _, relPoint, x, y = m.f:GetPoint(1)
+  if not point then return end
+  store()[m.key] = { point, relPoint, math.floor(x + 0.5), math.floor(y + 0.5) }
+  remember(m.f, m.key)
+  if not P.toldOnce then
+    P.toldOnce = true
+    FI:Print("Moved. It opens there from now on (/goon buypopup reset puts it back).")
+  end
+end
+
+-- Watch for Alt + left mouse button while an AH window is showing (also right after
+-- a /reload at the AH, when the AH-open event has already passed)
+local function ahShowing()
+  local ah = _G.AuctionHouseFrame or _G.AuctionFrame
+  return FI.ahOpen or (ah and ah:IsShown())
+end
+local watch = CreateFrame("Frame")
+local wasDown = false
+watch:SetScript("OnUpdate", function()
+  if not moving and not ahShowing() then wasDown, P.restored = false, false; return end
+  if not P.restored then P.restored = true; P:Restore() end
+  local down = IsMouseButtonDown("LeftButton")
+  if down and not wasDown and IsAltKeyDown() and not moving then startMove()
+  elseif not down and moving then stopMove() end
+  wasDown = down
+end)
+
+-- the game's shared popups: back to the saved spot each time one asks the same thing
+function P:SetupPopups()
+  if self.popupsDone or not hooksecurefunc or not _G.StaticPopup_Show then return end
+  self.popupsDone = true
+  hooksecurefunc("StaticPopup_Show", function(which)
+    if not which or not store()["popup:" .. which] then return end
+    for i = 1, (_G.STATICPOPUP_NUMDIALOGS or 4) do
+      local f = _G["StaticPopup" .. i]
+      if f and f:IsShown() and f.which == which then place(f, "popup:" .. which) end
+    end
+  end)
+end
+
+-- frames moved before (they load with the AH, so this runs when it opens)
+function P:Restore()
+  for key in pairs(store()) do
+    if not key:find("^popup:") then
+      local f = resolve(key)
+      if f then remember(f, key) end
+    end
   end
 end
 
 function P:Reset()
   FI.settings.ahPopups = nil
-  -- the game places its popups itself each time they open; the Buy dialog goes home
-  local dlg = _G.AuctionHouseFrame and _G.AuctionHouseFrame.BuyDialog
-  if dlg and dlg.goonHome and dlg.goonHome[1] then
-    dlg:ClearAllPoints()
-    dlg:SetPoint(unpack(dlg.goonHome))
-  end
+  FI:Print("AH popups open where the game puts them again (after a /reload for any that are open now).")
 end
 
 FI:On("PLAYER_LOGIN", function() P:SetupPopups() end)
 FI:On("FI_AH_OPEN", function()
   P:SetupPopups()
-  P:SetupModern()
+  P:Restore()
+end)
+FI:On("FI_AH_CLOSED", function()
+  if moving then stopMove() end
 end)

@@ -1,5 +1,17 @@
 # Goonberg Terminal
 
+## 0.36.0 - Quick buy
+
+- **Quick buy key (Auction House commodities).** Open an item and set its cap with `/goon buycap 1g50s` (each item has its own cap; `/goon buycap off` clears it). Then make a macro of these three lines and press it as often as you like:
+  ```
+  /click GoonBuy
+  /click GoonBuyRow LeftButton 1
+  /click GoonBuyBtn LeftButton 1
+  ```
+  Each press does one step: it refreshes the list, or, when the list is fresh and the cheapest price is at or under your cap, opens the game's buy popup for you to confirm. Presses while results are on the way or the popup is open do nothing, so mashing the key never keeps restarting the search. A line under the AH window says what it's doing. `/goon quickbuy` shows the macro in game.
+- **Move any popup at the AH, including the Buy dialog.** Hold Alt and drag it by its background; it opens there from then on. It never starts on a button, so dragging can't press Buy. `/goon buypopup reset` puts them back.
+- **Sale messages name quantity and price for new auctions.** Goonberg now records each auction the moment you post it, so a quick sale says how many sold, the price each and the total. The list is read again after each post and each sale while you're at the AH.
+
 ## 0.35.0
 
 - **The game's sold message now says what you got.** "A buyer has been found for your auction of X" is replaced in chat with what sold, how many, for how much, and when the mail arrives. This now works on clients that print the notice straight to chat. Two identical sales at once count as two. `/goon sales off` shows the game's line instead; `/goon sales debug` shows auction chat lines raw, for reporting a line Goonberg misses.

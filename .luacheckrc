@@ -54,7 +54,8 @@ read_globals = {
   -- Auction House (modern and classic APIs)
   "QueryAuctionItems", "CanSendAuctionQuery", "GetNumAuctionItems", "GetAuctionItemInfo",
   "BrowseName", "AuctionFrameBrowse_Search",
-  "GetOwnerAuctionItems", "GetAuctionItemTimeLeft", "ChatTypeInfo", "PostAuction", "CalculateAuctionDeposit", "NUM_CHAT_WINDOWS",
+  "GetOwnerAuctionItems", "GetAuctionItemTimeLeft", "ChatTypeInfo", "PostAuction", "CalculateAuctionDeposit", "NUM_CHAT_WINDOWS", "AuctionHouseFrame",
+  "GetMouseFoci", "GetMouseFocus", "WorldFrame", "IsAltKeyDown", "IsMouseButtonDown",
   "WOW_PROJECT_ID", "WOW_PROJECT_MAINLINE",
 
   -- Mail, merchants, loot, Adventure Guide

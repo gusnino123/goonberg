@@ -604,7 +604,8 @@ local help = {
   "/goon de <item>  - what it disenchants into and is worth  |  /goon de watch",
   "/goon sync  - guild sync status  |  /goon sync on|off|history|catchup|scan",
   "/goon sales on|off  - when one of your auctions sells, the game's chat line says how many and for how much",
-  "/goon buypopup reset  - the AH buy confirmation is draggable and opens where you left it; this puts it back",
+  "/goon buycap 1g50s | off  - quick-buy cap for the item open at the AH (/goon quickbuy for the macro)",
+  "/goon buypopup reset  - Alt-drag a popup at the AH to move it for good; this puts them back",
   "/goon import  - pull price history from Auctionator (also automatic at login; /goon import off)",
   "/goon scale 0.9  |  /goon scale reset  - window size (or drag its corner)",
 }
@@ -821,12 +822,23 @@ SlashCmdList.GOONBERG = function(msg)
     else
       FI.Sync:Status()
     end
+  elseif cmd == "buycap" then
+    FI.QuickBuy:SetCap(rest)
+  elseif cmd == "quickbuy" then
+    if rest:lower() == "debug" then
+      FI.QuickBuy:Debug()
+    else
+      FI:Print("Quick buy: open an item at the AH and set its cap with /goon buycap 1g50s. Then make a macro of these three lines and press it:")
+      FI:Print("/click GoonBuy")
+      FI:Print("/click GoonBuyRow LeftButton 1")
+      FI:Print("/click GoonBuyBtn LeftButton 1")
+      FI:Print("Each press refreshes or, when the cheapest price is at or under your cap, opens the game's buy popup for you to confirm.")
+    end
   elseif cmd == "buypopup" then
     if rest:lower() == "reset" then
       FI.AuctionPopups:Reset()
-      FI:Print("The Auction House buy confirmations open where the game puts them again.")
     else
-      FI:Print("Drag the Auction House's buy or bid confirmation anywhere; it opens there from then on. /goon buypopup reset puts it back.")
+      FI:Print("Hold Alt and drag the Auction House's buy popup (or any popup at the AH) by its background; it opens there from then on. /goon buypopup reset puts them back.")
     end
   elseif cmd == "sales" then
     local arg = rest:lower()
