@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.40.3 - Quick buy confirms a readjusted price
+
+- **The quick buy key clicks Buy Now after the price readjusts.** When the game changed the price while the buy popup was open, the key stopped and left the click to you, even for a tiny change. Now it confirms whatever the game quotes, as long as that is at or under your buy cap. Over your cap, the press still does nothing and the status line says the price is now over your cap.
+
 ## 0.40.2 - Buy caps need g, s or c
 
 - **`/goon buycap` no longer guesses the unit.** A bare number like `/goon buycap 25` used to be read as 25 gold. Now it sets nothing and asks you to type `25g`, `25s` or `25c`, so a missed letter can't leave you with a cap 100 times too high. The cap you had stays as it was.

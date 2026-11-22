@@ -848,7 +848,7 @@ SlashCmdList.GOONBERG = function(msg)
       FI:Print("/click GoonBuyRow LeftButton 1")
       FI:Print("/click GoonBuyBtn LeftButton 1")
       FI:Print("/click GoonBuyOk LeftButton 1")
-      FI:Print("Each press refreshes or, when the cheapest price is at or under your cap, opens the game's buy popup. With the fourth line, another press confirms it, unless the price went up. Leave that line out to confirm by mouse only.")
+      FI:Print("Each press refreshes or, when the cheapest price is at or under your cap, opens the game's buy popup. With the fourth line, another press confirms it, unless the price is now over your cap. Leave that line out to confirm by mouse only.")
       FI:Print("/goon quant 20 makes it skip listings smaller than 20 (/goon quant 1 takes any size).")
     end
   elseif cmd == "buypopup" then

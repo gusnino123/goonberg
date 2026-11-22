@@ -113,7 +113,7 @@ local function statusText()
   local capText = "cap " .. FI.Money(cap) .. (min > 1 and (", min x" .. FI.Number(min)) or "")
   if Q:PopupOpen() then
     if Q:OkayTarget() then return "no longer available: press again to close and refresh" end
-    if step == "moved" then return "the price went up since the list: confirm or cancel in the popup (" .. capText .. ")" end
+    if step == "moved" then return "the price is now over your cap: confirm or cancel in the popup (" .. capText .. ")" end
     if step == "confirm" then return "buying..." end
     if Q.quote then return "buy ready: press again or click Buy Now (" .. capText .. ")" end
     return "buy ready: waiting for the game's price (" .. capText .. ")"

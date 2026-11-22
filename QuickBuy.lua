@@ -3,7 +3,8 @@
 -- one macro (/click GoonBuy LeftButton 1) as often as you like. Each press does the
 -- next useful step and never more than one:
 --   the buy popup is open              -> confirms it, if the macro has the confirm
---     line and the price the game quotes is no higher than the list showed;
+--     line and the price the game quotes is at or under your cap (also when the
+--     game readjusts the price while the popup is open);
 --     otherwise nothing (a refresh would knock the popup away)
 --   the popup says it's gone (Okay)    -> closes it and refreshes
 --   results are on their way           -> nothing (resending restarts the wait)
@@ -22,7 +23,6 @@ Q.FRESH = 3            -- seconds a result list counts as current
 Q.PENDING_TIMEOUT = 5  -- a refresh with no answer by then is given up on
 
 Q.pending = nil        -- { id, t }: a refresh we're waiting on
-Q.buying = nil         -- { id, price }: the buy press that opened the popup
 Q.quote = nil          -- { unit, total }: the price the game quotes in the open popup
 Q.freshAt = {}         -- itemID -> GetTime() its results last arrived
 
@@ -175,13 +175,12 @@ function Q:Decide(now)
   if popupOpen() then
     -- nothing left to buy: the popup only wants closing
     if self:OkayTarget() then return "dismiss", id, nil, cap end
-    -- Confirm only at the price the buy press saw (or your cap, for a popup you
-    -- opened by hand). If the game quotes more, the choice stays with you.
+    -- Confirm at whatever the game quotes now, as long as that is at or under your
+    -- cap: a price that readjusted but is still under it is one you agreed to. Over
+    -- the cap, the choice stays with you.
     local q = self.quote
     if q and self:ConfirmTarget() then
-      local b = self.buying
-      local limit = b and b.id == id and b.price or cap
-      if q.unit <= limit then return "confirm", id, q.unit, cap end
+      if q.unit <= cap then return "confirm", id, q.unit, cap end
       return "moved", id, q.unit, cap
     end
     return "popup", id, nil, cap
@@ -218,11 +217,11 @@ function Q:Press()
     step = "queued"
   elseif step == "dismiss" then
     -- the list that offered it is out of date: refresh as soon as the popup is gone
-    self.quote, self.buying = nil, nil
+    self.quote = nil
     self.freshAt[id] = nil
     self.queued = { id = id, t = now }
   elseif step == "buy" then
-    self.buying, self.quote = { id = id, price = price }, nil
+    self.quote = nil
     local _, qty = self:Cheapest(id)
     FI:Print("Buy ready: %s x%s at %s each (your cap %s). Confirm in the popup.",
       FI:ItemLink(id) or tostring(id), qty and FI.Number(qty) or "?", FI.Money(price), FI.Money(cap))
@@ -257,7 +256,7 @@ FI:On("COMMODITY_SEARCH_RESULTS_UPDATED", function(_, id)
   if Q.queued and Q.queued.id == id then Q.queued = nil end
   FI:Fire("FI_QUICKBUY", "results")
 end)
-FI:On("FI_AH_CLOSED", function() Q.pending, Q.queued, Q.buying, Q.quote = nil, nil, nil, nil end)
+FI:On("FI_AH_CLOSED", function() Q.pending, Q.queued, Q.quote = nil, nil, nil end)
 
 -- the game prices a purchase before its popup lets you confirm
 FI:On("COMMODITY_PRICE_UPDATED", function(_, unit, total)
@@ -272,7 +271,7 @@ end)
 -- A purchase went through (or fell over): the list on screen is out of date, so
 -- refresh it now instead of spending your next press on that.
 local function afterPurchase(event)
-  Q.quote, Q.buying = nil, nil
+  Q.quote = nil
   local id = Q:CurrentItem()
   if id and Q:Caps()[id] then
     Q.freshAt[id] = nil
