@@ -21,8 +21,11 @@ FI.QuickBuy = Q
 
 Q.FRESH = 3            -- seconds a result list counts as current
 Q.PENDING_TIMEOUT = 5  -- a refresh with no answer by then is given up on
+Q.STUCK = 3            -- seconds of "Searching..." with no answer before we ask again
+Q.MAX_RETRIES = 3      -- and how often, for one stuck search
 
 Q.pending = nil        -- { id, t }: a refresh we're waiting on
+Q.loadingSince = nil   -- { id, t, tries }: the list has shown "Searching..." since then
 Q.quote = nil          -- { unit, total }: the price the game quotes in the open popup
 Q.freshAt = {}         -- itemID -> GetTime() its results last arrived
 
@@ -165,6 +168,27 @@ local function sendRefresh(id)
   return false
 end
 
+-- A search the AH never answered (it takes one request at a time and drops the
+-- rest, which leaves the list on "Searching..." for good): ask again. Alternates
+-- between a new search, as opening the item sends, and a refresh of the list.
+local function resendSearch(id, try)
+  local CA = _G.C_AuctionHouse
+  if not CA then return false end
+  local function search()
+    if not (CA.SendSearchQuery and CA.MakeItemKey) then return false end
+    local ok, key = pcall(CA.MakeItemKey, id)
+    return ok and key ~= nil and (pcall(CA.SendSearchQuery, key, {}, false))
+  end
+  if (try or 1) % 2 == 1 then return search() or sendRefresh(id) end
+  return sendRefresh(id) or search()
+end
+
+-- has this item's list sat on "Searching..." too long to still be on its way?
+function Q:Stuck(id, now)
+  local ls = self.loadingSince
+  return ls ~= nil and ls.id == id and (ls.tries > 0 or now - ls.t >= self.STUCK)
+end
+
 -- What one press should do. Returns the step and, for the status line, the
 -- item, its cheapest price and the cap.
 function Q:Decide(now)
@@ -191,7 +215,8 @@ function Q:Decide(now)
   if qd and qd.id == id and now - qd.t < self.PENDING_TIMEOUT then return "queued", id, nil, cap end
   if p then self.pending = nil end
   local f = buyFrame()
-  if loading(f) then return "waiting", id, nil, cap end
+  -- a list still loading is on its way; one that got stuck needs asking again
+  if loading(f) and not self:Stuck(id, now) then return "waiting", id, nil, cap end
   local price = self:Cheapest(id)
   local fresh = self.freshAt[id] and now - self.freshAt[id] <= self.FRESH
   if fresh and price and price <= cap then return "buy", id, price, cap end
@@ -205,7 +230,17 @@ function Q:Press()
   local now = GetTime()
   local step, id, price, cap = self:Decide(now)
   if step == "refresh" then
-    if sendRefresh(id) then
+    local sent
+    if self:Stuck(id, now) then
+      -- counts as one of the stuck search's retries, so the watcher below doesn't
+      -- send another right behind it
+      local ls = self.loadingSince
+      ls.tries, ls.t = ls.tries + 1, now
+      sent = resendSearch(id, ls.tries)
+    else
+      sent = sendRefresh(id)
+    end
+    if sent then
       self.pending = { id = id, t = now }
     else
       step = "norefresh"
@@ -311,6 +346,40 @@ CreateFrame("Frame"):SetScript("OnUpdate", function(_, dt)
   if qtick < 0.1 then return end
   qtick = 0
   Q:SendQueued()
+end)
+
+-- Watch the open commodity's list (any item, with a cap or not): if it has shown
+-- "Searching..." for a few seconds and the AH will take a request, ask again, a few
+-- times at most. Without this the list stays stuck until you search again yourself.
+function Q:WatchStuck()
+  local f = buyFrame()
+  local id = f and loading(f) and self:CurrentItem() or nil
+  if not id then
+    self.loadingSince = nil
+    return
+  end
+  local now = GetTime()
+  local ls = self.loadingSince
+  if not ls or ls.id ~= id then
+    self.loadingSince = { id = id, t = now, tries = 0 }
+    return
+  end
+  if now - ls.t < self.STUCK or ls.tries >= self.MAX_RETRIES then return end
+  if popupOpen() or not searchReady() then return end
+  ls.tries, ls.t = ls.tries + 1, now
+  if resendSearch(id, ls.tries) then self.pending = { id = id, t = now } end
+  FI:Fire("FI_QUICKBUY", "retry")
+end
+local stick = 0
+CreateFrame("Frame"):SetScript("OnUpdate", function(_, dt)
+  if not FI.ahOpen then
+    Q.loadingSince = nil
+    return
+  end
+  stick = stick + dt
+  if stick < 0.25 then return end
+  stick = 0
+  Q:WatchStuck()
 end)
 
 -- the item in the AH's sell view, if one is in the slot

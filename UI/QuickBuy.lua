@@ -120,6 +120,10 @@ local function statusText()
   end
   if step == "nobutton" then return "couldn't find the game's Buy button" end
   if step == "norefresh" then return "couldn't refresh the list" end
+  local ls = Q.loadingSince
+  if ls and ls.id == id and ls.tries > 0 then
+    return ("the search got no answer: asked again, try %d of %d (%s)"):format(ls.tries, Q.MAX_RETRIES, capText)
+  end
   if Q.pending and Q.pending.id == id then return "waiting for results (" .. capText .. ")" end
   if Q.queued and Q.queued.id == id then return "refresh queued: sends the moment the AH allows (" .. capText .. ")" end
   local price = Q:Cheapest(id)

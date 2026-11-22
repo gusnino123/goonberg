@@ -1,5 +1,11 @@
 # Goonberg Terminal
 
+## 0.40.4 - No more stuck "Searching..."
+
+- **A stuck search un-sticks itself.** When a commodity's list sits on "Searching..." for 3 seconds with no answer, Goonberg sends the search again for you, up to 3 times. It works for any commodity, with or without a buy cap, and the quick buy status line says when it has asked again.
+- **The quick buy key un-sticks it too.** A press used to do nothing while the list was stuck on "Searching...", even though the status line said to press. Now it sends the search again.
+- **Listing no longer gets in the way of your next search.** Goonberg used to ask the Auction House for your auction list right after every listing, and that could swallow the search you made next. It no longer does. Sale messages and deposits are unchanged; on the Auctions tab, a new listing's exact time left now fills in when you open the game's Auctions tab or come back to the Auction House.
+
 ## 0.40.3 - Quick buy confirms a readjusted price
 
 - **The quick buy key clicks Buy Now after the price readjusts.** When the game changed the price while the buy popup was open, the key stopped and left the click to you, even for a tiny change. Now it confirms whatever the game quotes, as long as that is at or under your buy cap. Over your cap, the press still does nothing and the status line says the price is now over your cap.

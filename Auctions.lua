@@ -243,8 +243,10 @@ function A:AddPosted(id, q, buy, minBid, dep, stacks)
   end
   self:NotePost(q, buy, dep, stacks)
   FI:Fire("FI_AUCTIONS_CHANGED")
-  -- and read the real list once the AH has it
-  C_Timer.After(1, function() A:Query() end)
+  -- No request for the real list here. The AH takes one request at a time and drops
+  -- the rest, so asking right after a post could swallow the search you make next
+  -- and leave it on "Searching...". What we noted above is enough until the list is
+  -- next read: when you open the game's Auctions tab, or the AH again.
 end
 
 -- Classic AH: PostAuction(minBid, buyout, runTime, stackSize, numStacks). The item is
@@ -307,8 +309,6 @@ if hooksecurefunc and CA and CA.PostItem then
     A:AddPosted(id, quantity or 1, buyout or 0, bid or 0, dep, 1)
   end)
 end
-FI:On("AUCTION_HOUSE_AUCTION_CREATED", function() C_Timer.After(0.5, function() A:Query() end) end)
-
 local tries = 0
 function A:Read()
   if not FI.ahOpen then return end
