@@ -603,7 +603,8 @@ local help = {
   "/goon minimap on|off|reset  - the button under the minimap",
   "/goon de <item>  - what it disenchants into and is worth  |  /goon de watch",
   "/goon sync  - guild sync status  |  /goon sync on|off|history|catchup|scan",
-  "/goon sales on|off  - a chat message when one of your auctions sells",
+  "/goon sales on|off  - when one of your auctions sells, the game's chat line says how many and for how much",
+  "/goon buypopup reset  - the AH buy confirmation is draggable and opens where you left it; this puts it back",
   "/goon import  - pull price history from Auctionator (also automatic at login; /goon import off)",
   "/goon scale 0.9  |  /goon scale reset  - window size (or drag its corner)",
 }
@@ -820,11 +821,21 @@ SlashCmdList.GOONBERG = function(msg)
     else
       FI.Sync:Status()
     end
+  elseif cmd == "buypopup" then
+    if rest:lower() == "reset" then
+      FI.AuctionPopups:Reset()
+      FI:Print("The Auction House buy confirmations open where the game puts them again.")
+    else
+      FI:Print("Drag the Auction House's buy or bid confirmation anywhere; it opens there from then on. /goon buypopup reset puts it back.")
+    end
   elseif cmd == "sales" then
     local arg = rest:lower()
     if arg == "on" or arg == "off" then
       FI.settings.saleAlerts = arg == "on"
       FI:Print("Sale messages in chat are now %s.", arg)
+    elseif arg == "debug" then
+      FI.settings.salesDebug = not FI.settings.salesDebug
+      FI:Print("Auction chat debug is now %s: chat lines that mention an auction are shown raw.", FI.settings.salesDebug and "on" or "off")
     else
       FI:Print("Sale messages in chat are %s (/goon sales on|off).", FI.settings.saleAlerts == false and "off" or "on")
     end

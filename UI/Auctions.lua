@@ -11,12 +11,14 @@ local C = FI.colors
 
 local ROW_H = 28
 local MAIL_H = 210
-local NAME_RIGHT = -600
+local NAME_RIGHT = -680
 local COLS = {
-  { key = "q", label = "Qty", r = -560, dir = -1 },
-  { key = "each", label = "Each", r = -440, dir = -1 },
-  { key = "buy", label = "Buyout", r = -310, dir = -1 },
-  { key = "bid", label = "Bid", r = -190, dir = -1 },
+  { key = "q", label = "Qty", r = -645, dir = -1 },
+  { key = "each", label = "Each", r = -550, dir = -1 },
+  { key = "buy", label = "Buyout", r = -455, dir = -1 },
+  { key = "bid", label = "Bid", r = -360, dir = -1 },
+  { key = "fee", label = "Fee", r = -265, dir = -1 },
+  { key = "dep", label = "Deposit", r = -170, dir = -1 },
   { key = "ends", label = "Ends", r = -16, dir = 1 },
 }
 local MAIL_COLS = {
@@ -25,7 +27,7 @@ local MAIL_COLS = {
   { key = "net", label = "You get", r = -210, nosort = true },
   { key = "due", label = "Arrives", r = -16, nosort = true },
 }
-local MONEY = { each = W.MoneyColumn(), buy = W.MoneyColumn(), bid = W.MoneyColumn() }
+local MONEY = { each = W.MoneyColumn(), buy = W.MoneyColumn(), bid = W.MoneyColumn(), fee = W.MoneyColumn(), dep = W.MoneyColumn() }
 local MAIL_MONEY = { gross = W.MoneyColumn(), net = W.MoneyColumn() }
 
 local function setColor(fs, c) fs:SetTextColor(c[1], c[2], c[3]) end
@@ -94,6 +96,15 @@ local function makeRow(parent)
     GameTooltip:AddLine(" ")
     GameTooltip:AddDoubleLine("Auction house", e.m == "neutral" and "Neutral" or "Your faction", soft[1], soft[2], soft[3], 1, 1, 1)
     if e.posted then GameTooltip:AddDoubleLine("Posted", FI.Ago(e.posted), soft[1], soft[2], soft[3], 1, 1, 1) end
+    local fee = FI.Auctions.Fee(e)
+    if fee then
+      GameTooltip:AddDoubleLine(("AH cut (%d%%) if it sells"):format(FI.Auctions.CutRate(e.m) * 100), FI.Coins(fee), soft[1], soft[2], soft[3], 1, 1, 1)
+    end
+    if e.dep then
+      GameTooltip:AddDoubleLine("Deposit", FI.Coins(e.dep) .. " (back if it sells, lost if not)", soft[1], soft[2], soft[3], 1, 1, 1)
+    else
+      GameTooltip:AddLine("Deposit unknown: Goonberg notes it when you post an auction.", 0.55, 0.58, 0.64, true)
+    end
     if e.sold then
       GameTooltip:AddDoubleLine("Sold", e.soldAt and FI.Ago(e.soldAt) or "while you were away", soft[1], soft[2], soft[3], C.up[1], C.up[2], C.up[3])
     elseif e.expHi and e.expLo and e.expHi - e.expLo >= 300 then
@@ -115,6 +126,9 @@ local function updateRow(r, i)
   r.cells.buy:SetMoney(row.buy)
   r.cells.bid:SetMoney(row.bid)
   setColor(r.cells.bid, row.bid and C.text or C.muted)
+  r.cells.fee:SetMoney(row.fee)
+  r.cells.dep:SetMoney(row.dep)
+  setColor(r.cells.dep, row.dep and C.text or C.muted)
   r.cells.ends:SetText(row.endsText)
 end
 
@@ -270,18 +284,23 @@ function T:Refresh()
   local d = A:Data()
   local now = time()
 
-  local rows, up, sold, upValue = {}, 0, 0, 0
+  -- sold auctions are listed only under Mail on the way
+  local rows, upValue = {}, 0
   for _, e in ipairs(A:All()) do
-    local text, sortEnds = endsText(e, now)
-    local buy = (e.buy and e.buy > 0) and e.buy or nil
-    local bid = (e.bid and e.bid > 0) and e.bid or nil
-    rows[#rows + 1] = {
-      e = e, name = (e.id and FI:ItemName(e.id)) or e.n or "", q = e.q or 1,
-      each = (buy or bid) and A.UnitPrice(e) or nil, buy = buy, bid = bid,
-      ends = sortEnds, endsText = text,
-    }
-    if e.sold then sold = sold + 1 else up = up + 1; upValue = upValue + (buy or bid or 0) end
+    if not e.sold then
+      local text, sortEnds = endsText(e, now)
+      local buy = (e.buy and e.buy > 0) and e.buy or nil
+      local bid = (e.bid and e.bid > 0) and e.bid or nil
+      rows[#rows + 1] = {
+        e = e, name = (e.id and FI:ItemName(e.id)) or e.n or "", q = e.q or 1,
+        each = (buy or bid) and A.UnitPrice(e) or nil, buy = buy, bid = bid,
+        fee = A.Fee(e), dep = e.dep,
+        ends = sortEnds, endsText = text,
+      }
+      upValue = upValue + (buy or bid or 0)
+    end
   end
+  local up = #rows
   W.SortRows(rows, self.sort.sort, self.sort.dir)
   self.rows = rows
   for k, col in pairs(MONEY) do col:Fit(rows, k) end
@@ -301,6 +320,8 @@ function T:Refresh()
   local parts = {}
   parts[#parts + 1] = ("%d up"):format(up)
   if up > 0 and upValue > 0 then parts[#parts] = parts[#parts] .. " (" .. FI.Coins(upValue) .. " at buyout)" end
+  local sold = 0
+  for _, m in ipairs(mail) do if not m.expired then sold = sold + 1 end end
   if sold > 0 then parts[#parts + 1] = ("|cff66c761%d sold|r"):format(sold) end
   if coming > 0 then parts[#parts + 1] = FI.Coins(coming) .. " on the way" end
   self.summary:SetText(table.concat(parts, "  ·  "))
@@ -313,7 +334,7 @@ function T:Refresh()
   else
     self.empty:SetText("No auctions up right now.")
   end
-  self.footer:SetText(seen > 0 and ("Read at the Auction House %s. Sales show up the moment the game tells you about them."):format(FI.Ago(seen))
+  self.footer:SetText(seen > 0 and ("Read at the Auction House %s. An auction moves to Mail on the way the moment it sells."):format(FI.Ago(seen))
     or "Not read yet: open the Auction House.")
 end
 

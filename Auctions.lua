@@ -31,6 +31,7 @@ local KEEP_MAIL = 3 * 86400 -- forget mail we expected this long ago
 ---@field expLo integer?  ends no earlier than this
 ---@field expHi integer?  and no later than this
 ---@field posted integer? when it went up, if we saw that happen
+---@field dep integer?    the deposit paid to post it (nil: posted before we could see)
 ---@field sold boolean?
 ---@field soldAt integer? when the game told us (nil: sold while we weren't watching)
 ---@field m string        "home" or "neutral": which auction house
@@ -40,7 +41,8 @@ local KEEP_MAIL = 3 * 86400 -- forget mail we expected this long ago
 ---@field n string
 ---@field q integer?
 ---@field gross integer?  what the buyer paid (nil = we didn't have its price)
----@field net integer?    what reaches you after the AH cut
+---@field net integer?    what reaches you: the price less the AH cut, plus the deposit back
+---@field dep integer?    the deposit paid to post it, when we saw it posted
 ---@field soldAt integer?
 ---@field due integer     when the mail arrives (at the latest, when approx)
 ---@field approx boolean? sold while we weren't watching: due is the latest it can be
@@ -68,6 +70,23 @@ function A:All()
     for _, e in ipairs(list) do out[#out + 1] = e end
   end
   return out
+end
+
+-- The AH cut taken from a sale: 5% at your faction's AH, 15% at a neutral one
+function A.CutRate(market) return market == "neutral" and 0.15 or CUT end
+
+-- What a sale would pay before the cut: the buyout, or the current bid
+local function grossOf(e)
+  if e.buy and e.buy > 0 then return e.buy end
+  if e.bid and e.bid > 0 then return e.bid end
+  return nil
+end
+A.GrossOf = grossOf
+
+-- The AH cut if it sells at its buyout (or current bid)
+function A.Fee(e)
+  local g = grossOf(e)
+  return g and math.floor(g * A.CutRate(e.m)) or nil
 end
 
 local function unitPrice(e)
@@ -139,10 +158,13 @@ function A:Update(market, list, fresh)
     local same = pool[key(e)]
     local prev = same and table.remove(same, 1)
     if prev then
-      e.expLo, e.expHi, e.posted, e.soldAt = prev.expLo, prev.expHi, prev.posted, prev.soldAt
-    elseif fresh and e.tl and POSTED_FOR[e.tl] then
-      e.posted = now
-      e.expLo, e.expHi = now + POSTED_FOR[e.tl], now + POSTED_FOR[e.tl]
+      e.expLo, e.expHi, e.posted, e.soldAt, e.dep = prev.expLo, prev.expHi, prev.posted, prev.soldAt, prev.dep
+    else
+      if fresh and e.tl and POSTED_FOR[e.tl] then
+        e.posted = now
+        e.expLo, e.expHi = now + POSTED_FOR[e.tl], now + POSTED_FOR[e.tl]
+      end
+      e.dep = self:TakeDeposit(e)
     end
     if e.secs then
       e.expLo, e.expHi = now + e.secs, now + e.secs
@@ -165,6 +187,50 @@ function A:Update(market, list, fresh)
   d.lists[market] = list
   d.seen[market] = now
   FI:Fire("FI_AUCTIONS_CHANGED")
+end
+
+-- Deposits. The game never lists what you paid to post, so we note it as you post
+-- (the same amount the Auction House window shows) and attach it to the new auction
+-- the next time we read your list. Auctions posted before that have no deposit known.
+A.pending = {}
+local PENDING_FOR = 120 -- a post we haven't seen appear in the list by then is dropped
+
+function A:NotePost(q, buy, dep, stacks)
+  if not dep or dep <= 0 then return end
+  local now = time()
+  for i = #self.pending, 1, -1 do
+    if now - self.pending[i].t > PENDING_FOR then table.remove(self.pending, i) end
+  end
+  for _ = 1, math.max(1, stacks or 1) do
+    self.pending[#self.pending + 1] = { q = q, buy = buy or 0, dep = dep, t = now }
+  end
+end
+
+-- the deposit noted for a newly seen auction, if we posted it moments ago
+function A:TakeDeposit(e)
+  local now = time()
+  for i, p in ipairs(self.pending) do
+    if now - p.t <= PENDING_FOR and p.q == e.q and p.buy == (e.buy or 0) then
+      table.remove(self.pending, i)
+      return p.dep
+    end
+  end
+  return nil
+end
+
+-- Classic AH: PostAuction(minBid, buyout, runTime, stackSize, numStacks). The item is
+-- still in the sell slot as the call returns, so the game can still price its deposit.
+if hooksecurefunc and PostAuction and CalculateAuctionDeposit then
+  hooksecurefunc("PostAuction", function(_, buyout, runTime, stackSize, numStacks)
+    local ok, dep = pcall(CalculateAuctionDeposit, runTime, stackSize, numStacks)
+    if not ok or not dep then return end
+    -- some clients price all the stacks at once: we want one stack's
+    if numStacks and numStacks > 1 then
+      local ok1, one = pcall(CalculateAuctionDeposit, runTime, stackSize, 1)
+      dep = (ok1 and one) or math.floor(dep / numStacks)
+    end
+    A:NotePost(stackSize or 1, buyout, dep, numStacks)
+  end)
 end
 
 local tries = 0
@@ -218,11 +284,12 @@ end
 ---@return GT.IncomingMail
 function A:AddIncoming(e, soldAt, expired)
   local d = self:Data()
-  local gross = (e.buy and e.buy > 0) and e.buy or ((e.bid and e.bid > 0) and e.bid or nil)
+  local gross = grossOf(e)
+  -- a sale's mail pays the price, less the AH cut, plus the deposit back
   local m = {
-    id = e.id, n = e.n, q = e.q, m = e.m, soldAt = soldAt,
+    id = e.id, n = e.n, q = e.q, m = e.m, soldAt = soldAt, dep = e.dep,
     gross = not expired and gross or nil,
-    net = (not expired and gross) and math.floor(gross * (1 - CUT) + 0.5) or nil,
+    net = (not expired and gross) and (gross - A.Fee(e) + (e.dep or 0)) or nil,
     due = expired and time() or ((soldAt or time()) + A.MAIL_DELAY),
     approx = (not expired and soldAt == nil) or nil,
     expired = expired or nil,
@@ -236,11 +303,6 @@ local function mailWhen(m)
   return ("Mail arrives at %s (in %s)."):format(date("%H:%M", m.due), FI.Duration(m.due - time()))
 end
 
-function A:Say(text)
-  local c = ChatTypeInfo and ChatTypeInfo.SYSTEM
-  DEFAULT_CHAT_FRAME:AddMessage("|cffffd100Goonberg:|r " .. text, c and c.r or 1, c and c.g or 1, c and c.b or 0)
-end
-
 -- Your unsold auctions of an item, cheapest each first: a buyer takes the cheapest
 local function unsoldOf(name)
   local list = {}
@@ -251,7 +313,8 @@ local function unsoldOf(name)
   return list
 end
 
--- "A buyer has been found for your auction of X."
+-- "A buyer has been found for your auction of X." Records the sale and returns the
+-- line that replaces the game's in chat.
 function A:OnSold(name, now)
   now = now or time()
   local list = unsoldOf(name)
@@ -267,7 +330,8 @@ function A:OnSold(name, now)
     end
     local link = (e.id and FI:ItemLink(e.id)) or name
     if m.gross then
-      text = ("Sold %s x%d for %s (%s after the AH cut)%s. %s"):format(link, e.q, FI.Money(m.gross), FI.Money(m.net),
+      text = ("Sold %s x%d for %s (you get %s%s)%s. %s"):format(link, e.q, FI.Money(m.gross), FI.Money(m.net),
+        e.dep and " with your deposit back" or " after the AH cut",
         unsure and ", probably the cheapest of your stacks of it" or "", mailWhen(m))
     else
       text = ("Sold %s x%d. %s"):format(link, e.q, mailWhen(m))
@@ -277,7 +341,6 @@ function A:OnSold(name, now)
     local m = self:AddIncoming({ n = name }, now)
     text = ("Sold %s. %s Open your auctions at the Auction House once and Goonberg will know their prices."):format(name, mailWhen(m))
   end
-  if FI.settings.saleAlerts ~= false then self:Say(text) end
   FI:Fire("FI_AUCTIONS_CHANGED")
   return text
 end
@@ -303,16 +366,101 @@ local function pattern(fmt)
   local p = fmt:gsub("([%(%)%.%+%-%*%?%[%]%^%$])", "%%%1"):gsub("%%s", "(.+)")
   return "^" .. p .. "$"
 end
-A.SOLD = pattern(_G.ERR_AUCTION_SOLD_S or "A buyer has been found for your auction of %s.")
-A.EXPIRED = pattern(_G.ERR_AUCTION_EXPIRED_S or "Your auction of %s has expired.")
+-- the client's own wording first, then the English text as a fallback
+local function patterns(global, english)
+  local list = {}
+  if global then list[#list + 1] = pattern(global) end
+  if global ~= english then list[#list + 1] = pattern(english) end
+  return list
+end
+A.SOLD_ALL = patterns(_G.ERR_AUCTION_SOLD_S, "A buyer has been found for your auction of %s.")
+A.EXPIRED_ALL = patterns(_G.ERR_AUCTION_EXPIRED_S, "Your auction of %s has expired.")
+A.SOLD, A.EXPIRED = A.SOLD_ALL[1], A.EXPIRED_ALL[1]
 
-FI:On("CHAT_MSG_SYSTEM", function(_, msg)
-  if type(msg) ~= "string" or not FI.db then return end
-  local name = A.SOLD and msg:match(A.SOLD)
-  if name then A:OnSold(name); return end
-  name = A.EXPIRED and msg:match(A.EXPIRED)
-  if name then A:OnExpired(name) end
-end)
+-- the item name in one of the game's sentences (colour codes, links and stray spaces aside)
+local function clean(msg)
+  return (msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|H.-|h%[?(.-)%]?|h", "%1")
+    :gsub("^%s+", ""):gsub("%s+$", ""))
+end
+local function matchAny(msg, list)
+  for _, p in ipairs(list) do
+    local name = msg:match(p)
+    if name then return name end
+  end
+end
+function A.SoldName(msg) return matchAny(clean(msg), A.SOLD_ALL) end
+function A.ExpiredName(msg) return matchAny(clean(msg), A.EXPIRED_ALL) end
+
+-- One game line can reach us several ways: the CHAT_MSG_SYSTEM event, the chat filter
+-- (once per chat window that shows system messages), and each chat window printing it
+-- (some clients print auction notices straight to chat with no event). Each way sees
+-- the same lines in the same order within a frame, so "the 2nd copy of this text this
+-- frame" names the same sale everywhere: whichever way sees it first records it, and
+-- the rest reuse the result. Two sales of the same item at once stay two sales.
+local seq, handled, handledOrder = {}, {}, {}
+local function lineKey(source, msg)
+  local now = GetTime()
+  local s = seq[source]
+  if not s or s.t ~= now then s = { t = now, n = {} }; seq[source] = s end
+  s.n[msg] = (s.n[msg] or 0) + 1
+  return msg .. "@" .. now .. "#" .. s.n[msg]
+end
+
+-- Records a sold or expired notice once. Returns the line to show instead of the
+-- game's for a sale (nil for anything else).
+function A:HandleLine(msg, source)
+  if type(msg) ~= "string" or not FI.db then return nil end
+  local sold = A.SoldName(msg)
+  local expired = not sold and A.ExpiredName(msg)
+  if not sold and not expired then return nil end
+  local k = lineKey(source, msg)
+  if handled[k] ~= nil then return handled[k] or nil end
+  local text = false
+  if sold then text = self:OnSold(sold) else self:OnExpired(expired) end
+  handled[k] = text
+  handledOrder[#handledOrder + 1] = k
+  if #handledOrder > 40 then handled[table.remove(handledOrder, 1)] = nil end
+  return text or nil
+end
+
+local function alertsOn() return FI.settings.saleAlerts ~= false end
+
+FI:On("CHAT_MSG_SYSTEM", function(_, msg) A:HandleLine(msg, "event") end)
+
+-- The game's "A buyer has been found..." line becomes ours: what sold, how many, for
+-- how much. With sale alerts off the game's line shows as it is.
+if ChatFrame_AddMessageEventFilter then
+  ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(frame, _, msg, ...)
+    local text = A:HandleLine(msg, "filter:" .. tostring(frame))
+    if text and alertsOn() then return false, text, ... end
+    return false
+  end)
+end
+
+-- Chat windows themselves, for notices the client prints without an event
+local hooked = {}
+function A:HookChatFrames()
+  for i = 1, (NUM_CHAT_WINDOWS or 10) do
+    local cf = _G["ChatFrame" .. i]
+    if cf and not hooked[cf] and cf.AddMessage then
+      hooked[cf] = true
+      local orig = cf.AddMessage
+      local source = "print:" .. i
+      cf.AddMessage = function(frame, msg, ...)
+        if type(msg) == "string" and FI.db then
+          if FI.settings.salesDebug and msg:lower():find("auction", 1, true) then
+            orig(frame, "|cffffd100Goonberg debug:|r " .. msg:gsub("|", "||") .. (A.SoldName(msg) and "  (sold: matched)" or ""))
+          end
+          local text = A:HandleLine(msg, source)
+          if text and alertsOn() then msg = text end
+        end
+        return orig(frame, msg, ...)
+      end
+    end
+  end
+end
+A:HookChatFrames()
+FI:On("PLAYER_LOGIN", function() A:HookChatFrames() end)
 
 -- Mail that has arrived is in your mailbox when you open it: off the list. Very old
 -- entries go too (a sale we never heard back about).

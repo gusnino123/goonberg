@@ -1,5 +1,13 @@
 # Goonberg Terminal
 
+## 0.35.0
+
+- **The game's sold message now says what you got.** "A buyer has been found for your auction of X" is replaced in chat with what sold, how many, for how much, and when the mail arrives. This now works on clients that print the notice straight to chat. Two identical sales at once count as two. `/goon sales off` shows the game's line instead; `/goon sales debug` shows auction chat lines raw, for reporting a line Goonberg misses.
+- **Sold auctions move to Mail on the way.** They leave Your auctions the moment they sell.
+- **Fee and Deposit columns** on Your auctions. Fee is the AH cut if it sells. Deposit is what you paid to post it: Goonberg notes it as you post, so auctions posted before this version show "-".
+- **"You get" includes your deposit back** when it's known, and the neutral AH's cut is now 15% (it was counted as 5%).
+- **Move the buy confirmation.** Drag the Auction House's buy, buyout or bid confirmation anywhere and it opens there from then on. Other popups still open where the game puts them. `/goon buypopup reset` puts it back.
+
 ## 0.34.0 - Your auctions
 
 - **New Auctions tab.** See the auctions you have up: quantity, price each, buyout, current bid and when each one ends. Sort by any column; hover a row for details. Goonberg reads your auctions each time you visit the Auction House (or press Refresh while you're there), so the list stays useful after you walk away.
