@@ -2,11 +2,15 @@
 -- Set a price cap for an item (/goon buycap 1g50s with it open at the AH), then press
 -- one macro (/click GoonBuy LeftButton 1) as often as you like. Each press does the
 -- next useful step and never more than one:
---   the buy popup is already open      -> nothing (a refresh would knock it away)
+--   the buy popup is open              -> confirms it, if the macro has the confirm
+--     line and the price the game quotes is no higher than the list showed;
+--     otherwise nothing (a refresh would knock the popup away)
 --   results are on their way           -> nothing (resending restarts the wait)
 --   fresh list, cheapest <= your cap   -> opens the game's buy popup; you confirm
+--     (with /goon quant 20, "cheapest" is the cheapest listing of 20 or more)
 --   stale list, or over your cap       -> refresh, if the AH will take a search now
--- Buying happens only in the game's own popup, after your own click to confirm.
+-- Buying happens only in the game's own popup, after your own press or click to
+-- confirm. After a purchase the list refreshes by itself, ready for the next press.
 ---@type string, GoonbergTerminal
 local _, FI = ...
 ---@class GT.QuickBuy
@@ -17,6 +21,8 @@ Q.FRESH = 3            -- seconds a result list counts as current
 Q.PENDING_TIMEOUT = 5  -- a refresh with no answer by then is given up on
 
 Q.pending = nil        -- { id, t }: a refresh we're waiting on
+Q.buying = nil         -- { id, price }: the buy press that opened the popup
+Q.quote = nil          -- { unit, total }: the price the game quotes in the open popup
 Q.freshAt = {}         -- itemID -> GetTime() its results last arrived
 
 -- Caps per item, per realm (prices differ between realms)
@@ -60,17 +66,25 @@ end
 
 local MAX_ROWS = 10
 
+-- the smallest listing the quick-buy key takes (/goon quant 20); 1 takes any
+function Q:MinQty()
+  local n = math.floor(tonumber(FI.settings.buyMinQty) or 1)
+  return n > 1 and n or 1
+end
+
 -- the cheapest listing you can buy: unit price, how many, and its row number.
 -- Rows that are only your own auctions are skipped, so posting under your cap
--- doesn't leave every press trying to buy your own stack.
+-- doesn't leave every press trying to buy your own stack. So are listings with
+-- fewer than your minimum quantity from other sellers.
 function Q:Cheapest(id)
+  local need = self:MinQty()
   local CA = _G.C_AuctionHouse
   if CA and CA.GetCommoditySearchResultInfo then
     for i = 1, MAX_ROWS do
       local ok, info = pcall(CA.GetCommoditySearchResultInfo, id, i)
       if not ok or not info or not info.unitPrice then break end
       local n = others(info)
-      if n > 0 then return info.unitPrice, n, i end
+      if n >= need then return info.unitPrice, n, i end
     end
     return nil
   end
@@ -81,7 +95,7 @@ function Q:Cheapest(id)
   if not ok or not frames then return nil end
   for i = 1, math.min(#frames, MAX_ROWS) do
     local d = frames[i].rowData
-    if d and d.unitPrice and others(d) > 0 then return d.unitPrice, others(d), i end
+    if d and d.unitPrice and others(d) >= need then return d.unitPrice, others(d), i end
   end
 end
 
@@ -90,9 +104,27 @@ local function loading(f)
   return sp and sp:IsShown() or false
 end
 
+local hooked
 local function popupOpen()
   local dlg = _G.AuctionHouseFrame and _G.AuctionHouseFrame.BuyDialog
+  if dlg and not hooked then
+    hooked = true
+    -- a quote belongs to the popup it was made for: closing the popup drops it
+    dlg:HookScript("OnHide", function()
+      Q.quote = nil
+      FI:Fire("FI_QUICKBUY", "closed")
+    end)
+  end
   return dlg and dlg:IsShown() or false
+end
+function Q:PopupOpen() return popupOpen() end
+
+-- the popup's Buy Now button, once the game has priced the purchase and enabled it
+function Q:ConfirmTarget()
+  local dlg = _G.AuctionHouseFrame and _G.AuctionHouseFrame.BuyDialog
+  if not (dlg and dlg:IsShown()) then return nil end
+  local btn = dlg.BuyNowButton or dlg.BuyButton
+  if btn and btn:IsShown() and (not btn.IsEnabled or btn:IsEnabled()) then return btn end
 end
 
 local function searchReady()
@@ -122,7 +154,18 @@ function Q:Decide(now)
   if not id then return "noitem" end
   local cap = self:Caps()[id]
   if not cap then return "nocap", id end
-  if popupOpen() then return "popup", id, nil, cap end
+  if popupOpen() then
+    -- Confirm only at the price the buy press saw (or your cap, for a popup you
+    -- opened by hand). If the game quotes more, the choice stays with you.
+    local q = self.quote
+    if q and self:ConfirmTarget() then
+      local b = self.buying
+      local limit = b and b.id == id and b.price or cap
+      if q.unit <= limit then return "confirm", id, q.unit, cap end
+      return "moved", id, q.unit, cap
+    end
+    return "popup", id, nil, cap
+  end
   local p = self.pending
   if p and now - p.t < self.PENDING_TIMEOUT then return "waiting", id, nil, cap end
   local qd = self.queued
@@ -154,6 +197,7 @@ function Q:Press()
     self.queued = { id = id, t = now }
     step = "queued"
   elseif step == "buy" then
+    self.buying, self.quote = { id = id, price = price }, nil
     local _, qty = self:Cheapest(id)
     FI:Print("Buy ready: %s x%s at %s each (your cap %s). Confirm in the popup.",
       FI:ItemLink(id) or tostring(id), qty and FI.Number(qty) or "?", FI.Money(price), FI.Money(cap))
@@ -184,9 +228,36 @@ FI:On("COMMODITY_SEARCH_RESULTS_UPDATED", function(_, id)
   if not id then return end
   Q.freshAt[id] = GetTime()
   if Q.pending and Q.pending.id == id then Q.pending = nil end
+  -- the list is current: a refresh still waiting to be sent has nothing to add
+  if Q.queued and Q.queued.id == id then Q.queued = nil end
   FI:Fire("FI_QUICKBUY", "results")
 end)
-FI:On("FI_AH_CLOSED", function() Q.pending, Q.queued = nil, nil end)
+FI:On("FI_AH_CLOSED", function() Q.pending, Q.queued, Q.buying, Q.quote = nil, nil, nil, nil end)
+
+-- the game prices a purchase before its popup lets you confirm
+FI:On("COMMODITY_PRICE_UPDATED", function(_, unit, total)
+  Q.quote = type(unit) == "number" and { unit = unit, total = total } or nil
+  FI:Fire("FI_QUICKBUY", "quote")
+end)
+FI:On("COMMODITY_PRICE_UNAVAILABLE", function()
+  Q.quote = nil
+  FI:Fire("FI_QUICKBUY", "quote")
+end)
+
+-- A purchase went through (or fell over): the list on screen is out of date, so
+-- refresh it now instead of spending your next press on that.
+local function afterPurchase(event)
+  Q.quote, Q.buying = nil, nil
+  local id = Q:CurrentItem()
+  if id and Q:Caps()[id] then
+    Q.freshAt[id] = nil
+    Q.queued = { id = id, t = GetTime() }
+  end
+  if Q.last then Q.last.step = event == "COMMODITY_PURCHASE_SUCCEEDED" and "bought" or "failed" end
+  FI:Fire("FI_QUICKBUY", "purchase")
+end
+FI:On("COMMODITY_PURCHASE_SUCCEEDED", afterPurchase)
+FI:On("COMMODITY_PURCHASE_FAILED", afterPurchase)
 
 -- Send a queued refresh as soon as the AH will take it: on the game's "ready" event,
 -- and by checking every tenth of a second in case the client doesn't send one.
@@ -232,6 +303,27 @@ local function sellItem()
       end
     end
   end
+end
+
+-- "/goon quant 20": the quick-buy key only takes a listing of 20 or more. One
+-- number for every item; "/goon quant 1" (or off) takes any listing again.
+function Q:SetMinQty(text)
+  local arg = (text or ""):gsub("^%s+", ""):gsub("%s+$", ""):lower()
+  if arg == "" then
+    local n = self:MinQty()
+    FI:Print(n > 1 and "Quick buy takes listings of %s or more. /goon quant 1 takes any."
+      or "Quick buy takes a listing of any size. /goon quant 20 skips ones under 20.", FI.Number(n))
+    return
+  end
+  local n = (arg == "off" or arg == "clear" or arg == "any") and 1 or tonumber(arg:match("^x?(%d+)$"))
+  if not n or n < 1 then
+    FI:Print("Couldn't read that quantity. Try /goon quant 20, or /goon quant 1 for any size.")
+    return
+  end
+  FI.settings.buyMinQty = n
+  FI:Print(n > 1 and "Quick buy now skips listings under %s and takes the cheapest one of %s or more (still at or under your cap)."
+    or "Quick buy takes a listing of any size again.", FI.Number(n), FI.Number(n))
+  FI:Fire("FI_QUICKBUY", "cap")
 end
 
 -- "/goon buycap 1g50s": the cap for the item open at the AH (buy or sell view).

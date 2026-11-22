@@ -1,5 +1,12 @@
 # Goonberg Terminal
 
+## 0.40.0 - Faster quick buy
+
+- **The quick buy key can confirm the popup.** Add a fourth line to your macro, `/click GoonBuyOk LeftButton 1`, and a press while the buy popup is open clicks Buy Now for you: press to open the popup, press again to buy. One press never does both. `/goon quickbuy` shows the full macro. Leave the line out and confirming stays a mouse click, as before.
+- **It won't confirm a worse price.** The key only confirms when the price the game quotes in the popup is no higher than the list showed. If it went up, the press does nothing and the status line asks you to confirm or cancel in the popup yourself.
+- **The list refreshes by itself after a purchase,** so your next press can go straight to buying instead of refreshing first.
+- **Minimum quantity.** `/goon quant 20` makes quick buy skip listings smaller than 20 and take the cheapest one of 20 or more, still only at or under your buy cap. It is one number for every item. `/goon quant 1` takes any size again, and the status line shows the minimum while one is set.
+
 ## 0.39.0 - Tooltip options
 
 - **Choose what Goonberg adds to item tooltips.** A new Options button at the top left of the Goonberg window (or `/goon options`) turns the tooltip prices on or off as a whole, or line by line: Vendor, Vendor (ea), Market, Market (ea), Disenchant and Buy cap. With every line off, Goonberg adds nothing to the tooltip.

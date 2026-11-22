@@ -3,9 +3,11 @@
 --   /click GoonBuy
 --   /click GoonBuyRow LeftButton 1
 --   /click GoonBuyBtn LeftButton 1
--- GoonBuy decides (FI.QuickBuy:Press). The two secure proxies then click the
--- cheapest row and the game's Buy button, but only when that press decided to buy;
--- otherwise they have nothing to click.
+--   /click GoonBuyOk LeftButton 1     (optional: the key also confirms the popup)
+-- GoonBuy decides (FI.QuickBuy:Press). The secure proxies then click the cheapest
+-- row and the game's Buy button when that press decided to buy, or the popup's Buy
+-- Now button when it decided to confirm; otherwise they have nothing to click.
+-- One press never does both.
 ---@type string, GoonbergTerminal
 local _, FI = ...
 local Q = FI.QuickBuy
@@ -18,12 +20,15 @@ local function proxy(name)
 end
 local rowBtn = proxy("GoonBuyRow")
 local buyBtn = proxy("GoonBuyBtn")
+local okBtn = proxy("GoonBuyOk")
 
-local function arm(row, btn)
+local function arm(row, btn, ok)
   rowBtn:SetAttribute("type", row and "click" or nil)
   rowBtn:SetAttribute("clickbutton", row)
   buyBtn:SetAttribute("type", btn and "click" or nil)
   buyBtn:SetAttribute("clickbutton", btn)
+  okBtn:SetAttribute("type", ok and "click" or nil)
+  okBtn:SetAttribute("clickbutton", ok)
 end
 
 -- the Buy button: a hand-made macro's proven target (AHBuyC) if you have one,
@@ -46,7 +51,7 @@ main:SetScript("OnClick", function()
   local now = GetTime()
   if now == lastPress then return end
   lastPress = now
-  arm(nil, nil) -- nothing to click unless this press buys
+  arm(nil, nil, nil) -- nothing to click unless this press buys or confirms
   local ok, step = pcall(Q.Press, Q)
   if not ok then return end
   if step == "buy" then
@@ -58,11 +63,19 @@ main:SetScript("OnClick", function()
       Q.last.step = "nobutton"
       FI:Fire("FI_QUICKBUY", "nobutton")
     end
+  elseif step == "confirm" then
+    local ok = Q:ConfirmTarget()
+    if ok then arm(nil, nil, ok) end
   end
 end)
 -- disarm once the proxies have clicked, so nothing else can buy through them
 buyBtn:HookScript("PostClick", function()
-  if not InCombatLockdown() then C_Timer.After(0, function() arm(nil, nil) end) end
+  if not InCombatLockdown() then C_Timer.After(0, function() arm(nil, nil, nil) end) end
+end)
+okBtn:HookScript("PostClick", function()
+  -- one confirm per quote: more presses wait for the game to finish this purchase
+  if okBtn:GetAttribute("clickbutton") then Q.quote = nil end
+  if not InCombatLockdown() then C_Timer.After(0, function() arm(nil, nil, nil) end) end
 end)
 
 -- /goon quickbuy debug: what a buy press would click
@@ -71,6 +84,11 @@ function Q:Debug()
   local btn, own = buyTarget(fallback)
   local function name(f) return f and (f.GetDebugName and f:GetDebugName() or tostring(f)) or "not found" end
   FI:Print("Quick buy targets: row %s; Buy button %s%s.", name(row), name(btn), own and " (from your AHBuyC)" or "")
+  local dlg = _G.AuctionHouseFrame and _G.AuctionHouseFrame.BuyDialog
+  local ok = dlg and (dlg.BuyNowButton or dlg.BuyButton)
+  local q = self.quote
+  FI:Print("Confirm: popup %s; Buy Now button %s%s; quoted price %s.", dlg and (dlg:IsShown() and "open" or "closed") or "not found",
+    name(ok), ok and ok.IsEnabled and not ok:IsEnabled() and " (disabled)" or "", q and FI.Money(q.unit) .. " each" or "none yet")
 end
 
 -- ---------------------------------------------------------------------------
@@ -84,8 +102,14 @@ local function statusText()
   if not cap then return "no buy cap for this item (/goon buycap 1g50s)" end
   local last = Q.last
   local step = last and last.id == id and last.step
-  local capText = "cap " .. FI.Money(cap)
-  if step == "popup" or step == "buy" then return "buy ready: confirm in the popup (" .. capText .. ")" end
+  local min = Q:MinQty()
+  local capText = "cap " .. FI.Money(cap) .. (min > 1 and (", min x" .. FI.Number(min)) or "")
+  if Q:PopupOpen() then
+    if step == "moved" then return "the price went up since the list: confirm or cancel in the popup (" .. capText .. ")" end
+    if step == "confirm" then return "buying..." end
+    if Q.quote then return "buy ready: press again or click Buy Now (" .. capText .. ")" end
+    return "buy ready: waiting for the game's price (" .. capText .. ")"
+  end
   if step == "nobutton" then return "couldn't find the game's Buy button" end
   if step == "norefresh" then return "couldn't refresh the list" end
   if Q.pending and Q.pending.id == id then return "waiting for results (" .. capText .. ")" end
