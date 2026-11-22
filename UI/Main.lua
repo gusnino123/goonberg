@@ -77,6 +77,80 @@ local function window()
   return f
 end
 
+-- ---------------------------------------------------------------------------
+-- Options: a button in the title bar and the panel that drops from it. It holds the
+-- item tooltip's choices: whether Goonberg adds anything to tooltips at all, and
+-- which lines (FI.TOOLTIP_LINES in Tooltip.lua).
+-- ---------------------------------------------------------------------------
+local OPT_PAD, OPT_ROW, OPT_INDENT = 12, 26, 16
+
+-- The button (returned, for the window to place) and the panel that drops from it
+local function buildOptions(f, level)
+  local btn = W.Button(f, "Options", 76, 20)
+  btn:SetFrameLevel(level)
+
+  -- solid, not the see-through panel colour: it opens over the tabs and the list
+  local panel = W.Box(f, { 0.06, 0.06, 0.06 }, nil, 1)
+  panel:SetFrameStrata("DIALOG")
+  panel:SetPoint("TOPLEFT", btn, "BOTTOMLEFT", 0, -4)
+  panel:EnableMouse(true) -- clicks on it don't fall through to the tab below
+  panel:Hide()
+
+  local toggles = {}
+  local y, width = -OPT_PAD, 0
+  local function row(region, indent)
+    region:SetPoint("TOPLEFT", OPT_PAD + (indent or 0), y)
+    return (indent or 0) + (region.GetStringWidth and region:GetStringWidth() or region:GetWidth() or 0)
+  end
+  local function toggle(label, hint, get, set, indent)
+    local t = W.Toggle(panel, label, set)
+    width = math.max(width, row(t, indent))
+    y = y - OPT_ROW
+    t.get = get
+    if hint then
+      t:HookScript("OnEnter", function(self)
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine(hint, 1, 1, 1, true)
+        GameTooltip:Show()
+      end)
+      t:HookScript("OnLeave", GameTooltip_Hide)
+    end
+    toggles[#toggles + 1] = t
+  end
+
+  width = math.max(width, row(W.Heading(panel, "Item Tooltip")))
+  y = y - 22
+  toggle("Show Goonberg prices on item tooltips", "Off: Goonberg adds nothing to tooltips (the same as /goon tooltip off).",
+    function() return FI.settings.tooltip and true or false end,
+    function(on) FI.settings.tooltip = on end)
+  for _, line in ipairs(FI.TOOLTIP_LINES) do
+    toggle(line.label, line.hint,
+      function()
+        local lines = FI.settings.tooltipLines
+        return not lines or lines[line.key] ~= false
+      end,
+      function(on)
+        FI.settings.tooltipLines = FI.settings.tooltipLines or {}
+        FI.settings.tooltipLines[line.key] = on
+      end, OPT_INDENT)
+  end
+  panel:SetSize(math.ceil(width) + OPT_PAD * 2, -y + OPT_PAD - 2)
+
+  -- shows what's saved each time it opens (a slash command may have changed it)
+  panel:SetScript("OnShow", function()
+    for _, t in ipairs(toggles) do t:SetOn(t.get()) end
+  end)
+  btn:SetScript("OnClick", function() panel:SetShown(not panel:IsShown()) end)
+  btn.panel = panel
+  return btn
+end
+
+-- "/goon options": the window with the options panel open
+function UI:ShowOptions()
+  self:Show()
+  if self.optionsButton then self.optionsButton.panel:Show() end
+end
+
 function UI:Build()
   if self.frame then return self.frame end
   local f = window()
@@ -131,6 +205,18 @@ function UI:Build()
   upd:SetScript("OnLeave", GameTooltip_Hide)
   upd:Hide()
   self.updateNote = upd
+
+  -- Options, in the title bar beside the portrait. The game's frame draws its border
+  -- and title strip from child frames with high levels of their own, so the button
+  -- goes above the highest of them or the title strip covers it.
+  local top = titleBar:GetFrameLevel() + 2
+  for _, key in ipairs({ "NineSlice", "TitleContainer", "CloseButton" }) do
+    local part = f[key]
+    if part and part.GetFrameLevel then top = math.max(top, part:GetFrameLevel() + 1) end
+  end
+  local options = buildOptions(f, top)
+  options:SetPoint("TOPLEFT", f, "TOPLEFT", f.native and 62 or 8, -1)
+  self.optionsButton = options
 
   -- The body: the game's dark inset panel; every screen fills it
   local body

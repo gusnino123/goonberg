@@ -178,7 +178,8 @@ end
 
 -- The same amount with coin icons, the way the bags and the AH show money
 -- ("34 [gold] 20 [silver] 49 [copper]", no zero padding). For the screen only: chat
--- messages, chat prints and edit boxes keep FI.Money's letters.
+-- messages sent to other players and edit boxes keep FI.Money's letters. The sale
+-- line Goonberg shows in your own chat window uses the icons.
 local function coinIcon(name) return "|TInterface\\MoneyFrame\\UI-" .. name .. "Icon:0:0:2:0|t" end
 FI.COIN = { g = coinIcon("Gold"), s = coinIcon("Silver"), c = coinIcon("Copper") }
 ---@param copper number?
@@ -389,6 +390,7 @@ end
 ---@field flash boolean
 ---@field chatAlerts boolean
 ---@field tooltip boolean
+---@field tooltipLines table<string, boolean>   item tooltip lines by FI.TOOLTIP_LINES key; false hides one
 ---@field guildSync boolean?
 ---@field importAuctionator boolean?
 ---@field minimapButton boolean?
@@ -439,6 +441,8 @@ local defaults = {
     flash = true,
     chatAlerts = true,
     tooltip = true,
+    -- which lines the item tooltip shows (Options in the window); see FI.TOOLTIP_LINES
+    tooltipLines = { vendor = true, vendorEach = true, market = true, marketEach = true, de = true, cap = true },
   },
   realms = {},
   lastFullScan = 0,
@@ -601,6 +605,7 @@ local help = {
   "/goon loot  - dungeon drops worth selling: where they drop, chance and value",
   "/goon market  - which market's daily Blizzard prices you get  |  /goon market pvp|normal|rp|rppvp|auto",
   "/goon autoscan|dock|sound|tooltip on|off",
+  "/goon options  - what Goonberg adds to item tooltips, line by line (also the Options button in the window)",
   "/goon minimap on|off|reset  - the button under the minimap",
   "/goon de <item>  - what it disenchants into and is worth  |  /goon de watch",
   "/goon sync  - guild sync status  |  /goon sync on|off|history|catchup|scan",
@@ -894,6 +899,8 @@ SlashCmdList.GOONBERG = function(msg)
     FI:Print("Minimap button is now %s.", FI.settings.minimapButton and "shown" or "hidden")
   elseif cmd == "layout" then
     FI.UI:CheckLayout()
+  elseif cmd == "options" then
+    FI.UI:ShowOptions()
   elseif cmd == "autoscan" or cmd == "dock" or cmd == "sound" or cmd == "tooltip" then
     local key = cmd == "autoscan" and "autoScan" or cmd
     FI.settings[key] = onOff(rest:lower(), FI.settings[key])

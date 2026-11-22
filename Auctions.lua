@@ -377,11 +377,6 @@ function A:AddIncoming(e, soldAt, expired)
   return m
 end
 
-local function mailWhen(m)
-  if m.due <= time() then return "The money is in your mailbox." end
-  return ("Mail arrives at %s (in %s)."):format(date("%H:%M", m.due), FI.Duration(m.due - time()))
-end
-
 -- Your unsold auctions of an item, cheapest each first: a buyer takes the cheapest
 local function unsoldOf(name)
   local list = {}
@@ -410,18 +405,19 @@ function A:OnSold(name, now)
     local link = (e.id and FI:ItemLink(e.id)) or name
     if m.gross then
       local price = (e.q or 1) > 1
-        and ("at %s each, %s total"):format(FI.Money(math.floor(m.gross / e.q + 0.5)), FI.Money(m.gross))
-        or ("for %s"):format(FI.Money(m.gross))
-      text = ("Sold %s x%d %s (you get %s%s)%s. %s"):format(link, e.q, price, FI.Money(m.net),
-        e.dep and " with your deposit back" or " after the AH cut",
-        unsure and ", probably the cheapest of your stacks of it" or "", mailWhen(m))
+        and ("at %s each, %s total"):format(FI.Coins(math.floor(m.gross / e.q + 0.5)), FI.Coins(m.gross))
+        or ("for %s"):format(FI.Coins(m.gross))
+      -- kept short: what you get after the cut and when the mail lands are on the
+      -- Auctions tab (Mail on the way)
+      text = ("Sold %s x%d %s%s."):format(link, e.q, price,
+        unsure and ", probably the cheapest of your stacks of it" or "")
     else
-      text = ("Sold %s x%d. %s"):format(link, e.q, mailWhen(m))
+      text = ("Sold %s x%d."):format(link, e.q)
     end
   else
     -- not in our copy: put up before Goonberg last read your auctions
-    local m = self:AddIncoming({ n = name }, now)
-    text = ("Sold %s. %s Open your auctions at the Auction House once and Goonberg will know their prices."):format(name, mailWhen(m))
+    self:AddIncoming({ n = name }, now)
+    text = ("Sold %s. Open your auctions at the Auction House once and Goonberg will know their prices."):format(name)
   end
   FI:Fire("FI_AUCTIONS_CHANGED")
   -- at the AH, read the real list again (a commodity can sell only part of a stack)

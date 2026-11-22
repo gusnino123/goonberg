@@ -1,5 +1,13 @@
 # Goonberg Terminal
 
+## 0.39.0 - Tooltip options
+
+- **Choose what Goonberg adds to item tooltips.** A new Options button at the top left of the Goonberg window (or `/goon options`) turns the tooltip prices on or off as a whole, or line by line: Vendor, Vendor (ea), Market, Market (ea), Disenchant and Buy cap. With every line off, Goonberg adds nothing to the tooltip.
+- **Price of one on a stack.** Hovering a stack now shows Vendor (ea) and Market (ea) under the whole-stack prices, so you don't need to hold Shift or do the maths.
+- **Your buy cap is on the tooltip.** An item with a quick-buy cap shows it as a Buy cap line.
+- **Coin icons in the sale line.** "Sold ..." in chat shows gold, silver and copper icons instead of the letters g, s and c.
+- **Shorter sale line.** It now says what sold and for how much. What you get after the AH cut and when the mail lands are still on the Auctions tab under Mail on the way.
+
 ## 0.38.0 - One-press selling
 
 - **Sell from a macro.** `/goon sell Linen Cloth 25s` posts that item from your bags at that price each while the Auction House is open. Add `x40` to post that many: without it, Goonberg posts all you have of a commodity, or one stack of anything else. Add `short`, `medium` or `long` for the duration (medium if you leave it out). Each press posts once.

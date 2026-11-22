@@ -23,8 +23,20 @@ local function stackCount(tooltip)
   return (count and count > 1) and count or 1
 end
 
--- Three clean lines: Vendor, Market, Disenchant (for the whole stack).
--- The one that pays most is green. Hold Shift for the details.
+-- The lines you can turn on and off (Options in the Goonberg window), in the order
+-- they show. Saved in settings.tooltipLines; a line is on unless it's set to false.
+FI.TOOLTIP_LINES = {
+  { key = "vendor", label = "Vendor", hint = "What a vendor pays for the whole stack" },
+  { key = "vendorEach", label = "Vendor (ea)", hint = "What a vendor pays for one (shown on stacks)" },
+  { key = "market", label = "Market", hint = "The AH market price of the whole stack" },
+  { key = "marketEach", label = "Market (ea)", hint = "The AH market price of one (shown on stacks)" },
+  { key = "de", label = "Disenchant", hint = "What its disenchant materials are worth" },
+  { key = "cap", label = "Buy cap", hint = "Your quick-buy cap for the item, if you set one" },
+}
+
+-- A few clean lines: Vendor, Market, Disenchant (for the whole stack), the price of
+-- one on a stack, and your buy cap. The one that pays most is green. Hold Shift for
+-- the details.
 local function addLines(tooltip, itemID)
   if not FI.db or not FI.settings.tooltip or not itemID then return end
   if tooltip.fiLastItem == itemID and tooltip.fiLastAdded == GetTime() then return end
@@ -34,10 +46,35 @@ local function addLines(tooltip, itemID)
   local vendor = vendorPrice(itemID)
   -- last known material prices, however old (the line says so when they're over a day)
   local de, deComplete, deParts = FI.Disenchant:Value(itemID, FI.Disenchant.LAST_KNOWN)
-  if not (market or vendor or de) then return end
+  -- your quick-buy cap for this item, if you set one (/goon buycap)
+  local cap = FI.QuickBuy and FI.QuickBuy:Caps()[itemID]
+  if not (market or vendor or de or cap) then return end
   local count = stackCount(tooltip)
   local shift = IsShiftKeyDown()
   local soft, up = FI.colors.soft, FI.colors.up
+
+  -- the lines you've left on: { label, key, value, prefix, each }. each: the price of
+  -- one, not of the whole stack. With nothing to show, Goonberg adds nothing at all.
+  local on = FI.settings.tooltipLines or {}
+  local stack = count > 1
+  local rows, any = {}, false
+  local function add(setting, label, key, value, prefix, each)
+    if on[setting] == false then return end
+    rows[#rows + 1] = { label, key, value, prefix, each }
+    any = any or value ~= nil
+  end
+  add("vendor", "Vendor", "vendor", vendor)
+  if stack and vendor then add("vendorEach", "Vendor (ea)", "vendor", vendor, nil, true) end
+  add("market", "Market", "market", market)
+  if stack and market then add("marketEach", "Market (ea)", "market", market, nil, true) end
+  if de then
+    local oldest = deParts and FI.Disenchant:OldestPrice(deParts)
+    local old = oldest and time() - oldest > 86400
+    add("de", old and ("Disenchant |cff9e998f(mats %s)|r"):format(FI.Ago(oldest)) or "Disenchant", "de", de, "~")
+  end
+  -- a cap is always a price each
+  if cap then add("cap", stack and "Buy cap (ea)" or "Buy cap", "cap", cap, nil, true) end
+  if not any then return end
 
   -- what each way actually pays you: the vendor pays in full, the AH pays what
   -- you'd sell for (cheapest listing or market, whichever is lower) minus its 5% cut
@@ -65,34 +102,27 @@ local function addLines(tooltip, itemID)
   tooltip:AddDoubleLine("|cffffd100Goonberg|r" .. (count > 1 and ("  |cff9e998fx%d|r"):format(count) or ""),
     age and ("|cff9e998f%s|r"):format(age) or "")
 
-  local function line(label, key, value, prefix)
+  for _, row in ipairs(rows) do
+    local label, key, value, prefix, each = row[1], row[2], row[3], row[4], row[5]
     local r, g, b = soft[1], soft[2], soft[3]
     local vr, vg, vb = 1, 1, 1
     if best == key then r, g, b = up[1], up[2], up[3]; vr, vg, vb = up[1], up[2], up[3] end
-    local text = value and ((prefix or "") .. FI.Coins(value * count)) or "|cff9e998f-|r"
+    local text = value and ((prefix or "") .. FI.Coins(value * (each and 1 or count))) or "|cff9e998f-|r"
     tooltip:AddDoubleLine(label, text, r, g, b, vr, vg, vb)
-  end
-  line("Vendor", "vendor", vendor)
-  line("Market", "market", market)
-  if de then
-    local oldest = deParts and FI.Disenchant:OldestPrice(deParts)
-    local old = oldest and time() - oldest > 86400
-    line(old and ("Disenchant |cff9e998f(mats %s)|r"):format(FI.Ago(oldest)) or "Disenchant", "de", de, "~")
   end
 
   if shift then
     local function detail(label, value)
       tooltip:AddDoubleLine("   " .. label, value, soft[1], soft[2], soft[3], soft[1], soft[2], soft[3])
     end
-    if it and market then
+    if it and market and (on.market ~= false or on.marketEach ~= false) then
       local st = FI.History.Stats(it, time())
-      if count > 1 then detail("Market, each", FI.Coins(market)) end
       if st.min then detail("Lowest now", FI.Coins(st.min))
       elseif it.seen and it.seen == realm.lastScan then detail("Lowest now", "none listed") end
       if st.c7 then detail("7 day change", FI.ColoredPercent(st.c7)) end
       if st.soldPerDay then detail("Est. sold / day", FI.Number(st.soldPerDay)) end
     end
-    if de and deParts then
+    if de and deParts and on.de ~= false then
       for _, p in ipairs(deParts) do
         local qty = p.qty % 1 == 0 and tostring(p.qty) or ("%.1f"):format(p.qty)
         local pct = p.chance < 0.01 and ("%.1f"):format(p.chance * 100) or math.floor(p.chance * 100 + 0.5)
