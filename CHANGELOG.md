@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.40.1 - Quick buy clears a dead popup
+
+- **The quick buy key closes the "Okay" popup.** When the item sold before your buy went through, the game leaves a popup with only an Okay button, and the key used to stop there. Now the next press clicks Okay for you and the list refreshes by itself, so you can keep pressing. It works with the three-line and the four-line macro, and the status line says "no longer available" while the popup is up.
+
 ## 0.40.0 - Faster quick buy
 
 - **The quick buy key can confirm the popup.** Add a fourth line to your macro, `/click GoonBuyOk LeftButton 1`, and a press while the buy popup is open clicks Buy Now for you: press to open the popup, press again to buy. One press never does both. `/goon quickbuy` shows the full macro. Leave the line out and confirming stays a mouse click, as before.

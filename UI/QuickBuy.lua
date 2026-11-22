@@ -6,7 +6,8 @@
 --   /click GoonBuyOk LeftButton 1     (optional: the key also confirms the popup)
 -- GoonBuy decides (FI.QuickBuy:Press). The secure proxies then click the cheapest
 -- row and the game's Buy button when that press decided to buy, or the popup's Buy
--- Now button when it decided to confirm; otherwise they have nothing to click.
+-- Now button when it decided to confirm, or its Okay button when the item is gone;
+-- otherwise they have nothing to click.
 -- One press never does both.
 ---@type string, GoonbergTerminal
 local _, FI = ...
@@ -66,6 +67,11 @@ main:SetScript("OnClick", function()
   elseif step == "confirm" then
     local ok = Q:ConfirmTarget()
     if ok then arm(nil, nil, ok) end
+  elseif step == "dismiss" then
+    -- closing a dead popup buys nothing, so it goes through the Buy proxy and
+    -- works with the three-line macro too
+    local okay = Q:OkayTarget()
+    if okay then arm(nil, okay, nil) end
   end
 end)
 -- disarm once the proxies have clicked, so nothing else can buy through them
@@ -87,8 +93,9 @@ function Q:Debug()
   local dlg = _G.AuctionHouseFrame and _G.AuctionHouseFrame.BuyDialog
   local ok = dlg and (dlg.BuyNowButton or dlg.BuyButton)
   local q = self.quote
-  FI:Print("Confirm: popup %s; Buy Now button %s%s; quoted price %s.", dlg and (dlg:IsShown() and "open" or "closed") or "not found",
-    name(ok), ok and ok.IsEnabled and not ok:IsEnabled() and " (disabled)" or "", q and FI.Money(q.unit) .. " each" or "none yet")
+  FI:Print("Confirm: popup %s; Buy Now button %s%s; quoted price %s; Okay button %s.", dlg and (dlg:IsShown() and "open" or "closed") or "not found",
+    name(ok), ok and ok.IsEnabled and not ok:IsEnabled() and " (disabled)" or "", q and FI.Money(q.unit) .. " each" or "none yet",
+    self:OkayTarget() and name(self:OkayTarget()) or "not showing")
 end
 
 -- ---------------------------------------------------------------------------
@@ -105,6 +112,7 @@ local function statusText()
   local min = Q:MinQty()
   local capText = "cap " .. FI.Money(cap) .. (min > 1 and (", min x" .. FI.Number(min)) or "")
   if Q:PopupOpen() then
+    if Q:OkayTarget() then return "no longer available: press again to close and refresh" end
     if step == "moved" then return "the price went up since the list: confirm or cancel in the popup (" .. capText .. ")" end
     if step == "confirm" then return "buying..." end
     if Q.quote then return "buy ready: press again or click Buy Now (" .. capText .. ")" end

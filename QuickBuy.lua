@@ -5,6 +5,7 @@
 --   the buy popup is open              -> confirms it, if the macro has the confirm
 --     line and the price the game quotes is no higher than the list showed;
 --     otherwise nothing (a refresh would knock the popup away)
+--   the popup says it's gone (Okay)    -> closes it and refreshes
 --   results are on their way           -> nothing (resending restarts the wait)
 --   fresh list, cheapest <= your cap   -> opens the game's buy popup; you confirm
 --     (with /goon quant 20, "cheapest" is the cheapest listing of 20 or more)
@@ -119,6 +120,23 @@ local function popupOpen()
 end
 function Q:PopupOpen() return popupOpen() end
 
+-- The popup's Okay button: all it offers when the item sold before you could buy.
+-- Found by name, or as the popup's only other button that says Okay.
+function Q:OkayTarget()
+  local dlg = _G.AuctionHouseFrame and _G.AuctionHouseFrame.BuyDialog
+  if not (dlg and dlg:IsShown()) then return nil end
+  local btn = dlg.OkayButton
+  if btn and btn.IsShown and btn:IsShown() then return btn end
+  local okay = _G.OKAY
+  if not okay or not dlg.GetChildren then return nil end
+  for _, child in ipairs({ dlg:GetChildren() }) do
+    if child ~= dlg.BuyNowButton and child ~= dlg.CancelButton and child.IsObjectType
+      and child:IsObjectType("Button") and child:IsShown() and child.GetText and child:GetText() == okay then
+      return child
+    end
+  end
+end
+
 -- the popup's Buy Now button, once the game has priced the purchase and enabled it
 function Q:ConfirmTarget()
   local dlg = _G.AuctionHouseFrame and _G.AuctionHouseFrame.BuyDialog
@@ -155,6 +173,8 @@ function Q:Decide(now)
   local cap = self:Caps()[id]
   if not cap then return "nocap", id end
   if popupOpen() then
+    -- nothing left to buy: the popup only wants closing
+    if self:OkayTarget() then return "dismiss", id, nil, cap end
     -- Confirm only at the price the buy press saw (or your cap, for a popup you
     -- opened by hand). If the game quotes more, the choice stays with you.
     local q = self.quote
@@ -196,6 +216,11 @@ function Q:Press()
     -- send it the moment the AH will take it (see the watcher below)
     self.queued = { id = id, t = now }
     step = "queued"
+  elseif step == "dismiss" then
+    -- the list that offered it is out of date: refresh as soon as the popup is gone
+    self.quote, self.buying = nil, nil
+    self.freshAt[id] = nil
+    self.queued = { id = id, t = now }
   elseif step == "buy" then
     self.buying, self.quote = { id = id, price = price }, nil
     local _, qty = self:Cheapest(id)
