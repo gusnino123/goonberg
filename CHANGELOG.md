@@ -1,5 +1,11 @@
 # Goonberg Terminal
 
+## 0.40.6 - Mail on the way adds up
+
+- **Fixed: wildly inflated gold in Mail on the way.** For a sold stack the game gives the whole amount coming, and Goonberg counted it as a price each, so a sold x32 was counted 32 times over. Sold auctions now show the same amount as "Incoming Amount" on the game's own Auctions tab.
+- **The wrong numbers are cleared once when you update.** Mail on the way and Your auctions start empty and rebuild at your next Auction House visit. Listings you have up at that moment lose their recorded deposit.
+- **Exact arrival times.** For a sale read from your auction list, "Arrives" now uses the game's own timer instead of an estimate.
+
 ## 0.40.5 - Partial sales
 
 - **Fixed: a partial sale was reported as the whole stack.** When 3 of your 30 sold, the chat line said "Sold x30" with the whole stack's total, because the game's sale message only names the item. At the Auction House the line now waits a moment for your auction list and shows what really went, like "Sold x3 at 17s each, 51s total".

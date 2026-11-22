@@ -60,10 +60,13 @@ function A:Data(who)
   who = who or UnitName("player") or "?"
   local d = realm.auctions[who]
   if not d then d = {}; realm.auctions[who] = d end
-  -- 0.36.0 read some prices as a whole auction's and counted the quantity twice:
-  -- start the copy afresh. Your next visit to the AH reads it back, sold ones too.
-  if (d.v or 0) < 2 then
-    d.lists, d.seen, d.incoming, d.v = {}, {}, {}, 2
+  -- Start the copy afresh when what was saved is priced wrong. Your next visit to
+  -- the AH reads it back, sold ones too.
+  --   2: 0.36.0 read some prices as a whole auction's and counted the quantity twice
+  --   3: sold stacks were read as "amount each" when the game gives the whole amount,
+  --      so a sold x32 counted 32 times over in Mail on the way
+  if (d.v or 0) < 3 then
+    d.lists, d.seen, d.incoming, d.v = {}, {}, {}, 3
   end
   d.lists = d.lists or {}   -- market -> { GT.MyAuction }
   d.seen = d.seen or {}     -- market -> when we last read that auction house
@@ -126,8 +129,10 @@ local function readLegacy()
   return out, complete
 end
 
--- Modern AH (C_AuctionHouse): exact seconds left. Its buyout is per unit for
--- stackable goods, as the game's own Auctions list shows it.
+-- Modern AH (C_AuctionHouse): exact seconds left. For an auction still up, its
+-- buyout is per unit for stackable goods, as the game's own Auctions list shows it.
+-- For a sold one it is the whole amount coming for it (the list's "Incoming Amount"),
+-- and its time left is when that mail arrives.
 local function readModern()
   local out, complete = {}, true
   local ok, list = pcall(C_AuctionHouse.GetOwnedAuctions)
@@ -138,10 +143,11 @@ local function readModern()
       local name, loading = FI:ItemName(id)
       if loading then complete = false end
       local q = a.quantity or 1
-      local each = a.buyoutAmount or 0
+      local sold = a.status == 1
+      local amount = a.buyoutAmount or 0
       out[#out + 1] = {
-        id = id, n = name, q = q, buy = each * q, bid = a.bidAmount or 0, minBid = 0,
-        secs = a.timeLeftSeconds, sold = (a.status == 1) or nil,
+        id = id, n = name, q = q, buy = sold and amount or amount * q, bid = a.bidAmount or 0, minBid = 0,
+        secs = a.timeLeftSeconds, sold = sold or nil, mailAt = sold and a.timeLeftSeconds and true or nil,
       }
     end
   end
@@ -453,17 +459,30 @@ function A:Confirm(e, market, whole)
     if m.guess and m.n == e.n and (m.m or market) == market then guess = m break end
   end
   if not guess then
-    if not whole then self:AddIncoming(e, nil) end
+    if not whole then
+      local m = self:AddIncoming(e, nil)
+      -- where the list says when a sold auction's mail arrives, that's exact
+      if e.mailAt and e.expHi then m.due, m.approx = e.expHi, nil end
+    end
     return
   end
   guess.guess = nil
   e.soldAt = e.soldAt or guess.soldAt
-  if not whole and guess.gross and guess.q and e.q and e.q < guess.q then
-    -- part of the stack: its share of the price, less the cut (the deposit comes
-    -- back with the rest of the stack, not with this mail)
-    local gross = math.floor(guess.gross / guess.q * e.q + 0.5)
-    guess.q, guess.gross, guess.dep = e.q, gross, nil
-    guess.net = gross - math.floor(gross * A.CutRate(market))
+  if not whole then
+    -- The list knows what went: how many, and what was paid for them. Without an
+    -- amount, a part of the stack is its share of the stack's price.
+    local q = e.q or guess.q
+    local gross = (e.buy and e.buy > 0) and e.buy or guess.gross
+    local part = guess.q and q and q < guess.q
+    if part and not (e.buy and e.buy > 0) and guess.gross then
+      gross = math.floor(guess.gross / guess.q * q + 0.5)
+    end
+    if gross and (q ~= guess.q or gross ~= guess.gross) then
+      guess.q, guess.gross = q, gross
+      -- (the deposit comes back with the rest of the stack, not with this mail)
+      if part then guess.dep = nil end
+      guess.net = gross - math.floor(gross * A.CutRate(market)) + (guess.dep or 0)
+    end
   end
   for i, w in ipairs(self.awaiting) do
     if w.m == guess then
