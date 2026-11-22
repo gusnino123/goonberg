@@ -125,6 +125,8 @@ function Q:Decide(now)
   if popupOpen() then return "popup", id, nil, cap end
   local p = self.pending
   if p and now - p.t < self.PENDING_TIMEOUT then return "waiting", id, nil, cap end
+  local qd = self.queued
+  if qd and qd.id == id and now - qd.t < self.PENDING_TIMEOUT then return "queued", id, nil, cap end
   if p then self.pending = nil end
   local f = buyFrame()
   if loading(f) then return "waiting", id, nil, cap end
@@ -146,6 +148,11 @@ function Q:Press()
     else
       step = "norefresh"
     end
+  elseif step == "throttled" then
+    -- the AH takes a refresh only every so often: hold this press's refresh and
+    -- send it the moment the AH will take it (see the watcher below)
+    self.queued = { id = id, t = now }
+    step = "queued"
   elseif step == "buy" then
     local _, qty = self:Cheapest(id)
     FI:Print("Buy ready: %s x%s at %s each (your cap %s). Confirm in the popup.",
@@ -179,13 +186,67 @@ FI:On("COMMODITY_SEARCH_RESULTS_UPDATED", function(_, id)
   if Q.pending and Q.pending.id == id then Q.pending = nil end
   FI:Fire("FI_QUICKBUY", "results")
 end)
-FI:On("FI_AH_CLOSED", function() Q.pending = nil end)
+FI:On("FI_AH_CLOSED", function() Q.pending, Q.queued = nil, nil end)
 
--- "/goon buycap 1g50s": the cap for the item open at the AH
+-- Send a queued refresh as soon as the AH will take it: on the game's "ready" event,
+-- and by checking every tenth of a second in case the client doesn't send one.
+-- Dropped if you've switched item, the buy popup opened, or it's waited too long.
+function Q:SendQueued()
+  local qd = self.queued
+  if not qd then return end
+  local now = GetTime()
+  if not FI.ahOpen or now - qd.t >= self.PENDING_TIMEOUT or self:CurrentItem() ~= qd.id or popupOpen() then
+    self.queued = nil
+    FI:Fire("FI_QUICKBUY", "dropped")
+    return
+  end
+  if not searchReady() then return end
+  self.queued = nil
+  if sendRefresh(qd.id) then
+    self.pending = { id = qd.id, t = now }
+    if self.last then self.last.step = "refresh" end
+  end
+  FI:Fire("FI_QUICKBUY", "sent")
+end
+FI:On("AUCTION_HOUSE_THROTTLED_SYSTEM_READY", function() Q:SendQueued() end)
+local qtick = 0
+CreateFrame("Frame"):SetScript("OnUpdate", function(_, dt)
+  if not Q.queued then return end
+  qtick = qtick + dt
+  if qtick < 0.1 then return end
+  qtick = 0
+  Q:SendQueued()
+end)
+
+-- the item in the AH's sell view, if one is in the slot
+local function sellItem()
+  local ah = _G.AuctionHouseFrame
+  if not (ah and C_Item and C_Item.GetItemID) then return nil end
+  for _, key in ipairs({ "CommoditiesSellFrame", "ItemSellFrame" }) do
+    local f = ah[key]
+    if f and f:IsVisible() and f.GetItem then
+      local ok, loc = pcall(f.GetItem, f)
+      if ok and loc then
+        local ok2, id = pcall(C_Item.GetItemID, loc)
+        if ok2 and id then return id end
+      end
+    end
+  end
+end
+
+-- "/goon buycap 1g50s": the cap for the item open at the AH (buy or sell view).
+-- "/goon buycap Mageweave Cloth 2s50c" names the item, so it works from anywhere.
 function Q:SetCap(text)
-  local id = self:CurrentItem()
+  text = (text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+  local id
+  local itemText, last = text:match("^(.-)%s+(%S+)$")
+  if itemText and itemText ~= "" then
+    local named = FI:FindItem(itemText)
+    if named then id, text = named, last end
+  end
+  id = id or self:CurrentItem() or sellItem()
   if not id then
-    FI:Print("Open an item in the Auction House's buy view first, then set its cap.")
+    FI:Print("Open the item at the Auction House (Buy or Sell), or name it: /goon buycap Mageweave Cloth 2s50c")
     return
   end
   local caps = self:Caps()

@@ -1,5 +1,13 @@
 # Goonberg Terminal
 
+## 0.38.0 - One-press selling
+
+- **Sell from a macro.** `/goon sell Linen Cloth 25s` posts that item from your bags at that price each while the Auction House is open. Add `x40` to post that many: without it, Goonberg posts all you have of a commodity, or one stack of anything else. Add `short`, `medium` or `long` for the duration (medium if you leave it out). Each press posts once.
+- **A typo can't dump your stack.** A price far under Goonberg's market price isn't posted on the first press. Press again within 5 seconds to post it anyway.
+- **Quick buy waits for a busy AH for you.** When the AH can't take a refresh yet, your press is held and sent the moment the AH allows, instead of asking you to press again. The status line says "refresh queued" while it waits.
+- **Set a buy cap by name, or from the Sell view.** `/goon buycap Mageweave Cloth 2s50c` works from anywhere, and `/goon buycap 2s50c` now also picks up the item in the AH's sell slot.
+- **The quick buy status line moved to the right** under the AH window, out from under the Buy, Sell and Auctions tabs.
+
 ## 0.37.0 - Overview filters and fixes
 
 - **Fixed: wildly inflated gold on the Auctions tab.** 0.36.0 counted each auction's quantity twice, so Mail on the way and sale messages could show hundreds of times the real amount. Goonberg reads your auctions the way 0.35.0 did again. The wrong numbers are cleared once when you update: Mail on the way and Your auctions rebuild at your next Auction House visit.

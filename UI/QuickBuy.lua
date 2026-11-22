@@ -89,11 +89,11 @@ local function statusText()
   if step == "nobutton" then return "couldn't find the game's Buy button" end
   if step == "norefresh" then return "couldn't refresh the list" end
   if Q.pending and Q.pending.id == id then return "waiting for results (" .. capText .. ")" end
+  if Q.queued and Q.queued.id == id then return "refresh queued: sends the moment the AH allows (" .. capText .. ")" end
   local price = Q:Cheapest(id)
   local fresh = Q.freshAt[id] and GetTime() - Q.freshAt[id] <= Q.FRESH
   if price and fresh then
     if price <= cap then return ("cheapest %s, under your %s: press to buy"):format(FI.Money(price), capText) end
-    if step == "throttled" then return ("cheapest %s, over your %s. AH busy: press again"):format(FI.Money(price), capText) end
     return ("cheapest %s, over your %s: press to refresh"):format(FI.Money(price), capText)
   end
   return "press to refresh (" .. capText .. ")"
@@ -103,9 +103,10 @@ local function update()
   local ah = _G.AuctionHouseFrame
   if not ah then return end
   if not status then
+    -- right side, under the window: the Buy / Sell / Auctions tabs hang off the left
     status = ah:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-    status:SetPoint("TOPLEFT", ah, "BOTTOMLEFT", 8, -4)
-    status:SetJustifyH("LEFT")
+    status:SetPoint("TOPRIGHT", ah, "BOTTOMRIGHT", -8, -6)
+    status:SetJustifyH("RIGHT")
   end
   local text = statusText()
   if text then

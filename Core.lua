@@ -606,6 +606,7 @@ local help = {
   "/goon sync  - guild sync status  |  /goon sync on|off|history|catchup|scan",
   "/goon sales on|off  - when one of your auctions sells, the game's chat line says how many and for how much",
   "/goon buycap 1g50s | off  - quick-buy cap for the item open at the AH (/goon quickbuy for the macro)",
+  "/goon sell <item> <price each> [x20] [short|medium|long]  - post it at the AH in one press (put it in a macro)",
   "/goon buypopup move  - drag a box to where the AH Buy popup should open (reset puts it back)",
   "/goon import  - pull price history from Auctionator (also automatic at login; /goon import off)",
   "/goon scale 0.9  |  /goon scale reset  - window size (or drag its corner)",
@@ -823,6 +824,8 @@ SlashCmdList.GOONBERG = function(msg)
     else
       FI.Sync:Status()
     end
+  elseif cmd == "sell" then
+    FI.Sell:Command(rest)
   elseif cmd == "buycap" then
     FI.QuickBuy:SetCap(rest)
   elseif cmd == "quickbuy" then
