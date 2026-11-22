@@ -375,9 +375,17 @@ function Q:SetCap(text)
     FI:Print("%s: buy cap %s. /goon buycap 1g50s sets it, /goon buycap off clears it.",
       FI:ItemLink(id) or id, caps[id] and FI.Money(caps[id]) or "not set")
   else
+    -- A bare number could mean gold, silver or copper, and a wrong guess is a cap
+    -- 100 times too high: you have to say which.
+    local bare = arg:gsub("%s+", "")
+    if tonumber(bare) then
+      FI:Print("Is that gold, silver or copper? Type /goon buycap %sg, %ss or %sc. The cap for %s wasn't changed.",
+        bare, bare, bare, FI:ItemLink(id) or id)
+      return
+    end
     local copper = FI.ParseMoney(text)
     if not copper or copper <= 0 then
-      FI:Print("Couldn't read that price. Try 1g50s, 75s or 1.5 (gold).")
+      FI:Print("Couldn't read that price. Try 1g50s, 75s or 40c.")
       return
     end
     caps[id] = copper

@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.40.2 - Buy caps need g, s or c
+
+- **`/goon buycap` no longer guesses the unit.** A bare number like `/goon buycap 25` used to be read as 25 gold. Now it sets nothing and asks you to type `25g`, `25s` or `25c`, so a missed letter can't leave you with a cap 100 times too high. The cap you had stays as it was.
+
 ## 0.40.1 - Quick buy clears a dead popup
 
 - **The quick buy key closes the "Okay" popup.** When the item sold before your buy went through, the game leaves a popup with only an Okay button, and the key used to stop there. Now the next press clicks Okay for you and the list refreshes by itself, so you can keep pressing. It works with the three-line and the four-line macro, and the status line says "no longer available" while the popup is up.
