@@ -1,5 +1,12 @@
 # Goonberg Terminal
 
+## 0.40.5 - Partial sales
+
+- **Fixed: a partial sale was reported as the whole stack.** When 3 of your 30 sold, the chat line said "Sold x30" with the whole stack's total, because the game's sale message only names the item. At the Auction House the line now waits a moment for your auction list and shows what really went, like "Sold x3 at 17s each, 51s total".
+- **Away from the Auction House the line says what is known.** The game gives no quantity there, so a stack's line reads "part or all of your x30 at 17s each" instead of guessing.
+- **Mail on the way is corrected.** A partial sale no longer counts the unsold part. The amount is put right the next time your auction list is read: straight away at the Auction House, otherwise on your next visit.
+- **What's left of a stack keeps its times.** The remainder of a partly sold stack keeps when it was posted and when it ends, instead of showing as a new listing.
+
 ## 0.40.4 - No more stuck "Searching..."
 
 - **A stuck search un-sticks itself.** When a commodity's list sits on "Searching..." for 3 seconds with no answer, Goonberg sends the search again for you, up to 3 times. It works for any commodity, with or without a buy cap, and the quick buy status line says when it has asked again.

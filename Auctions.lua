@@ -2,8 +2,9 @@
 -- At the Auction House we read your auctions (the game's "owner" list) and keep a
 -- copy per character and auction house, so the Auctions tab shows them anywhere.
 -- When one sells, the game says "A buyer has been found for your auction of X": we
--- match that to the copy and say in chat what sold, how many, for how much, and when
--- its mail arrives (on Classic realms the money comes an hour after the sale).
+-- match that to the copy and say in chat what sold, how many and for how much. The
+-- game's line names only the item, and a stack can sell in part, so how many went is
+-- a guess until your auction list is read again (see A:Confirm).
 ---@type string, GoonbergTerminal
 local _, FI = ...
 ---@class GT.Auctions
@@ -33,6 +34,7 @@ local KEEP_MAIL = 3 * 86400 -- forget mail we expected this long ago
 ---@field posted integer? when it went up, if we saw that happen
 ---@field dep integer?    the deposit paid to post it (nil: posted before we could see)
 ---@field sold boolean?
+---@field guessSold boolean? marked sold by a sale notice, not yet seen sold in the list
 ---@field soldAt integer? when the game told us (nil: sold while we weren't watching)
 ---@field m string        "home" or "neutral": which auction house
 
@@ -47,6 +49,7 @@ local KEEP_MAIL = 3 * 86400 -- forget mail we expected this long ago
 ---@field due integer     when the mail arrives (at the latest, when approx)
 ---@field approx boolean? sold while we weren't watching: due is the latest it can be
 ---@field expired boolean? an auction that ran out: the item comes back
+---@field guess boolean?  from a sale notice: the whole stack is assumed until the list says
 ---@field m string?
 
 -- Your auctions and expected mail, per character (kept with your faction's market,
@@ -159,9 +162,31 @@ function A:Update(market, list, fresh)
     pool[k] = pool[k] or {}
     table.insert(pool[k], e)
   end
+  -- each auction read, and what we knew of it before
+  local prevOf = {}
   for _, e in ipairs(list) do
     local same = pool[key(e)]
-    local prev = same and table.remove(same, 1)
+    prevOf[e] = same and table.remove(same, 1) or nil
+  end
+  -- What's left of a stack that sold in part is the same auction, smaller: the same
+  -- item at the same price each, fewer of them. It keeps when it was posted and ends.
+  for _, e in ipairs(list) do
+    if not prevOf[e] and not e.sold and (e.buy or 0) > 0 then
+      for _, same in pairs(pool) do
+        for i, p in ipairs(same) do
+          if p.id == e.id and p.n == e.n and (p.q or 0) > (e.q or 0) and (p.buy or 0) > 0
+            and math.abs(unitPrice(p) - unitPrice(e)) < 0.5 then
+            prevOf[e] = { expLo = p.expLo, expHi = p.expHi, posted = p.posted }
+            table.remove(same, i)
+            break
+          end
+        end
+        if prevOf[e] then break end
+      end
+    end
+  end
+  for _, e in ipairs(list) do
+    local prev = prevOf[e]
     if prev then
       e.expLo, e.expHi, e.posted, e.soldAt, e.dep = prev.expLo, prev.expHi, prev.posted, prev.soldAt, prev.dep
     else
@@ -183,9 +208,12 @@ function A:Update(market, list, fresh)
     end
     e.m = market
     if e.sold and not (prev and prev.sold) then
-      -- sold while we weren't watching (offline, or before Goonberg knew it)
-      self:AddIncoming(e, nil)
+      -- a sale new to our copy: the one a notice guessed at, or one made while we
+      -- weren't watching (offline, or before Goonberg knew the auction)
+      self:Confirm(e, market)
     elseif prev and prev.sold then
+      -- the stack a notice guessed at: sold whole if the list says so too
+      if e.sold and prev.guessSold then self:Confirm(e, market, true) else e.guessSold = prev.guessSold end
       e.sold = true
     end
   end
@@ -350,7 +378,10 @@ FI:On("FI_AH_OPEN", function()
   -- after the AH has settled (and after a scan request, which goes first)
   C_Timer.After(2, function() A:Query() end)
 end)
-FI:On("FI_AH_CLOSED", function() A.readThisVisit = false end)
+FI:On("FI_AH_CLOSED", function()
+  A.readThisVisit = false
+  A:FlushAwaiting(true) -- the list can't be read any more: say the held lines now
+end)
 for _, e in ipairs({ "AUCTION_OWNED_LIST_UPDATE", "OWNED_AUCTIONS_UPDATED" }) do
   FI:On(e, function() FI:Debounce("ownedAuctions", 0.3, function() A:Read() end) end)
 end
@@ -387,32 +418,115 @@ local function unsoldOf(name)
   return list
 end
 
+-- Sale notices for a stack, held back at the AH until the list says how many went
+A.awaiting = {}  -- { m = the guessed mail, t = GetTime(), fallback = the line if the list never says }
+A.HIDE = "\001goonberg-hide" -- in place of a line: show nothing now, ours follows
+local CONFIRM_WAIT = 4
+
+-- our own sale line, where the game's would have gone
+local function say(text)
+  if FI.settings.saleAlerts == false then return end
+  local cf = DEFAULT_CHAT_FRAME
+  if not (cf and cf.AddMessage) then return end
+  local c = ChatTypeInfo and ChatTypeInfo.SYSTEM
+  cf:AddMessage(text, c and c.r or 1, c and c.g or 1, c and c.b or 0)
+end
+
+local function soldLine(m)
+  local link = (m.id and FI:ItemLink(m.id)) or m.n
+  local q = m.q or 1
+  if not m.gross then return ("Sold %s x%d."):format(link, q) end
+  if q > 1 then
+    return ("Sold %s x%d at %s each, %s total."):format(link, q, FI.Coins(math.floor(m.gross / q + 0.5)), FI.Coins(m.gross))
+  end
+  return ("Sold %s x%d for %s."):format(link, q, FI.Coins(m.gross))
+end
+
+-- A sold auction in a fresh read of your list. If a sale notice guessed at it, the
+-- guess gives way to what the list says: how many went (a stack can sell in part),
+-- at the price each we knew, at the time the notice came. `whole`: the very stack the
+-- notice marked, now listed as sold.
+function A:Confirm(e, market, whole)
+  local d = self:Data()
+  local guess
+  for _, m in ipairs(d.incoming) do
+    if m.guess and m.n == e.n and (m.m or market) == market then guess = m break end
+  end
+  if not guess then
+    if not whole then self:AddIncoming(e, nil) end
+    return
+  end
+  guess.guess = nil
+  e.soldAt = e.soldAt or guess.soldAt
+  if not whole and guess.gross and guess.q and e.q and e.q < guess.q then
+    -- part of the stack: its share of the price, less the cut (the deposit comes
+    -- back with the rest of the stack, not with this mail)
+    local gross = math.floor(guess.gross / guess.q * e.q + 0.5)
+    guess.q, guess.gross, guess.dep = e.q, gross, nil
+    guess.net = gross - math.floor(gross * A.CutRate(market))
+  end
+  for i, w in ipairs(self.awaiting) do
+    if w.m == guess then
+      table.remove(self.awaiting, i)
+      say(soldLine(guess))
+      break
+    end
+  end
+end
+
+-- held lines the list never settled (not read in time): say what we do know
+function A:FlushAwaiting(all)
+  local now = GetTime()
+  local due = {}
+  for i = #self.awaiting, 1, -1 do
+    local w = self.awaiting[i]
+    if all or now - w.t >= CONFIRM_WAIT - 0.1 then
+      table.insert(due, 1, w)
+      table.remove(self.awaiting, i)
+    end
+  end
+  for _, w in ipairs(due) do say(w.fallback) end
+end
+
 -- "A buyer has been found for your auction of X." Records the sale and returns the
--- line that replaces the game's in chat.
+-- line that replaces the game's in chat (A.HIDE: nothing now, the line follows once
+-- your auction list has said how many went).
 function A:OnSold(name, now)
   now = now or time()
   local list = unsoldOf(name)
   local e = list[1]
   local text
   if e then
-    e.sold, e.soldAt = true, now
+    e.sold, e.soldAt, e.guessSold = true, now, true
     local m = self:AddIncoming(e, now)
+    m.guess = true
     -- several different stacks of it up: we can't tell which one went
     local unsure = false
     for i = 2, #list do
       if list[i].q ~= e.q or list[i].buy ~= e.buy then unsure = true end
     end
     local link = (e.id and FI:ItemLink(e.id)) or name
-    if m.gross then
-      local price = (e.q or 1) > 1
-        and ("at %s each, %s total"):format(FI.Coins(math.floor(m.gross / e.q + 0.5)), FI.Coins(m.gross))
-        or ("for %s"):format(FI.Coins(m.gross))
+    -- a stack can sell in part, and the game's line doesn't say how many went
+    local stack = (e.q or 1) > 1
+    if m.gross and stack then
+      text = ("Sold %s: part or all of your x%d at %s each%s."):format(link, e.q,
+        FI.Coins(math.floor(m.gross / e.q + 0.5)), unsure and ", probably the cheapest of your stacks of it" or "")
+    elseif m.gross then
       -- kept short: what you get after the cut and when the mail lands are on the
       -- Auctions tab (Mail on the way)
-      text = ("Sold %s x%d %s%s."):format(link, e.q, price,
+      text = ("Sold %s x%d for %s%s."):format(link, e.q, FI.Coins(m.gross),
         unsure and ", probably the cheapest of your stacks of it" or "")
+    elseif stack then
+      text = ("Sold %s: part or all of your x%d."):format(link, e.q)
     else
       text = ("Sold %s x%d."):format(link, e.q)
+    end
+    -- at the AH your list is about to be read again and says exactly how many went:
+    -- hold the line for that, and fall back to this one if it doesn't come
+    if stack and FI.ahOpen then
+      self.awaiting[#self.awaiting + 1] = { m = m, t = GetTime(), fallback = text }
+      C_Timer.After(CONFIRM_WAIT, function() A:FlushAwaiting() end)
+      text = A.HIDE
     end
   else
     -- not in our copy: put up before Goonberg last read your auctions
@@ -512,7 +626,10 @@ FI:On("CHAT_MSG_SYSTEM", function(_, msg) A:HandleLine(msg, "event") end)
 if ChatFrame_AddMessageEventFilter then
   ChatFrame_AddMessageEventFilter("CHAT_MSG_SYSTEM", function(frame, _, msg, ...)
     local text = A:HandleLine(msg, "filter:" .. tostring(frame))
-    if text and alertsOn() then return false, text, ... end
+    if text and alertsOn() then
+      if text == A.HIDE then return true end
+      return false, text, ...
+    end
     return false
   end)
 end
@@ -532,7 +649,10 @@ function A:HookChatFrames()
             orig(frame, "|cffffd100Goonberg debug:|r " .. msg:gsub("|", "||") .. (A.SoldName(msg) and "  (sold: matched)" or ""))
           end
           local text = A:HandleLine(msg, source)
-          if text and alertsOn() then msg = text end
+          if text and alertsOn() then
+            if text == A.HIDE then return end
+            msg = text
+          end
         end
         return orig(frame, msg, ...)
       end
