@@ -57,6 +57,11 @@ function A:Data(who)
   who = who or UnitName("player") or "?"
   local d = realm.auctions[who]
   if not d then d = {}; realm.auctions[who] = d end
+  -- 0.36.0 read some prices as a whole auction's and counted the quantity twice:
+  -- start the copy afresh. Your next visit to the AH reads it back, sold ones too.
+  if (d.v or 0) < 2 then
+    d.lists, d.seen, d.incoming, d.v = {}, {}, {}, 2
+  end
   d.lists = d.lists or {}   -- market -> { GT.MyAuction }
   d.seen = d.seen or {}     -- market -> when we last read that auction house
   d.incoming = d.incoming or {}
@@ -308,12 +313,13 @@ local tries = 0
 function A:Read()
   if not FI.ahOpen then return end
   local list, complete
-  -- with the modern AH window, its own list is the real one
-  local modern = _G.AuctionHouseFrame and C_AuctionHouse and C_AuctionHouse.GetOwnedAuctions
-  if modern then
-    list, complete = readModern()
-  elseif GetNumAuctionItems and GetAuctionItemInfo then
+  -- the classic owner list when the client has it: its prices are per auction, as
+  -- the game's Auctions tab shows them. (Some clients also have the modern list, but
+  -- there its buyout can already be the whole auction's, which counted it twice.)
+  if GetNumAuctionItems and GetAuctionItemInfo then
     list, complete = readLegacy()
+  elseif C_AuctionHouse and C_AuctionHouse.GetOwnedAuctions then
+    list, complete = readModern()
   else
     return
   end
@@ -331,10 +337,10 @@ end
 -- Ask the game for your auctions (it answers with AUCTION_OWNED_LIST_UPDATE)
 function A:Query()
   if not FI.ahOpen then return false end
-  if _G.AuctionHouseFrame and C_AuctionHouse and C_AuctionHouse.QueryOwnedAuctions then
-    return (pcall(C_AuctionHouse.QueryOwnedAuctions, {}))
-  elseif GetOwnerAuctionItems then
+  if GetOwnerAuctionItems then
     return (pcall(GetOwnerAuctionItems, 0))
+  elseif C_AuctionHouse and C_AuctionHouse.QueryOwnedAuctions then
+    return (pcall(C_AuctionHouse.QueryOwnedAuctions, {}))
   end
   return false
 end

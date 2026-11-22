@@ -333,9 +333,10 @@ function FI:Category(itemID)
   if classID == 0 then return "Consumables" end
   if classID == 2 or classID == 4 then return "Gear" end
   if classID == 9 then return "Recipes" end
+  if classID == 6 then return "Ammo" end -- arrows and bullets
   return "Other"
 end
-FI.categories = { "All", "Herbs", "Ore & Bars", "Cloth", "Leather", "Enchanting", "Trade Goods", "Consumables", "Gear", "Recipes", "Other" }
+FI.categories = { "All", "Herbs", "Ore & Bars", "Cloth", "Leather", "Enchanting", "Trade Goods", "Consumables", "Gear", "Recipes", "Ammo", "Other" }
 
 -- Accepts an item link, an item ID or (part of) a name the addon has seen
 ---@param text string?
@@ -605,7 +606,7 @@ local help = {
   "/goon sync  - guild sync status  |  /goon sync on|off|history|catchup|scan",
   "/goon sales on|off  - when one of your auctions sells, the game's chat line says how many and for how much",
   "/goon buycap 1g50s | off  - quick-buy cap for the item open at the AH (/goon quickbuy for the macro)",
-  "/goon buypopup reset  - Alt-drag a popup at the AH to move it for good; this puts them back",
+  "/goon buypopup move  - drag a box to where the AH Buy popup should open (reset puts it back)",
   "/goon import  - pull price history from Auctionator (also automatic at login; /goon import off)",
   "/goon scale 0.9  |  /goon scale reset  - window size (or drag its corner)",
 }
@@ -837,6 +838,8 @@ SlashCmdList.GOONBERG = function(msg)
   elseif cmd == "buypopup" then
     if rest:lower() == "reset" then
       FI.AuctionPopups:Reset()
+    elseif rest:lower() == "move" then
+      FI.AuctionPopups:ShowPlacer()
     else
       FI:Print("Hold Alt and drag the Auction House's buy popup (or any popup at the AH) by its background; it opens there from then on. /goon buypopup reset puts them back.")
     end

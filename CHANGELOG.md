@@ -1,5 +1,15 @@
 # Goonberg Terminal
 
+## 0.37.0 - Overview filters and fixes
+
+- **Fixed: wildly inflated gold on the Auctions tab.** 0.36.0 counted each auction's quantity twice, so Mail on the way and sale messages could show hundreds of times the real amount. Goonberg reads your auctions the way 0.35.0 did again. The wrong numbers are cleared once when you update: Mail on the way and Your auctions rebuild at your next Auction House visit.
+- **Hide categories on Overview.** Tick any categories in the new Hide dropdown to leave them out of the list and the Top Gainer and Top Loser cards. Your choice is kept between sessions.
+- **New Ammo category.** Arrows and bullets have their own category instead of "Other", so they're easy to hide.
+- **Price filter on Overview.** Type a min, a max or both (per unit, like `1g50s`, `75s` or `1.5` for gold).
+- **Filter names sit above their boxes,** so the whole filter row fits even in a narrow window.
+- **Quick buy skips your own auctions.** Posting under your cap no longer leaves the key trying to buy your own stack instead of refreshing. If someone else's listing behind yours is under the cap, that's the one it opens.
+- **Moving the Buy popup works on more clients.** Alt-drag now grabs a popup whose background is built as a button (Buy Now and Cancel are still never grabbed). If it still won't move, `/goon buypopup move` shows a box you drag to where the popup should open.
+
 ## 0.36.0 - Quick buy
 
 - **Quick buy key (Auction House commodities).** Open an item and set its cap with `/goon buycap 1g50s` (each item has its own cap; `/goon buycap off` clears it). Then make a macro of these three lines and press it as often as you like:

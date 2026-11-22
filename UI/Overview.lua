@@ -2,7 +2,7 @@
 ---@type string, GoonbergTerminal
 local _, FI = ...
 ---@class GT.OverviewTab
-local O = { cat = "All", move = "All", tf = "24h", sort = "sold", dir = -1, search = "" }
+local O = { cat = "All", move = "All", tf = "24h", sort = "sold", dir = -1, search = "", minP = nil, maxP = nil }
 -- Timeframes: which change and sales figures each one uses
 local TF = {
   ["15m"] = { chg = "c15", sold = "sold15", win = 900, label = "15m", long = "past 15 minutes" },
@@ -169,28 +169,93 @@ function O:Build(parent)
     for i = 1, 5 do cards[i]:SetWidth(each) end
   end)
 
-  -- Search on the left; category, movers and time frame dropdowns on the right
+  -- Filter row: search on the left (it takes whatever width is left), then the price
+  -- range; hide, category, movers and time frame on the right. Each control's name
+  -- sits above it, so the row fits the narrowest window.
+  local ROW_Y = -122
+  local function above(ctrl, text)
+    local fs = W.Text(tab, 11, C.soft)
+    fs:SetText(text)
+    fs:SetPoint("BOTTOMLEFT", ctrl, "TOPLEFT", 2, 3)
+    return fs
+  end
+
+  local tfs = W.Dropdown(tab, TF_ENTRIES, function(v) O.tf = v; O:Refresh() end, 110)
+  tfs:SetPoint("TOPRIGHT", -16, ROW_Y)
+  tfs:Select(self.tf)
+  above(tfs, "Time frame")
+  local moves = W.Dropdown(tab, { { "Gainers & losers", "All" }, "Gainers", "Losers" }, function(v) O.move = v; O:Refresh() end, 140)
+  moves:SetPoint("RIGHT", tfs, "LEFT", -12, 0)
+  moves:Select(self.move)
+  above(moves, "Movers")
+  local cats = W.Dropdown(tab, FI.categories, function(v) O.cat = v; O:Refresh() end, 130)
+  cats:SetPoint("RIGHT", moves, "LEFT", -12, 0)
+  cats:Select(self.cat)
+  above(cats, "Category")
+  -- categories to leave out of the list (and the top gainer/loser), kept between sessions
+  local hideList = {}
+  for _, c in ipairs(FI.categories) do if c ~= "All" then hideList[#hideList + 1] = c end end
+  local hide = W.CheckDropdown(tab, hideList,
+    function(c) return O:Hidden()[c] == true end,
+    function(c)
+      local h = O:Hidden()
+      h[c] = not h[c] or nil
+      O.list.offset = 0
+      O:Refresh()
+    end, 130, nil,
+    function()
+      local n, first = 0, nil
+      for _, c in ipairs(hideList) do if O:Hidden()[c] then n = n + 1; first = first or c end end
+      if n == 0 then return "Nothing" end
+      return n == 1 and first or (first .. " +" .. (n - 1))
+    end)
+  hide:SetPoint("RIGHT", cats, "LEFT", -12, 0)
+  above(hide, "Hide")
+
+  -- price range per unit (1g50s, 75s, 1.5 = gold); either box may be blank
+  local function priceBox(hint, field)
+    local e = W.EditBox(tab, 70, hint, true)
+    e:HookScript("OnTextChanged", function(self)
+      local t = self:GetText()
+      local v = FI.ParseMoney(t)
+      O[field] = (v and v > 0) and v or nil
+      -- red text while what's typed isn't a price
+      local bad = t:gsub("%s", "") ~= "" and not v
+      local c = bad and C.down or C.text
+      self:SetTextColor(c[1], c[2], c[3])
+      FI:Debounce("ovprice", 0.3, function() O:Refresh() end)
+    end)
+    e:SetScript("OnEnterPressed", e.ClearFocus)
+    e:HookScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_BOTTOM")
+      GameTooltip:AddLine("Price per unit")
+      GameTooltip:AddLine("Type 1g50s, 75s or 1.5 (gold). Leave a box blank for no limit.", 1, 1, 1, true)
+      GameTooltip:Show()
+    end)
+    e:HookScript("OnLeave", GameTooltip_Hide)
+    return e
+  end
+  local maxBox = priceBox("max", "maxP")
+  maxBox:SetPoint("RIGHT", hide, "LEFT", -20, 0)
+  local to = W.Text(tab, 12, C.soft)
+  to:SetText("to")
+  to:SetPoint("RIGHT", maxBox, "LEFT", -6, 0)
+  local minBox = priceBox("min", "minP")
+  minBox:SetPoint("RIGHT", to, "LEFT", -6, 0)
+  above(minBox, "Price")
+
   local search = W.EditBox(tab, 240, "Search items")
-  search:SetPoint("TOPLEFT", 16, -108)
+  search:SetPoint("TOPLEFT", 16, ROW_Y)
+  search:SetPoint("RIGHT", minBox, "LEFT", -20, 0)
   search:HookScript("OnTextChanged", function(self)
     O.search = self:GetText():lower()
     FI:Debounce("ovsearch", 0.2, function() O:Refresh() end)
   end)
   search:SetScript("OnEnterPressed", search.ClearFocus)
 
-  local tfs = W.Dropdown(tab, TF_ENTRIES, function(v) O.tf = v; O:Refresh() end, 110, "Time frame")
-  tfs:SetPoint("TOPRIGHT", -16, -108)
-  tfs:Select(self.tf)
-  local moves = W.Dropdown(tab, { { "Gainers & losers", "All" }, "Gainers", "Losers" }, function(v) O.move = v; O:Refresh() end, 140)
-  moves:SetPoint("RIGHT", tfs, "LEFT", -16, 0)
-  moves:Select(self.move)
-  local cats = W.Dropdown(tab, FI.categories, function(v) O.cat = v; O:Refresh() end, 130, "Category")
-  cats:SetPoint("RIGHT", moves, "LEFT", -16, 0)
-  cats:Select(self.cat)
-
   -- Table
   local tbl = W.Box(tab, C.panel, C.border)
-  tbl:SetPoint("TOPLEFT", 16, -144)
+  tbl:SetPoint("TOPLEFT", 16, ROW_Y - 36)
   tbl:SetPoint("BOTTOMRIGHT", -16, 16)
 
   local head = W.TableHeader(tbl, 30)
@@ -282,8 +347,14 @@ local function setCard(c, value, extra, extraValue, sub)
   c.sub:SetText(sub or "")
 end
 
+function O:Hidden()
+  FI.settings.ovHide = FI.settings.ovHide or {}
+  return FI.settings.ovHide
+end
+
 function O:Refresh()
   if not self.frame then return end
+  local hidden = self:Hidden()
   local realm = FI:Realm()
   local now = time()
   local data, building = H.OverviewAsync(realm, now)
@@ -304,7 +375,7 @@ function O:Refresh()
   for _, s in ipairs(data.rows) do
     -- ignore thin markets so one odd listing can't top the list
     -- top gainer/loser: on the AH now with a real market (5+ listed), not one seller
-    if s[key] and s.onAH and s.qty >= 5 then
+    if s[key] and s.onAH and s.qty >= 5 and not hidden[s.cat] then
       if not up or s[key] > up[key] then up = s end
       if not down or s[key] < down[key] then down = s end
     end
@@ -318,7 +389,12 @@ function O:Refresh()
   -- Rows
   local rows = {}
   for _, s in ipairs(data.rows) do
-    local ok = self.cat == "All" or s.cat == self.cat
+    -- picking a category by name shows it even if it's also hidden
+    local ok = (self.cat == "All" and not hidden[s.cat]) or s.cat == self.cat
+    if ok and (self.minP or self.maxP) then
+      local p = s.price
+      ok = p and (not self.minP or p >= self.minP) and (not self.maxP or p <= self.maxP) or false
+    end
     if ok and self.move ~= "All" then
       local v = s[key]
       ok = v and not s.thin and ((self.move == "Gainers" and v > 0) or (self.move == "Losers" and v < 0))
@@ -356,9 +432,11 @@ function O:Refresh()
   end)
   self.rows = rows
   PRICE:Fit(rows, "price")
-  if self.lastFilter ~= (self.cat .. self.move .. self.tf .. self.sort .. self.dir .. self.search) then
+  local filterKey = table.concat({ self.cat, self.move, self.tf, self.sort, self.dir, self.search,
+    self.minP or "", self.maxP or "" }, "|")
+  if self.lastFilter ~= filterKey then
     self.list.offset = 0
-    self.lastFilter = self.cat .. self.move .. self.tf .. self.sort .. self.dir .. self.search
+    self.lastFilter = filterKey
   end
   self.list:SetCount(#rows)
   self:UpdateHeaders()

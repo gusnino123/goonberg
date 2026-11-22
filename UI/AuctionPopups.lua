@@ -23,11 +23,27 @@ local function store()
   return s
 end
 
+local function setAt(f, pos)
+  local x, y = pos[3], pos[4]
+  -- a spot in screen units (from the placement box): convert to the frame's scale,
+  -- since a popup on the AH window is scaled with it
+  if pos.ui then
+    local fs, us = f:GetEffectiveScale(), UIParent:GetEffectiveScale()
+    if fs and fs > 0 and us then x, y = x * us / fs, y * us / fs end
+  end
+  f:ClearAllPoints()
+  f:SetPoint(pos[1], UIParent, pos[2], x, y)
+end
+
 local function place(f, key)
   local pos = store()[key]
   if not pos then return end
-  f:ClearAllPoints()
-  f:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
+  setAt(f, pos)
+  -- and again a moment later, in case the game lays the popup out after showing it
+  C_Timer.After(0, function()
+    local now = store()[key]
+    if now and f:IsShown() then setAt(f, now) end
+  end)
 end
 
 -- A frame's lasting name: its global name, or its parent's name plus its key
@@ -86,12 +102,28 @@ end
 -- the window you grabbed: a known popup under the cursor, or else climb from what's
 -- under the mouse to the frame that sits directly on the screen or on the AH window
 -- (not the AH window itself)
+-- a button you'd actually press (Buy Now, Cancel, a close X): labelled, or small next
+-- to the popup. Some clients build the popup's background as one big unlabelled
+-- button, and grabbing that is fine.
+local function pressable(b, popup)
+  if not (b and b.IsObjectType and b:IsObjectType("Button")) then return false end
+  if b == popup then return false end
+  local t = b.GetText and b:GetText()
+  if t and t ~= "" then return true end
+  if popup and b.GetWidth and popup.GetWidth then
+    return (b:GetWidth() or 0) < (popup:GetWidth() or 0) * 0.6
+  end
+  return true
+end
+
 local function grabbed()
   local focus = mouseFocus()
-  if focus and focus.IsObjectType and focus:IsObjectType("Button") then return nil, "button" end
+  local popup
   for _, f in ipairs(knownPopups()) do
-    if f:IsShown() and f:IsMouseOver() then return f end
+    if f:IsShown() and f:IsMouseOver() then popup = f; break end
   end
+  if pressable(focus, popup) then return nil, "button" end
+  if popup then return popup end
   if not focus or focus == WorldFrame or not focus.GetParent then return nil, "nothing" end
   local ah = _G.AuctionHouseFrame or _G.AuctionFrame
   local f = focus
@@ -109,7 +141,7 @@ local function startMove()
   local f, why = grabbed()
   if not f then
     if why == "button" then
-      FI:Print("Grab the popup by its background, not a button, to move it.")
+      FI:Print("Grab the popup by its background, not a button, to move it (or use /goon buypopup move).")
     elseif not P.toldNothing then
       P.toldNothing = true
       local focus = mouseFocus()
@@ -183,6 +215,61 @@ function P:Restore()
   end
 end
 
+-- /goon buypopup move: a box of Goonberg's own that you drag to where the Buy popup
+-- should open. Works whatever the popup does with the mouse.
+local BUY_KEY = "AuctionHouseFrame.BuyDialog"
+function P:Hook()
+  local dlg = _G.AuctionHouseFrame and _G.AuctionHouseFrame.BuyDialog
+  if dlg then remember(dlg, BUY_KEY) end
+  return dlg
+end
+
+function P:ShowPlacer()
+  local box = self.placer
+  if not box then
+    box = CreateFrame("Frame", "GoonbergBuyPopupPlacer", UIParent)
+    box:SetSize(380, 110)
+    box:SetFrameStrata("DIALOG")
+    box:SetMovable(true)
+    box:SetClampedToScreen(true)
+    box:EnableMouse(true)
+    box:RegisterForDrag("LeftButton")
+    box:SetScript("OnDragStart", box.StartMoving)
+    box:SetScript("OnDragStop", box.StopMovingOrSizing)
+    local bg = box:CreateTexture(nil, "BACKGROUND")
+    bg:SetAllPoints()
+    bg:SetColorTexture(0.05, 0.05, 0.08, 0.85)
+    local edge = box:CreateTexture(nil, "BORDER")
+    edge:SetPoint("TOPLEFT", -2, 2); edge:SetPoint("BOTTOMRIGHT", 2, -2)
+    edge:SetColorTexture(1, 0.82, 0, 0.6)
+    local text = box:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+    text:SetPoint("TOP", 0, -16)
+    text:SetWidth(350)
+    text:SetText("|cffffd100Goonberg|r\nDrag this box to where the Buy popup should open.")
+    local done = CreateFrame("Button", nil, box, "UIPanelButtonTemplate")
+    done:SetSize(110, 24)
+    done:SetPoint("BOTTOM", 0, 12)
+    done:SetText("Done")
+    done:SetScript("OnClick", function() P:SavePlacer() end)
+    self.placer = box
+  end
+  box:ClearAllPoints()
+  local pos = store()[BUY_KEY]
+  if pos and pos.ui then box:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4]) else box:SetPoint("CENTER") end
+  box:Show()
+end
+
+function P:SavePlacer()
+  local box = self.placer
+  if not box then return end
+  local x, y = box:GetCenter()
+  if not x then return end
+  store()[BUY_KEY] = { "CENTER", "BOTTOMLEFT", math.floor(x + 0.5), math.floor(y + 0.5), ui = true }
+  box:Hide()
+  self:Hook()
+  FI:Print("The Buy popup opens there from now on (/goon buypopup reset puts it back).")
+end
+
 function P:Reset()
   FI.settings.ahPopups = nil
   FI:Print("AH popups open where the game puts them again (after a /reload for any that are open now).")
@@ -192,6 +279,7 @@ FI:On("PLAYER_LOGIN", function() P:SetupPopups() end)
 FI:On("FI_AH_OPEN", function()
   P:SetupPopups()
   P:Restore()
+  P:Hook()
 end)
 FI:On("FI_AH_CLOSED", function()
   if moving then stopMove() end

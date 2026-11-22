@@ -52,17 +52,37 @@ function Q:CurrentItem()
   return row and row.rowData and row.rowData.itemID or nil
 end
 
--- the cheapest listing: unit price and how many are at it
+-- how many in a listing someone else posted (you can't buy your own)
+local function others(d)
+  local q = d.quantity or 0
+  return q - math.min(d.numOwnerItems or 0, q)
+end
+
+local MAX_ROWS = 10
+
+-- the cheapest listing you can buy: unit price, how many, and its row number.
+-- Rows that are only your own auctions are skipped, so posting under your cap
+-- doesn't leave every press trying to buy your own stack.
 function Q:Cheapest(id)
   local CA = _G.C_AuctionHouse
   if CA and CA.GetCommoditySearchResultInfo then
-    local ok, info = pcall(CA.GetCommoditySearchResultInfo, id, 1)
-    if ok and info and info.unitPrice then return info.unitPrice, info.quantity end
+    for i = 1, MAX_ROWS do
+      local ok, info = pcall(CA.GetCommoditySearchResultInfo, id, i)
+      if not ok or not info or not info.unitPrice then break end
+      local n = others(info)
+      if n > 0 then return info.unitPrice, n, i end
+    end
+    return nil
   end
   local f = buyFrame()
-  local row = f and firstRow(f)
-  local d = row and row.rowData
-  if d and d.unitPrice then return d.unitPrice, d.quantity end
+  local box = f and f.ItemList and f.ItemList.ScrollBox
+  local ok, frames = false, nil
+  if box and box.GetFrames then ok, frames = pcall(box.GetFrames, box) end
+  if not ok or not frames then return nil end
+  for i = 1, math.min(#frames, MAX_ROWS) do
+    local d = frames[i].rowData
+    if d and d.unitPrice and others(d) > 0 then return d.unitPrice, others(d), i end
+  end
 end
 
 local function loading(f)
@@ -136,12 +156,19 @@ function Q:Press()
   return step, id, price, cap
 end
 
--- the targets a "buy" press clicks: the cheapest row (sets the quantity to that
--- listing's) and the Buy button that opens the game's confirmation
+-- the targets a "buy" press clicks: the cheapest row you can buy (sets the quantity
+-- to that listing's) and the Buy button that opens the game's confirmation
 function Q:Targets()
   local f = buyFrame()
   if not f then return nil end
+  local id = self:CurrentItem()
+  local _, _, index = self:Cheapest(id)
   local row = firstRow(f)
+  if index and index > 1 then
+    local box = f.ItemList.ScrollBox
+    local ok, frames = pcall(box.GetFrames, box)
+    row = ok and frames and frames[index] or nil
+  end
   local btn = f.BuyDisplay and f.BuyDisplay.BuyButton
   return row, btn
 end

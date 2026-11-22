@@ -488,6 +488,83 @@ function W.Dropdown(parent, entries, onPick, width, label, emptyText)
   return g
 end
 
+-- A dropdown of checkboxes, for picking any number of options (categories to hide).
+-- The menu stays open while you tick, on the game's dropdown and on the fallback.
+--   isOn(value) -> bool; toggle(value) flips it; textFn() -> the button's text
+function W.CheckDropdown(parent, entries, isOn, toggle, width, label, textFn)
+  local g = CreateFrame("Frame", nil, parent)
+  local x = 0
+  if label then
+    g.label = W.Text(g, 12, C.soft)
+    g.label:SetText(label)
+    g.label:SetPoint("LEFT")
+    x = math.ceil(g.label:GetStringWidth() or 0) + 8
+  end
+  local dd
+  local native = W.HasTemplate(NATIVE_DROPDOWN) and MenuUtil and MenuUtil.CreateCheckboxMenu
+  if native then
+    dd = CreateFrame("DropdownButton", nil, g, NATIVE_DROPDOWN)
+    local args = {}
+    for i, e in ipairs(entries) do args[i] = { e, e } end
+    MenuUtil.CreateCheckboxMenu(dd, isOn, function(v)
+      toggle(v)
+      g:UpdateText()
+    end, unpack(args))
+  else
+    dd = W.Button(g, "", width, 26, "pill")
+    local arrow = dd:CreateTexture(nil, "OVERLAY")
+    arrow:SetTexture("Interface\\Buttons\\Arrow-Down-Up")
+    arrow:SetSize(12, 12)
+    arrow:SetPoint("RIGHT", -6, -2)
+    local list = CreateFrame("Frame", nil, dd, "BackdropTemplate")
+    list:SetFrameStrata("DIALOG")
+    list:SetPoint("TOPLEFT", dd, "BOTTOMLEFT", 0, -2)
+    list:SetBackdrop({ bgFile = WHITE, edgeFile = WHITE, edgeSize = 1 })
+    list:SetBackdropColor(0.05, 0.05, 0.05, 0.97)
+    list:SetBackdropBorderColor(C.border[1], C.border[2], C.border[3], 1)
+    list:SetSize(width, #entries * 22 + 4)
+    list:Hide()
+    local rows = {}
+    local function rowText(e) return (isOn(e) and "|cffffd100[x]|r " or "[  ] ") .. e end
+    for i, e in ipairs(entries) do
+      local r = W.Button(list, rowText(e), width - 4, 22, "ghost")
+      r:SetPoint("TOPLEFT", 2, -2 - (i - 1) * 22)
+      r:SetScript("OnClick", function()
+        toggle(e)
+        for j, e2 in ipairs(entries) do rows[j]:SetLabel(rowText(e2)) end
+        g:UpdateText()
+      end)
+      rows[i] = r
+    end
+    dd:SetScript("OnClick", function()
+      for j, e2 in ipairs(entries) do rows[j]:SetLabel(rowText(e2)) end
+      list:SetShown(not list:IsShown())
+    end)
+    g:SetScript("OnHide", function() list:Hide() end)
+  end
+  dd:SetWidth(width)
+  dd:SetPoint("LEFT", g, "LEFT", x, 0)
+  g.button = dd
+  g:SetSize(x + width, math.max(26, dd:GetHeight() or 0))
+  function g:UpdateText()
+    local t = textFn()
+    if native then
+      if dd.SetDefaultText then dd:SetDefaultText(t) end
+      if dd.OverrideText then
+        dd:OverrideText(t)
+      else
+        if dd.SetSelectionText then dd:SetSelectionText(function() return t end) end
+        if dd.GenerateMenu then dd:GenerateMenu() end
+        if dd.Text then dd.Text:SetText(t) end
+      end
+    else
+      dd:SetLabel(t)
+    end
+  end
+  g:UpdateText()
+  return g
+end
+
 -- A text field: the game's search box (magnifier, clear button, grey hint), or with
 -- plain = true its plain input box. Hook OnTextChanged, don't set it: the search box
 -- needs its own handler to hide the hint and show the clear button.
