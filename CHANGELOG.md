@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.43.2 - Pause means paused
+
+- **Pause takes effect at once.** Trades from the moment you pause are left out, instead of an hour later. If your partner is still on 0.43.0 or 0.43.1, their pauses keep the old hour until they update.
+
 ## 0.43.1 - No more errors on the Ledger tab
 
 - **Fixed: a flood of Lua errors on the Ledger tab.** Moving the mouse over the Trades list raised an error for every row since 0.42.0. Hovering now shows the trade's details again.

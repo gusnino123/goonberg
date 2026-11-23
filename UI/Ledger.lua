@@ -419,7 +419,7 @@ local function showLink()
       b0.tip = { "Count trades again", ("Trades from now on count again on both Ledger tabs, yours and %s's."):format(link.name) }
       b0.action = function() say(FI.Partner:Resume()) end
     else
-      b0.tip = { "Stop counting for now", ("For when you aren't working together. Trades from an hour after you press it (so mail for what you did before can still arrive) are left out on both Ledger tabs, yours and %s's, until either of you resumes. %s needs Goonberg 0.43 or newer to see the pause."):format(link.name, link.name) }
+      b0.tip = { "Stop counting for now", ("For when you aren't working together. Trades from the moment you pause are left out on both Ledger tabs, yours and %s's, until either of you resumes. %s needs Goonberg 0.43 or newer to see the pause."):format(link.name, link.name) }
       -- two presses, so a stray click doesn't stop the counting for both of you
       b0.action = function()
         if T.confirmPause and GetTime() < T.confirmPause then

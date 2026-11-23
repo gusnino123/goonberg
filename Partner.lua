@@ -28,7 +28,7 @@ local PREFIX = "GoonbergPair"
 local PROTO = "1"
 local MSG_MAX = 250
 local CHUNK = 60                 -- trades per chunk: a lost message costs one chunk, not the whole transfer
-local PAUSE_GRACE = 3600         -- a pause starts this long after the press: AH mail for trades made before it can lag
+local PAUSE_AHEAD_MAX = 7200     -- a pause from the partner can't start further ahead than this (0.43.0/0.43.1 started an hour late)
 local PAUSES_SENT = 10           -- the newest pauses each W message carries
 local INVITE_KEEP = 7 * 86400    -- an unanswered question is forgotten after a week
 local NAME_MAX = 100
@@ -194,9 +194,9 @@ end
 
 -- ---------------------------------------------------------------------------
 -- Pauses: stretches of time when you aren't working together. Trades in a pause
--- (yours and your partner's) are left out of the Ledger tab on both sides. Pausing
--- starts PAUSE_GRACE after the press, so the mail for trades made before it still
--- counts; resuming counts again at once. A pause is never deleted, only closed: one
+-- (yours and your partner's) are left out of the Ledger tab on both sides. A pause
+-- starts the moment it's pressed and resuming counts again at once. (A partner on
+-- 0.43.0 or 0.43.1 sends pauses that start an hour after their press.) A pause is never deleted, only closed: one
 -- resumed before it began becomes empty (b == a), so both sides can merge their lists.
 -- ---------------------------------------------------------------------------
 local function pauses(link)
@@ -223,7 +223,7 @@ local function onPauses(link, body)
   local now = time()
   for a36, b36s in body:gmatch("(%w+)%-(%w+)") do
     local a, b = n36(a36), n36(b36s)
-    if a and b and a < now + 2 * PAUSE_GRACE and (b == 0 or b >= a) then
+    if a and b and a < now + PAUSE_AHEAD_MAX and (b == 0 or b >= a) then
       local w = byStart[a]
       if not w then
         w = { a = a, b = b ~= 0 and b or nil }
@@ -263,13 +263,12 @@ function P:Pause()
   if not link or link.state ~= "linked" then return false, "You aren't linked with anyone." end
   local open = self:Paused()
   if open then return false, ("Already paused from %s. /goon partner resume counts trades again."):format(date("%H:%M", open.a)) end
-  local a = time() + PAUSE_GRACE
+  local a = time()
   local list = pauses(link)
   list[#list + 1] = { a = a }
   self:SendPauses()
   changed()
-  C_Timer.After(PAUSE_GRACE + 1, function() changed() end)
-  return true, ("Paused: trades until %s still count (AH mail can lag an hour), later ones don't, for you and %s. Resume when you work together again."):format(date("%H:%M", a), link.name)
+  return true, ("Paused: trades from now on don't count, for you and %s. Resume when you work together again."):format(link.name)
 end
 
 function P:Resume()
