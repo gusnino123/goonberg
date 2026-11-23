@@ -123,16 +123,29 @@ local function makeTradeRow(parent)
       tipLine("Paid", FI.Coins(row.gross))
     end
     if row.q > 1 then tipLine("Each", FI.Coins(row.each)) end
+    countedTip(row.name)
     GameTooltip:AddLine("Read from the AH mail, so the time is when the mail was sent.", 0.55, 0.58, 0.64, true)
     GameTooltip:Show()
   end)
   return r
 end
 
+-- a row whose item the totals leave out is drawn faded
+local function fade(r, name) r:SetAlpha(FI.Partner:Counted(name) and 1 or 0.4) end
+local function countedTip(name)
+  if not FI.Partner:Only() then return end
+  if FI.Partner:Counted(name) then
+    GameTooltip:AddLine("Counted in the totals above.", 0.4, 0.78, 0.38, true)
+  else
+    GameTooltip:AddLine("Not counted in the totals above: you picked other items.", 0.55, 0.58, 0.64, true)
+  end
+end
+
 local function updateTradeRow(r, i)
   local row = T.rows[i]
   r.row = row
   showItem(r, row.name)
+  fade(r, row.name)
   local sale = row.kind == "sale"
   r.cells.who:SetText(row.who)
   setColor(r.cells.who, row.mine and C.gold or C.text)
@@ -163,8 +176,22 @@ local function makeItemRow(parent)
     person(T.partnerName or "Partner", it.theirQty, it.theirs, it.theirSoldQty, it.theirSold)
     local left = it.myQty + it.theirQty - it.mySoldQty - it.theirSoldQty
     if left > 0 then tipLine("Bought but not sold yet", FI.Number(left)) end
+    countedTip(it.name)
     GameTooltip:AddLine("Sold amounts are after the AH cut.", 0.55, 0.58, 0.64, true)
+    local P = FI.Partner
+    local hint
+    if not P:Only() then hint = "Click to count only this item in the totals."
+    elseif not P:Counted(it.name) then hint = "Click to count this item in the totals too."
+    elseif #P:OnlyList() == 1 then hint = "Click to count every item again."
+    else hint = "Click to leave this item out of the totals." end
+    GameTooltip:AddLine(hint, 1, 0.82, 0, true)
     GameTooltip:Show()
+  end)
+  r:SetScript("OnClick", function(self)
+    if not self.row then return end
+    local ok, msg = FI.Partner:ToggleOnly(self.row.name)
+    if msg then FI:Print(msg) end
+    if ok and self:IsMouseOver() then self:GetScript("OnEnter")(self) end
   end)
   return r
 end
@@ -173,6 +200,7 @@ local function updateItemRow(r, i)
   local it = T.items[i]
   r.row = it
   showItem(r, it.name)
+  fade(r, it.name)
   for _, key in ipairs({ "mine", "theirs", "paid", "sold" }) do
     local cell = r.cells[key]
     if it[key] > 0 then cell:SetMoney(it[key]) else cell:SetText("-") end
@@ -304,6 +332,7 @@ function T:Build(parent)
     GameTooltip:AddLine("Settling up")
     GameTooltip:AddLine("What the two of you made together in this period (sold after the AH cut, minus bought), split by your shares. Whoever holds more than their share owes the difference.", 0.76, 0.79, 0.83, true)
     GameTooltip:AddLine("Your share is 50% unless you change it: /goon partner split 60", 0.55, 0.58, 0.64, true)
+    GameTooltip:AddLine("Click items on the By item view to count only those (here and in the cards). /goon partner only clear counts every item again.", 0.55, 0.58, 0.64, true)
     GameTooltip:Show()
   end)
   settle:SetScript("OnLeave", GameTooltip_Hide)
@@ -462,7 +491,9 @@ function T:Refresh()
     if math.abs(owe) < 1 then line = "|cff66c761You're even.|r"
     elseif owe > 0 then line = ("You owe %s |cffffd100%s|r."):format(link.name, FI.Coins(owe))
     else line = ("%s owes you |cffffd100%s|r."):format(link.name, FI.Coins(-owe)) end
-    settle.text:SetText(("%s\n|cff9e998fSplit %d / %d of %s made together.|r"):format(line, pct, 100 - pct, signed(totals.both.net)))
+    local n = #P:OnlyList()
+    local scope = n > 0 and (" on %d picked item%s"):format(n, n == 1 and "" or "s") or ""
+    settle.text:SetText(("%s\n|cff9e998fSplit %d / %d of %s made together%s.|r"):format(line, pct, 100 - pct, signed(totals.both.net), scope))
   else
     settle.text:SetText("|cff9e998fLink up with a guildmate to see both sides and who owes whom.|r")
   end
@@ -491,8 +522,14 @@ function T:Refresh()
   else
     self.empty:SetText("Nothing here for this period.")
   end
-  self.footer:SetText(link and "Trades come from each player's AH mail, read when they open a mailbox. Net is sold (after the AH cut) minus bought, so stock not sold yet counts as spent."
-    or "Your AH purchases and sales, from your AH mail. Net is sold (after the AH cut) minus bought, so stock not sold yet counts as spent.")
+  local only = P:OnlyList()
+  if #only > 0 then
+    self.footer:SetText(("|cffffd100The totals count only %s.|r Faded rows are left out. Click an item on By item to change it; /goon partner only clear counts every item."):format(
+      #only <= 3 and table.concat(only, ", ") or (#only .. " picked items")))
+  else
+    self.footer:SetText(link and "Trades come from each player's AH mail, read when they open a mailbox. Net is sold (after the AH cut) minus bought, so stock not sold yet counts as spent. Click an item on By item to count only it."
+      or "Your AH purchases and sales, from your AH mail. Net is sold (after the AH cut) minus bought, so stock not sold yet counts as spent. Click an item on By item to count only it.")
+  end
 end
 
 local function refreshIfShown()

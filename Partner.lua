@@ -49,6 +49,7 @@ local function changed(...) FI:Fire("FI_PARTNER_CHANGED", ...) end
 --   link = { name, state = "invited"|"linked", at, split,
 --            epoch, have, entries, synced }   -- the partner's trades we hold
 --   invites = { [name] = when they asked }
+--   only = { [lowercase item name] = item name }  -- the items the totals count (none: all)
 -- ---------------------------------------------------------------------------
 function P:Data()
   local realm = FI:Market("home")
@@ -464,6 +465,65 @@ function P:Split()
 end
 
 -- ---------------------------------------------------------------------------
+-- Which items the totals count. Empty means every item. Like the split it is kept
+-- on your side only: the lists still show every trade, and nothing is sent.
+-- ---------------------------------------------------------------------------
+-- an item link ("|cff...|Hitem:...|h[Name]|h|r") or a typed name, as the ledger's name
+local function itemName(s)
+  s = tostring(s or "")
+  s = s:match("%[(.-)%]") or s
+  return (s:gsub("|", ""):match("^%s*(.-)%s*$"))
+end
+
+function P:Only()
+  local d = self:Data()
+  if d.only and next(d.only) == nil then d.only = nil end
+  return d.only
+end
+
+-- Is this item counted in the totals?
+function P:Counted(name)
+  local only = self:Only()
+  return not only or (name ~= nil and only[tostring(name):lower()] ~= nil)
+end
+
+-- The picked items, sorted
+function P:OnlyList()
+  local list = {}
+  for _, name in pairs(self:Only() or {}) do list[#list + 1] = name end
+  table.sort(list)
+  return list
+end
+
+-- Adds an item to the counted ones, or takes it out again
+function P:ToggleOnly(name)
+  name = itemName(name)
+  if name == "" then return false, "Usage: /goon partner only <item>  (again to take it out; /goon partner only clear counts every item)" end
+  local d = self:Data()
+  d.only = d.only or {}
+  local key = name:lower()
+  local msg
+  if d.only[key] then
+    d.only[key] = nil
+    msg = next(d.only) and ("%s is no longer counted in the Ledger totals."):format(name)
+      or ("%s taken out: the Ledger totals count every item again."):format(name)
+  else
+    d.only[key] = name
+    msg = ("The Ledger totals now count only %s."):format(table.concat(self:OnlyList(), ", "))
+  end
+  self:Only()
+  changed()
+  return true, msg
+end
+
+function P:ClearOnly()
+  if not self:Only() then return true, "The Ledger totals already count every item." end
+  self:Data().only = nil
+  changed()
+  return true, "The Ledger totals count every item again."
+end
+
+-- ---------------------------------------------------------------------------
 -- Both ledgers together, for the Ledger tab
 -- ---------------------------------------------------------------------------
 local function row(e, mine, who)
@@ -503,12 +563,15 @@ local function count(s, r)
   s.net = s.net + r.total
 end
 
--- { me, them, both }, each { spent, sold (before the AH cut), fees, net, buys, sales }
+-- { me, them, both }, each { spent, sold (before the AH cut), fees, net, buys, sales },
+-- over the counted items only (P:Counted)
 function P:Totals(rows)
   local t = { me = side(), them = side(), both = side() }
   for _, r in ipairs(rows) do
-    count(r.mine and t.me or t.them, r)
-    count(t.both, r)
+    if self:Counted(r.name) then
+      count(r.mine and t.me or t.them, r)
+      count(t.both, r)
+    end
   end
   return t
 end
@@ -556,6 +619,8 @@ function P:Status()
     FI:Print("Linked with %s since %s. You hold %s of their trades%s.", link.name, date("%b %d", link.at or time()),
       FI.Number(n), link.synced and (", updated " .. FI.Ago(link.synced)) or " (none yet: they arrive when you're both online)")
     FI:Print("Settling up splits what you make together %d / %d (you / %s): /goon partner split 60 changes your share.", self:Split(), 100 - self:Split(), link.name)
+    local only = self:OnlyList()
+    if #only > 0 then FI:Print("The totals count only %s: /goon partner only clear counts every item.", table.concat(only, ", ")) end
   elseif link then
     FI:Print("Waiting for %s to accept your question (asked %s). /goon partner unlink takes it back.", link.name, FI.Ago(link.at))
   else
@@ -577,6 +642,14 @@ function P:Command(rest)
   elseif word == "unlink" or word == "cancel" then ok, msg = self:Unlink()
   elseif word == "sync" then ok, msg = self:SyncNow()
   elseif word == "split" then ok, msg = self:SetSplit(arg)
+  elseif word == "only" then
+    if arg:lower() == "clear" or arg:lower() == "all" then ok, msg = self:ClearOnly()
+    elseif arg == "" then
+      local only = self:OnlyList()
+      msg = #only > 0 and ("The Ledger totals count only %s. /goon partner only <item> adds or takes one out; /goon partner only clear counts every item."):format(table.concat(only, ", "))
+        or "The Ledger totals count every item. /goon partner only <item> counts only the items you pick (or click them on the Ledger tab's By item view)."
+      ok = true
+    else ok, msg = self:ToggleOnly(arg) end
   else ok, msg = self:Invite(rest) end
   if msg then FI:Print(msg) end
   return ok

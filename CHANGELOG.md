@@ -1,5 +1,10 @@
 # Goonberg Terminal
 
+## Unreleased - Settle up on the items you pick
+
+- **Count only certain items.** Click items on the Ledger tab's By item view (or `/goon partner only <item>`) and the You, Partner, Together cards and Settling Up count just those. Other trades stay in the lists, faded. Click again to take one out; `/goon partner only clear` counts every item again.
+- **Only on your side.** Like your split, your pick isn't sent to your partner, so agree on the items if you both settle from the Ledger tab.
+
 ## 0.41.1 - Buy quantity on the tooltip
 
 - **The tooltip shows your quick-buy quantity.** An item with a buy cap now has a Buy quantity line under it: "20 or more" when you've set a minimum, "any" when you haven't. Turn it off under Options like the other lines.
