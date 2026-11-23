@@ -615,7 +615,7 @@ local help = {
   "/goon minimap on|off|reset  - the button under the minimap",
   "/goon de <item>  - what it disenchants into and is worth  |  /goon de watch",
   "/goon sync  - guild sync status  |  /goon sync on|off|history|catchup|scan",
-  "/goon partner <guildmate>  - link ledgers: you both see each other's AH purchases and sales (/goon ledger)  |  partner accept|decline|unlink|sync|split 50",
+  "/goon partner <guildmate>  - link ledgers: you both see each other's AH purchases and sales (/goon ledger)  |  partner accept|decline|unlink|sync|split 50|only <item>",
   "/goon sales on|off  - when one of your auctions sells, the game's chat line says how many and for how much",
   "/goon buycap 1g50s | off  - quick-buy cap for the item open at the AH (/goon quickbuy for the macro)",
   "/goon quantity 20 | 1  (or /goon quant)  - quick buy skips listings smaller than that (1 takes any size)",

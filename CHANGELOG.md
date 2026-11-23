@@ -1,6 +1,6 @@
 # Goonberg Terminal
 
-## Unreleased - Settle up on the items you pick
+## 0.42.0 - Settle up on the items you pick
 
 - **Count only certain items.** Click items on the Ledger tab's By item view (or `/goon partner only <item>`) and the You, Partner, Together cards and Settling Up count just those. Other trades stay in the lists, faded. Click again to take one out; `/goon partner only clear` counts every item again.
 - **Only on your side.** Like your split, your pick isn't sent to your partner, so agree on the items if you both settle from the Ledger tab.
