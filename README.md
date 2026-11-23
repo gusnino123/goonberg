@@ -109,6 +109,7 @@ Not linked, the tab shows your own purchases and sales.
 Hover any item (bags, bank, mail, chat links, the AH) to see:
 - Market price, **stack value**, lowest buyout now, **7-day change**, est. sold per day
 - **Vendor price**, in green when vendoring pays more than the AH
+- **Buy cap** and **Buy quantity** on an item you've set a quick-buy cap for: the most you pay each, and the smallest listing the quick-buy key takes (`/goon quantity 20`)
 - **Disenchant value** for green, blue and purple gear, in green when disenchanting beats selling. Hold **Shift** to see what it breaks into. It uses each material's last known price and says how old it is when that's over a day. It starts from the WoW Forever disenchanting table, which goes by the item's **required level** (an estimate: the game doesn't tell addons what an item breaks into), and **learns from every disenchant you do**: after 20 of one kind of gear (say level 31-35 green armor) the odds are half yours, after 100 mostly yours.
 
 ### Minimap button

@@ -446,7 +446,7 @@ local defaults = {
     chatAlerts = true,
     tooltip = true,
     -- which lines the item tooltip shows (Options in the window); see FI.TOOLTIP_LINES
-    tooltipLines = { vendor = true, vendorEach = true, market = true, marketEach = true, de = true, cap = true },
+    tooltipLines = { vendor = true, vendorEach = true, market = true, marketEach = true, de = true, cap = true, qty = true },
     -- the smallest listing the quick-buy key takes (/goon quant 20); 1 takes any
     buyMinQty = 1,
   },
@@ -618,7 +618,7 @@ local help = {
   "/goon partner <guildmate>  - link ledgers: you both see each other's AH purchases and sales (/goon ledger)  |  partner accept|decline|unlink|sync|split 50",
   "/goon sales on|off  - when one of your auctions sells, the game's chat line says how many and for how much",
   "/goon buycap 1g50s | off  - quick-buy cap for the item open at the AH (/goon quickbuy for the macro)",
-  "/goon quant 20 | 1  - quick buy skips listings smaller than that (1 takes any size)",
+  "/goon quantity 20 | 1  (or /goon quant)  - quick buy skips listings smaller than that (1 takes any size)",
   "/goon sell <item> <price each> [x20] [short|medium|long]  - post it at the AH in one press (put it in a macro)",
   "/goon buypopup move  - drag a box to where the AH Buy popup should open (reset puts it back)",
   "/goon import  - pull price history from Auctionator (also automatic at login; /goon import off)",

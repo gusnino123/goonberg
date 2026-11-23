@@ -1,5 +1,10 @@
 # Goonberg Terminal
 
+## 0.41.1 - Buy quantity on the tooltip
+
+- **The tooltip shows your quick-buy quantity.** An item with a buy cap now has a Buy quantity line under it: "20 or more" when you've set a minimum, "any" when you haven't. Turn it off under Options like the other lines.
+- **`/goon quantity` is in the help.** It has always done the same as `/goon quant`; the command list now says so.
+
 ## 0.41.0 - A ledger you share with a partner
 
 - **New Ledger tab.** Link up with one guildmate you trade with and you both see each other's Auction House purchases and sales in one list: who bought or sold what, how many, at what price each and in total. Not linked, it shows your own.

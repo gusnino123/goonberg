@@ -32,6 +32,7 @@ FI.TOOLTIP_LINES = {
   { key = "marketEach", label = "Market (ea)", hint = "The AH market price of one (shown on stacks)" },
   { key = "de", label = "Disenchant", hint = "What its disenchant materials are worth" },
   { key = "cap", label = "Buy cap", hint = "Your quick-buy cap for the item, if you set one" },
+  { key = "qty", label = "Buy quantity", hint = "The smallest listing your quick-buy key takes (/goon quantity), shown under a buy cap" },
 }
 
 -- A few clean lines: Vendor, Market, Disenchant (for the whole stack), the price of
@@ -53,14 +54,15 @@ local function addLines(tooltip, itemID)
   local shift = IsShiftKeyDown()
   local soft, up = FI.colors.soft, FI.colors.up
 
-  -- the lines you've left on: { label, key, value, prefix, each }. each: the price of
-  -- one, not of the whole stack. With nothing to show, Goonberg adds nothing at all.
+  -- the lines you've left on: { label, key, value, prefix, each, text }. each: the price
+  -- of one, not of the whole stack. text: shown as it is, for a line that isn't money.
+  -- With nothing to show, Goonberg adds nothing at all.
   local on = FI.settings.tooltipLines or {}
   local stack = count > 1
   local rows, any = {}, false
-  local function add(setting, label, key, value, prefix, each)
+  local function add(setting, label, key, value, prefix, each, text)
     if on[setting] == false then return end
-    rows[#rows + 1] = { label, key, value, prefix, each }
+    rows[#rows + 1] = { label, key, value, prefix, each, text }
     any = any or value ~= nil
   end
   add("vendor", "Vendor", "vendor", vendor)
@@ -73,7 +75,13 @@ local function addLines(tooltip, itemID)
     add("de", old and ("Disenchant |cff9e998f(mats %s)|r"):format(FI.Ago(oldest)) or "Disenchant", "de", de, "~")
   end
   -- a cap is always a price each
-  if cap then add("cap", stack and "Buy cap (ea)" or "Buy cap", "cap", cap, nil, true) end
+  if cap then
+    add("cap", stack and "Buy cap (ea)" or "Buy cap", "cap", cap, nil, true)
+    -- ...and the smallest listing the quick-buy key takes goes with it (/goon quantity:
+    -- one number for every item)
+    local min = FI.QuickBuy:MinQty()
+    add("qty", "Buy quantity", "qty", nil, nil, nil, min > 1 and (FI.Number(min) .. " or more") or "any")
+  end
   if not any then return end
 
   -- what each way actually pays you: the vendor pays in full, the AH pays what
@@ -107,7 +115,7 @@ local function addLines(tooltip, itemID)
     local r, g, b = soft[1], soft[2], soft[3]
     local vr, vg, vb = 1, 1, 1
     if best == key then r, g, b = up[1], up[2], up[3]; vr, vg, vb = up[1], up[2], up[3] end
-    local text = value and ((prefix or "") .. FI.Coins(value * (each and 1 or count))) or "|cff9e998f-|r"
+    local text = row[6] or (value and ((prefix or "") .. FI.Coins(value * (each and 1 or count))) or "|cff9e998f-|r")
     tooltip:AddDoubleLine(label, text, r, g, b, vr, vg, vb)
   end
 
