@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.43.1 - No more errors on the Ledger tab
+
+- **Fixed: a flood of Lua errors on the Ledger tab.** Moving the mouse over the Trades list raised an error for every row since 0.42.0. Hovering now shows the trade's details again.
+
 ## 0.43.0 - Pause, and gold you pay each other
 
 - **Pause for when you aren't working together.** Press Pause on the Ledger tab twice (the second press makes sure it wasn't a slip), or `/goon partner pause`, and trades from an hour later on are left out for both of you, until either of you presses Resume. The hour lets the mail for trades you made before the pause still arrive and count. Your partner needs this version to see the pause.

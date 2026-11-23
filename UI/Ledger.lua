@@ -101,6 +101,17 @@ end
 
 local function tipLine(l, v) GameTooltip:AddDoubleLine(l, v, C.soft[1], C.soft[2], C.soft[3], 1, 1, 1) end
 
+-- a row whose item the totals leave out is drawn faded
+local function fade(r, name) r:SetAlpha(FI.Partner:Counted(name) and 1 or 0.4) end
+local function countedTip(name)
+  if not FI.Partner:Only() then return end
+  if FI.Partner:Counted(name) then
+    GameTooltip:AddLine("Counted in the totals above.", 0.4, 0.78, 0.38, true)
+  else
+    GameTooltip:AddLine("Not counted in the totals above: you picked other items.", 0.55, 0.58, 0.64, true)
+  end
+end
+
 local function makeTradeRow(parent)
   local r = newRow(parent)
   itemCells(r, TRADE_NAME_RIGHT)
@@ -128,17 +139,6 @@ local function makeTradeRow(parent)
     GameTooltip:Show()
   end)
   return r
-end
-
--- a row whose item the totals leave out is drawn faded
-local function fade(r, name) r:SetAlpha(FI.Partner:Counted(name) and 1 or 0.4) end
-local function countedTip(name)
-  if not FI.Partner:Only() then return end
-  if FI.Partner:Counted(name) then
-    GameTooltip:AddLine("Counted in the totals above.", 0.4, 0.78, 0.38, true)
-  else
-    GameTooltip:AddLine("Not counted in the totals above: you picked other items.", 0.55, 0.58, 0.64, true)
-  end
 end
 
 local function updateTradeRow(r, i)
