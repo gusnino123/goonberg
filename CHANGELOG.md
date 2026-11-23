@@ -1,5 +1,10 @@
 # Goonberg Terminal
 
+## 0.43.0 - Pause, and gold you pay each other
+
+- **Pause for when you aren't working together.** Press Pause on the Ledger tab twice (the second press makes sure it wasn't a slip), or `/goon partner pause`, and trades from an hour later on are left out for both of you, until either of you presses Resume. The hour lets the mail for trades you made before the pause still arrive and count. Your partner needs this version to see the pause.
+- **Gold you pay each other settles up.** Gold you trade or mail your partner, and gold they give you, is noted by itself and taken off what Settling Up says is owed. Note one the addon didn't see with `/goon partner paid 500g` or `got 500g`; `/goon partner payments` lists them, and `payments undo` takes back the last one.
+
 ## 0.42.0 - Settle up on the items you pick
 
 - **Count only certain items.** Click items on the Ledger tab's By item view (or `/goon partner only <item>`) and the You, Partner, Together cards and Settling Up count just those. Other trades stay in the lists, faded. Click again to take one out; `/goon partner only clear` counts every item again.

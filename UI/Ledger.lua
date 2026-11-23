@@ -280,7 +280,9 @@ function T:Build(parent)
   box.b2:SetPoint("RIGHT", -10, 0)
   box.b1 = W.Button(box, "Sync now", 120, 26)
   box.b1:SetPoint("RIGHT", box.b2, "LEFT", -8, 0)
-  for _, b in ipairs({ box.b1, box.b2 }) do
+  box.b0 = W.Button(box, "Pause", 120, 26)
+  box.b0:SetPoint("RIGHT", box.b1, "LEFT", -8, 0)
+  for _, b in ipairs({ box.b0, box.b1, box.b2 }) do
     b:SetScript("OnClick", function(self) if self.action then self.action() end end)
     b:HookScript("OnEnter", function(self)
       if not self.tip then return end
@@ -332,6 +334,11 @@ function T:Build(parent)
     GameTooltip:AddLine("Settling up")
     GameTooltip:AddLine("What the two of you made together in this period (sold after the AH cut, minus bought), split by your shares. Whoever holds more than their share owes the difference.", 0.76, 0.79, 0.83, true)
     GameTooltip:AddLine("Your share is 50% unless you change it: /goon partner split 60", 0.55, 0.58, 0.64, true)
+    GameTooltip:AddLine("Gold you trade or mail each other is taken off what's owed. One the addon didn't see: /goon partner paid 500g (or got 500g). /goon partner payments lists them.", 0.76, 0.79, 0.83, true)
+    if (T.paidOut or 0) > 0 or (T.paidIn or 0) > 0 then
+      tipLine("You paid", FI.Coins(T.paidOut or 0))
+      tipLine("You got", FI.Coins(T.paidIn or 0))
+    end
     GameTooltip:AddLine("Click items on the By item view to count only those (here and in the cards). /goon partner only clear counts every item again.", 0.55, 0.58, 0.64, true)
     GameTooltip:Show()
   end)
@@ -386,8 +393,8 @@ local function showLink()
   local link = P:Link()
   local linked = link ~= nil and link.state == "linked"
   local asker = P:Asker()
-  local b1, b2, edit = box.b1, box.b2, box.edit
-  b1.action, b2.action, b1.tip, b2.tip = nil, nil, nil, nil
+  local b0, b1, b2, edit = box.b0, box.b1, box.b2, box.edit
+  b0.action, b1.action, b2.action, b0.tip, b1.tip, b2.tip = nil, nil, nil, nil, nil, nil
   local text, buttons, typing = "", 0, false
 
   if not IsInGuild() then
@@ -399,7 +406,31 @@ local function showLink()
     elseif link.synced then fresh = ("%s of their trades, updated %s."):format(FI.Number(got), FI.Ago(link.synced))
     else fresh = "Their trades arrive when you're both online." end
     text = ("|cff66c761Linked with %s|r since %s. %s"):format(link.name, date("%b %d", link.at or time()), fresh)
-    buttons = 2
+    local open = P:Paused()
+    if open and time() < open.a then
+      text = ("|cffffd100Pausing at %s|r with %s: later trades won't count. %s"):format(date("%H:%M", open.a), link.name, fresh)
+    elseif open then
+      text = ("|cffffd100Paused since %s|r with %s: trades don't count until you resume. %s"):format(date("%b %d %H:%M", open.a), link.name, fresh)
+    end
+    buttons = 3
+    local surePause = not open and T.confirmPause and GetTime() < T.confirmPause
+    b0:SetLabel(open and "Resume" or (surePause and "Really pause?" or "Pause"))
+    if open then
+      b0.tip = { "Count trades again", ("Trades from now on count again on both Ledger tabs, yours and %s's."):format(link.name) }
+      b0.action = function() say(FI.Partner:Resume()) end
+    else
+      b0.tip = { "Stop counting for now", ("For when you aren't working together. Trades from an hour after you press it (so mail for what you did before can still arrive) are left out on both Ledger tabs, yours and %s's, until either of you resumes. %s needs Goonberg 0.43 or newer to see the pause."):format(link.name, link.name) }
+      -- two presses, so a stray click doesn't stop the counting for both of you
+      b0.action = function()
+        if T.confirmPause and GetTime() < T.confirmPause then
+          T.confirmPause = nil
+          return say(FI.Partner:Pause())
+        end
+        T.confirmPause = GetTime() + 5
+        T:Refresh()
+        C_Timer.After(5.2, function() if T.frame and T.frame:IsVisible() then T:Refresh() end end)
+      end
+    end
     b1:SetLabel("Sync now")
     b1.tip = { "Catch up now", "Asks your partner for their newest trades and sends yours. It happens by itself at login and after each mailbox visit; this is for when you don't want to wait. You both have to be online." }
     b1.action = function() say(FI.Partner:SyncNow()) end
@@ -440,12 +471,14 @@ local function showLink()
   end
   if T.flash and GetTime() < T.flash.till then text = "|cffff7366" .. T.flash.text .. "|r" end
 
-  b1:SetShown(buttons == 2)
+  b0:SetShown(buttons == 3)
+  b1:SetShown(buttons >= 2)
   b2:SetShown(buttons >= 1)
   edit:SetShown(typing)
   -- the text ends where the controls begin
   local inset = 14
   if typing then inset = 10 + 120 + 12 + 160 + 16
+  elseif buttons == 3 then inset = 10 + 3 * 120 + 2 * 8 + 14
   elseif buttons == 2 then inset = 10 + 120 + 8 + 120 + 14
   elseif buttons == 1 then inset = 10 + 120 + 14 end
   box.text:ClearAllPoints()
@@ -477,7 +510,7 @@ function T:Refresh()
   self.periodChoice:Select(self.period)
   self.whoChoice:Select(self.who)
 
-  local all = P:Trades(since(self.period, link))
+  local all, paused = P:Trades(since(self.period, link))
   local totals = P:Totals(all)
   layoutCards()
   fillCard(self.cards.me, "You", totals.me)
@@ -486,14 +519,19 @@ function T:Refresh()
   local settle = self.cards.settle
   if link then
     local pct = P:Split()
-    local owe = P:Settle(totals, pct)
+    local from = since(self.period, link)
+    local owe = P:Settle(totals, pct, from)
+    local _, out, inn = P:Payments(from)
+    T.paidOut, T.paidIn = out, inn
     local line
     if math.abs(owe) < 1 then line = "|cff66c761You're even.|r"
     elseif owe > 0 then line = ("You owe %s |cffffd100%s|r."):format(link.name, FI.Coins(owe))
     else line = ("%s owes you |cffffd100%s|r."):format(link.name, FI.Coins(-owe)) end
     local n = #P:OnlyList()
     local scope = n > 0 and (" on %d picked item%s"):format(n, n == 1 and "" or "s") or ""
-    settle.text:SetText(("%s\n|cff9e998fSplit %d / %d of %s made together%s.|r"):format(line, pct, 100 - pct, signed(totals.both.net), scope))
+    local paid = ""
+    if out ~= inn then paid = (", after %s you %s"):format(FI.Coins(math.abs(out - inn)), out > inn and "paid" or "got") end
+    settle.text:SetText(("%s\n|cff9e998fSplit %d / %d of %s made together%s%s.|r"):format(line, pct, 100 - pct, signed(totals.both.net), scope, paid))
   else
     settle.text:SetText("|cff9e998fLink up with a guildmate to see both sides and who owes whom.|r")
   end
@@ -529,6 +567,9 @@ function T:Refresh()
   else
     self.footer:SetText(link and "Trades come from each player's AH mail, read when they open a mailbox. Net is sold (after the AH cut) minus bought, so stock not sold yet counts as spent. Click an item on By item to count only it."
       or "Your AH purchases and sales, from your AH mail. Net is sold (after the AH cut) minus bought, so stock not sold yet counts as spent. Click an item on By item to count only it.")
+  end
+  if paused > 0 then
+    self.footer:SetText(("|cffffd100%s trade%s made while paused %s left out.|r "):format(FI.Number(paused), paused == 1 and "" or "s", paused == 1 and "is" or "are") .. self.footer:GetText())
   end
 end
 

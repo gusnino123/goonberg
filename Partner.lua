@@ -13,6 +13,9 @@
 --   S1:<ledger>:<from>:<through>:<count>   a chunk of trades starts
 --   B<n,t,k,q,g,f,name;...>                trades (numbers in base 36; k: b bought, s sold)
 --   E1:<through>           the chunk is complete: only now does the receiver keep it
+--   W1:<a>-<b>,...         the pauses: trades from a up to b (0: still paused) don't count.
+--                          Sent with each hello and on pause / resume; older clients
+--                          ignore it
 ---@type string, GoonbergTerminal
 local _, FI = ...
 ---@class GT.Partner
@@ -25,6 +28,8 @@ local PREFIX = "GoonbergPair"
 local PROTO = "1"
 local MSG_MAX = 250
 local CHUNK = 60                 -- trades per chunk: a lost message costs one chunk, not the whole transfer
+local PAUSE_GRACE = 3600         -- a pause starts this long after the press: AH mail for trades made before it can lag
+local PAUSES_SENT = 10           -- the newest pauses each W message carries
 local INVITE_KEEP = 7 * 86400    -- an unanswered question is forgotten after a week
 local NAME_MAX = 100
 P.MIN_VERSION = "0.41"           -- the first Goonberg that can link
@@ -47,7 +52,10 @@ local function changed(...) FI:Fire("FI_PARTNER_CHANGED", ...) end
 -- ---------------------------------------------------------------------------
 -- Saved data: per character, with your faction's market (FI:Market("home"))
 --   link = { name, state = "invited"|"linked", at, split,
---            epoch, have, entries, synced }   -- the partner's trades we hold
+--            epoch, have, entries, synced,   -- the partner's trades we hold
+--            off = { { a, b }, ... },        -- pauses (P:Pause), shared with the partner
+--            paid = { { t, d = "out"|"in", g, via = "trade"|"mail"|"typed" }, ... } }
+--                                            -- gold between the two of you (P:Payments)
 --   invites = { [name] = when they asked }
 --   only = { [lowercase item name] = item name }  -- the items the totals count (none: all)
 -- ---------------------------------------------------------------------------
@@ -184,6 +192,103 @@ function P:SendFrom(from)
   self.sentThrough = d.pairSeq
 end
 
+-- ---------------------------------------------------------------------------
+-- Pauses: stretches of time when you aren't working together. Trades in a pause
+-- (yours and your partner's) are left out of the Ledger tab on both sides. Pausing
+-- starts PAUSE_GRACE after the press, so the mail for trades made before it still
+-- counts; resuming counts again at once. A pause is never deleted, only closed: one
+-- resumed before it began becomes empty (b == a), so both sides can merge their lists.
+-- ---------------------------------------------------------------------------
+local function pauses(link)
+  link.off = link.off or {}
+  return link.off
+end
+
+function P:SendPauses()
+  local link = self:Link()
+  if not link or link.state ~= "linked" or not self:Ready() then return end
+  local list = pauses(link)
+  local parts = {}
+  for i = math.max(1, #list - PAUSES_SENT + 1), #list do
+    parts[#parts + 1] = b36(list[i].a) .. "-" .. b36(list[i].b or 0)
+  end
+  whisper("W" .. PROTO .. ":" .. table.concat(parts, ","), link.name, "pair", true)
+end
+
+-- Their list into ours: the same pause (same start) closed on either side is closed
+local function onPauses(link, body)
+  local list, grew = pauses(link), false
+  local byStart = {}
+  for _, w in ipairs(list) do byStart[w.a] = w end
+  local now = time()
+  for a36, b36s in body:gmatch("(%w+)%-(%w+)") do
+    local a, b = n36(a36), n36(b36s)
+    if a and b and a < now + 2 * PAUSE_GRACE and (b == 0 or b >= a) then
+      local w = byStart[a]
+      if not w then
+        w = { a = a, b = b ~= 0 and b or nil }
+        list[#list + 1], byStart[a], grew = w, w, true
+      elseif b ~= 0 and (not w.b or b < w.b) then
+        w.b, grew = b, true
+      end
+    end
+  end
+  if grew then
+    table.sort(list, function(x, y) return x.a < y.a end)
+    changed()
+  end
+end
+
+-- The open pause, if any: { a = when it starts (maybe still ahead), b = nil }
+function P:Paused()
+  local link = self:Link()
+  if not link or link.state ~= "linked" then return nil end
+  for _, w in ipairs(pauses(link)) do
+    if not w.b then return w end
+  end
+end
+
+-- Is a trade at time t in a pause?
+function P:InPause(t)
+  local link = self:Link()
+  if not link or link.state ~= "linked" or not link.off then return false end
+  for _, w in ipairs(link.off) do
+    if t >= w.a and (not w.b or t < w.b) then return true end
+  end
+  return false
+end
+
+function P:Pause()
+  local link = self:Link()
+  if not link or link.state ~= "linked" then return false, "You aren't linked with anyone." end
+  local open = self:Paused()
+  if open then return false, ("Already paused from %s. /goon partner resume counts trades again."):format(date("%H:%M", open.a)) end
+  local a = time() + PAUSE_GRACE
+  local list = pauses(link)
+  list[#list + 1] = { a = a }
+  self:SendPauses()
+  changed()
+  C_Timer.After(PAUSE_GRACE + 1, function() changed() end)
+  return true, ("Paused: trades until %s still count (AH mail can lag an hour), later ones don't, for you and %s. Resume when you work together again."):format(date("%H:%M", a), link.name)
+end
+
+function P:Resume()
+  local link = self:Link()
+  if not link or link.state ~= "linked" then return false, "You aren't linked with anyone." end
+  local now, any, began = time(), false, false
+  for _, w in ipairs(pauses(link)) do
+    if not w.b then
+      w.b = math.max(w.a, now)
+      any, began = true, began or now > w.a
+    end
+  end
+  if not any then return false, "You aren't paused." end
+  self:SendPauses()
+  changed()
+  if not began then return true, ("Pause called off before it began: every trade counts, for you and %s."):format(link.name) end
+  return true, ("Resumed: trades from now on count again, for you and %s."):format(link.name)
+end
+
 -- "Send me yours again from where I am": after a chunk that didn't add up, at most
 -- every 20 seconds so two confused sides can't keep each other busy
 local function resync()
@@ -212,6 +317,7 @@ local function onHello(body)
   end
   Y:DropTagged("ledger") -- whatever was still going out is replaced by this answer
   P:SendFrom(from)
+  P:SendPauses()
   if reply == "1" then P:Hello(false) end
 end
 
@@ -352,10 +458,13 @@ FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
   elseif kind == "A" then onAccept(data, who)
   elseif kind == "D" then onDecline(data, who)
   elseif kind == "U" then onUnlink(data, who)
-  elseif kind == "H" or kind == "S" or kind == "E" then
+  elseif kind == "H" or kind == "S" or kind == "E" or kind == "W" then
     if partner and link.state == "linked" then
-      if kind == "H" then onHello(body) elseif kind == "S" then onStart(link, body) else onEnd(link, body) end
-    elseif not partner and kind ~= "E" then
+      if kind == "H" then onHello(body)
+      elseif kind == "S" then onStart(link, body)
+      elseif kind == "E" then onEnd(link, body)
+      else onPauses(link, body) end
+    elseif not partner and kind ~= "E" and kind ~= "W" then
       -- they still think we're linked (we unlinked while they were away): tell them,
       -- once a minute at most
       local now = GetTime()
@@ -537,20 +646,23 @@ local function row(e, mine, who)
   }
 end
 
--- Every AH purchase and sale since `since`: yours and, when linked, your partner's
+-- Every AH purchase and sale since `since`: yours and, when linked, your partner's,
+-- except those in a pause. The second result is how many a pause left out.
 function P:Trades(since)
   since = since or 0
-  local rows = {}
+  local rows, paused = {}, 0
+  local function add(e, mine, who)
+    if e.t < since then return end
+    if self:InPause(e.t) then paused = paused + 1 else rows[#rows + 1] = row(e, mine, who) end
+  end
   for _, e in ipairs(FI.Ledger:Data().entries) do
-    if shareable(e) and e.t >= since then rows[#rows + 1] = row(e, true, "You") end
+    if shareable(e) then add(e, true, "You") end
   end
   local link = self:Link()
   if link and link.state == "linked" then
-    for _, e in ipairs(link.entries or {}) do
-      if e.t >= since then rows[#rows + 1] = row(e, false, link.name) end
-    end
+    for _, e in ipairs(link.entries or {}) do add(e, false, link.name) end
   end
-  return rows
+  return rows, paused
 end
 
 local function side() return { spent = 0, sold = 0, fees = 0, net = 0, buys = 0, sales = 0 } end
@@ -601,11 +713,84 @@ function P:Items(rows)
   return list
 end
 
--- Who owes whom so each ends up with their share of what you made together.
--- More than 0: you owe your partner that much; less: they owe you.
-function P:Settle(totals, pct)
+-- ---------------------------------------------------------------------------
+-- Gold between the two of you: trade window gold, mailed gold and amounts you type.
+-- Each side writes down what it sees itself (both see a trade; the sender sees a
+-- mail go, the receiver sees its gold taken), so nothing about payments is sent.
+-- Pauses and the item pick don't apply: a payment always settles.
+-- ---------------------------------------------------------------------------
+local PAID_MAX = 500
+
+function P:AddPayment(dir, copper, via, t)
+  local link = self:Link()
+  if not link or link.state ~= "linked" then return false end
+  copper = math.floor(tonumber(copper) or 0)
+  if copper <= 0 or (dir ~= "out" and dir ~= "in") then return false end
+  link.paid = link.paid or {}
+  link.paid[#link.paid + 1] = { t = t or time(), d = dir, g = copper, via = via or "typed" }
+  while #link.paid > PAID_MAX do table.remove(link.paid, 1) end
+  changed()
+  return true
+end
+
+-- The payments since `since`, oldest first, and what they add to what you owe:
+-- gold you gave counts against it, gold you got adds to it
+function P:Payments(since)
+  local link = self:Link()
+  local list, out, inn = {}, 0, 0
+  if not link or link.state ~= "linked" then return list, 0, 0 end
+  for _, p in ipairs(link.paid or {}) do
+    if p.t >= (since or 0) then
+      list[#list + 1] = p
+      if p.d == "out" then out = out + p.g else inn = inn + p.g end
+    end
+  end
+  return list, out, inn
+end
+
+-- Who owes whom so each ends up with their share of what you made together, after
+-- the gold already passed between you. More than 0: you owe your partner that much;
+-- less: they owe you.
+function P:Settle(totals, pct, since)
   pct = pct or self:Split()
-  return totals.me.net - totals.both.net * pct / 100
+  local _, out, inn = self:Payments(since)
+  return totals.me.net - totals.both.net * pct / 100 - out + inn
+end
+
+-- /goon partner paid 500g | got 500g: a payment the addon didn't see
+function P:TypedPayment(dir, text)
+  local link = self:Link()
+  if not link or link.state ~= "linked" then return false, "You aren't linked with anyone." end
+  local copper = FI.ParseMoney(text)
+  if not copper or copper <= 0 then
+    return false, ("Usage: /goon partner %s 500g  (gold you %s %s outside a trade or mail)"):format(dir == "out" and "paid" or "got", dir == "out" and "gave" or "got from", link.name)
+  end
+  self:AddPayment(dir, copper, "typed")
+  return true, (dir == "out" and "Noted: you paid %s %s." or "Noted: %s paid you %s."):format(link.name, FI.Coins(copper))
+end
+
+function P:UndoPayment()
+  local link = self:Link()
+  local p = link and link.state == "linked" and link.paid and link.paid[#link.paid]
+  if not p then return false, "No payments to take back." end
+  table.remove(link.paid)
+  changed()
+  return true, ("Took back the last payment: %s %s %s on %s."):format(p.d == "out" and "you paid" or "you got", FI.Coins(p.g), p.d == "out" and "to " .. link.name or "from " .. link.name, date("%b %d %H:%M", p.t))
+end
+
+function P:PrintPayments()
+  local link = self:Link()
+  if not link or link.state ~= "linked" then return FI:Print("You aren't linked with anyone.") end
+  local list, out, inn = self:Payments(0)
+  if #list == 0 then
+    return FI:Print("No gold between you and %s yet. Trades and mail with them are noted by themselves; /goon partner paid 500g notes one the addon didn't see.", link.name)
+  end
+  FI:Print("Gold between you and %s: you paid %s, you got %s.", link.name, FI.Coins(out), FI.Coins(inn))
+  for i = math.max(1, #list - 9), #list do
+    local p = list[i]
+    FI:Print("  %s  %s %s  (%s)", date("%b %d %H:%M", p.t), p.d == "out" and "paid" or "got", FI.Coins(p.g), p.via)
+  end
+  FI:Print("/goon partner payments undo takes back the last one.")
 end
 
 -- ---------------------------------------------------------------------------
@@ -621,6 +806,10 @@ function P:Status()
     FI:Print("Settling up splits what you make together %d / %d (you / %s): /goon partner split 60 changes your share.", self:Split(), 100 - self:Split(), link.name)
     local only = self:OnlyList()
     if #only > 0 then FI:Print("The totals count only %s: /goon partner only clear counts every item.", table.concat(only, ", ")) end
+    local open = self:Paused()
+    if open then
+      FI:Print("%s from %s: later trades don't count until /goon partner resume.", time() < open.a and "Pausing" or "Paused", date("%b %d %H:%M", open.a))
+    end
   elseif link then
     FI:Print("Waiting for %s to accept your question (asked %s). /goon partner unlink takes it back.", link.name, FI.Ago(link.at))
   else
@@ -642,6 +831,12 @@ function P:Command(rest)
   elseif word == "unlink" or word == "cancel" then ok, msg = self:Unlink()
   elseif word == "sync" then ok, msg = self:SyncNow()
   elseif word == "split" then ok, msg = self:SetSplit(arg)
+  elseif word == "paid" then ok, msg = self:TypedPayment("out", arg)
+  elseif word == "got" then ok, msg = self:TypedPayment("in", arg)
+  elseif word == "payments" then
+    if arg:lower() == "undo" then ok, msg = self:UndoPayment() else return self:PrintPayments() end
+  elseif word == "pause" then ok, msg = self:Pause()
+  elseif word == "resume" then ok, msg = self:Resume()
   elseif word == "only" then
     if arg:lower() == "clear" or arg:lower() == "all" then ok, msg = self:ClearOnly()
     elseif arg == "" then
@@ -680,3 +875,96 @@ FI:On("FI_LEDGER_CHANGED", function()
     if (d.pairSeq or 0) > P.sentThrough then P:SendFrom(P.sentThrough) end
   end)
 end)
+
+-- Gold between partners, as it happens
+-- The trade window: the amounts each side has put in, kept up to date while it's open,
+-- written down when the game says the trade went through
+local trade
+local function readTrade()
+  if not trade then return end
+  trade.give = GetPlayerTradeMoney and GetPlayerTradeMoney() or 0
+  trade.take = GetTargetTradeMoney and GetTargetTradeMoney() or 0
+end
+FI:On("TRADE_SHOW", function()
+  local link = P:Link()
+  local who = UnitName("NPC")
+  trade = (link and link.state == "linked" and same(who, link.name)) and { give = 0, take = 0 } or nil
+end)
+FI:On("TRADE_MONEY_CHANGED", readTrade)
+FI:On("TRADE_PLAYER_ITEM_CHANGED", readTrade)
+FI:On("TRADE_TARGET_ITEM_CHANGED", readTrade)
+FI:On("TRADE_ACCEPT_UPDATE", readTrade)
+FI:On("UI_INFO_MESSAGE", function(_, kind, msg)
+  if not trade then return end
+  local done = (msg ~= nil and msg == _G.ERR_TRADE_COMPLETE)
+    or (kind ~= nil and _G.LE_GAME_ERR_TRADE_COMPLETE ~= nil and kind == _G.LE_GAME_ERR_TRADE_COMPLETE)
+  if not done then return end
+  local t = trade
+  trade = nil
+  local name = P:Link() and P:Link().name or "your partner"
+  if t.give > 0 and P:AddPayment("out", t.give, "trade") then
+    FI:Print("Noted for Settling Up: you traded %s %s.", name, FI.Coins(t.give))
+  end
+  if t.take > 0 and P:AddPayment("in", t.take, "trade") then
+    FI:Print("Noted for Settling Up: %s traded you %s.", name, FI.Coins(t.take))
+  end
+end)
+-- (a trade that's cancelled never sends the complete message; the next window starts over)
+
+-- Mail: gold you send them counts when the game says the mail went; gold from them
+-- counts when you take it (a returned mail of yours counts as gold coming back)
+local sending, lastSetMoney
+if hooksecurefunc and _G.SetSendMailMoney then
+  hooksecurefunc("SetSendMailMoney", function(m) lastSetMoney = tonumber(m) end)
+end
+if hooksecurefunc and _G.SendMail then
+  hooksecurefunc("SendMail", function(to)
+    local link = P:Link()
+    -- (this runs after the send call: the amount set on the mail backs up the live one)
+    local money = math.max(GetSendMailMoney and GetSendMailMoney() or 0, lastSetMoney or 0)
+    lastSetMoney = nil
+    local cod = GetSendMailCOD and GetSendMailCOD() or 0
+    sending = (link and link.state == "linked" and money > 0 and cod == 0 and same(short(to), link.name)) and money or nil
+  end)
+end
+FI:On("MAIL_SEND_SUCCESS", function()
+  local money = sending
+  sending = nil
+  if money and P:AddPayment("out", money, "mail") then
+    FI:Print("Noted for Settling Up: you mailed %s %s.", P:Link().name, FI.Coins(money))
+  end
+end)
+FI:On("MAIL_FAILED", function() sending = nil end)
+
+-- the inbox as last seen: this runs after the take call, when the mail may already
+-- show no gold
+local inbox, taken = {}, {}
+local function header(index)
+  local _, _, sender, subject, money, cod, daysLeft = GetInboxHeaderInfo(index)
+  return { sender = sender, subject = subject, money = money or 0, cod = cod or 0, daysLeft = daysLeft or 0 }
+end
+FI:On("MAIL_INBOX_UPDATE", function()
+  inbox = {}
+  if not GetInboxNumItems or not GetInboxHeaderInfo then return end
+  for i = 1, (GetInboxNumItems()) do inbox[i] = header(i) end
+end)
+local function taking(index)
+  local link = P:Link()
+  if not link or link.state ~= "linked" or not GetInboxHeaderInfo then return end
+  local h = header(index)
+  if h.money <= 0 and inbox[index] then h = inbox[index] end
+  local sender, subject, money, cod, daysLeft = h.sender, h.subject, h.money, h.cod, h.daysLeft
+  if not money or money <= 0 or (cod or 0) > 0 or not same(short(sender), link.name) then return end
+  -- the same mail clicked twice before the game empties it is one payment
+  local key = table.concat({ tostring(sender), tostring(subject), money, ("%.3f"):format(daysLeft or 0) }, "|")
+  local now = GetTime()
+  if taken[key] and now - taken[key] < 30 then return end
+  taken[key] = now
+  if P:AddPayment("in", money, "mail") then
+    FI:Print("Noted for Settling Up: %s mailed you %s.", link.name, FI.Coins(money))
+  end
+end
+if hooksecurefunc then
+  if _G.TakeInboxMoney then hooksecurefunc("TakeInboxMoney", taking) end
+  if _G.AutoLootMailItem then hooksecurefunc("AutoLootMailItem", taking) end
+end
