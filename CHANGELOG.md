@@ -1,5 +1,14 @@
 # Goonberg Terminal
 
+## 0.41.0 - A ledger you share with a partner
+
+- **New Ledger tab.** Link up with one guildmate you trade with and you both see each other's Auction House purchases and sales in one list: who bought or sold what, how many, at what price each and in total. Not linked, it shows your own.
+- **By item.** The same trades added up per item: what you paid, what your partner paid, what you paid together, what it sold for (after the AH cut) and the net. Hover an item for each player's quantities and average price.
+- **Summed, and settled.** Cards for you, your partner and the two of you together (bought, sold, net) for Today, 7 days, 30 days, since you linked or all time, and a Settling Up line that says who owes whom for an even split. `/goon partner split 60` changes your share.
+- **Linking up takes two.** Type a guildmate's name on the Ledger tab (or `/goon partner <name>`); it starts when they accept. Either of you can unlink at any time, which removes the other's trades from your saved data.
+- **Only your partner gets your trades.** They go by addon whisper to that one player: AH purchases and sales, nothing else, and nothing to the guild. They are exchanged when you're both online, at login, after a mailbox visit, or with Sync now.
+- **The window is a little wider** (and its smallest size too), to make room for the new tab.
+
 ## 0.40.6 - Mail on the way adds up
 
 - **Fixed: wildly inflated gold in Mail on the way.** For a sold stack the game gives the whole amount coming, and Goonberg counted it as a price each, so a sold x32 was counted 32 times over. Sold auctions now show the same amount as "Incoming Amount" on the game's own Auctions tab.

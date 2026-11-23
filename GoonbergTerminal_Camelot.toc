@@ -2,7 +2,7 @@
 ## Title: Goonberg Terminal
 ## Notes: A trading terminal for the Auction House: price history, market depth, alerts and a market overview.
 ## Author: Goonberg Terminal
-## Version: 0.40.6
+## Version: 0.41.0
 ## X-License: GPL-2.0
 ## Category: Auction
 ## SavedVariables: GoonbergTerminalDB
@@ -23,6 +23,7 @@ Ledger.lua
 Crafting.lua
 Import.lua
 Sync.lua
+Partner.lua
 Auctions.lua
 QuickBuy.lua
 Sell.lua
@@ -42,6 +43,7 @@ UI\BankValue.lua
 UI\Craft.lua
 UI\CraftOverview.lua
 UI\Auctions.lua
+UI\Ledger.lua
 UI\AuctionPopups.lua
 UI\QuickBuy.lua
 UI\Minimap.lua

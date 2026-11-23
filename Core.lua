@@ -20,7 +20,9 @@ local ADDON, ns = ...
 ---@field History GT.History
 ---@field Import GT.Import
 ---@field Ledger GT.Ledger
+---@field LedgerTab GT.LedgerTab
 ---@field Loot GT.Loot
+---@field Partner GT.Partner
 ---@field Scanner GT.Scanner
 ---@field Seed GT.Seed
 ---@field Sync GT.Sync
@@ -422,6 +424,7 @@ end
 ---@field lastShared {from: string, t: integer, items: integer}?  the latest guildmate scan
 ---@field syncPeers table<string, integer>?  Sync.lua: guildmates running Goonberg, when last heard from
 ---@field ledger table?                 Ledger.lua
+---@field partner table?                Partner.lua: per character, the linked guildmate and their trades
 ---@field recipes table?                Crafting.lua, per character
 ---@field marketBuilt integer?          Seed.lua
 ---@field seedBuilt integer?
@@ -612,6 +615,7 @@ local help = {
   "/goon minimap on|off|reset  - the button under the minimap",
   "/goon de <item>  - what it disenchants into and is worth  |  /goon de watch",
   "/goon sync  - guild sync status  |  /goon sync on|off|history|catchup|scan",
+  "/goon partner <guildmate>  - link ledgers: you both see each other's AH purchases and sales (/goon ledger)  |  partner accept|decline|unlink|sync|split 50",
   "/goon sales on|off  - when one of your auctions sells, the game's chat line says how many and for how much",
   "/goon buycap 1g50s | off  - quick-buy cap for the item open at the AH (/goon quickbuy for the macro)",
   "/goon quant 20 | 1  - quick buy skips listings smaller than that (1 takes any size)",
@@ -723,6 +727,11 @@ SlashCmdList.GOONBERG = function(msg)
     FI.UI:Show("craft")
   elseif cmd == "pnl" then
     FI.UI:Show("pnl")
+  elseif cmd == "ledger" then
+    FI.UI:Show("ledger")
+  elseif cmd == "partner" or cmd == "link" then
+    -- a shared ledger with one guildmate: /goon partner <name> | accept | decline | unlink | sync | split 50
+    FI.Partner:Command(rest)
   elseif cmd == "chart" then
     local id = FI:FindItem(rest)
     FI.UI:ShowItem(id)

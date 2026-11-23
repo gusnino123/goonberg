@@ -95,6 +95,16 @@ The chart is only as detailed as the scans: zoomed into an hour you'll see a few
 ### P&L
 A shareable profit card for **Today, 7 days, 30 days or All time**: net profit, ROI (when you flip), sold, bought, the AH cut, your best item and what your bags are worth, with a goblin on a pile of gold. **Share in chat** posts it to your guild; **Screenshot** saves the screen. Trades are read from your AH mail invoices, so open a mailbox to update it.
 
+### Ledger
+A shared ledger for two people who trade together. Link up with **one guildmate** and you both see each other's Auction House purchases and sales in one list: who bought or sold what, how many, the price each and the total. **By item** adds it up per item: what you paid, what your partner paid, what you paid together, what it sold for and the net. The cards at the top sum it for you, your partner and the two of you, and **Settling Up** says who owes whom for an even split (change your share with `/goon partner split 60`).
+
+- **Linking up:** type your guildmate's name on the Ledger tab and press **Link up** (or `/goon partner <name>`). They get the question on their Ledger tab and in chat, and it starts when they accept. You both need Goonberg 0.41 or newer and have to be online for the question.
+- **What is sent:** your AH purchases and sales (item, quantity, gold, AH cut, time), only to your partner, by addon whisper. Nothing goes to the guild, and nothing else is sent: not your gold, your bags, your crafts or your vendor sales.
+- **Staying current:** trades are exchanged when you're both online: at login, after each mailbox visit, and with **Sync now**. Like the P&L, they come from the AH mail, so open a mailbox.
+- **Unlinking** (either of you, any time) removes the other's trades from your saved data and stops the sharing. A link belongs to the character that made it.
+
+Not linked, the tab shows your own purchases and sales.
+
 ### Tooltips
 Hover any item (bags, bank, mail, chat links, the AH) to see:
 - Market price, **stack value**, lowest buyout now, **7-day change**, est. sold per day
@@ -119,6 +129,7 @@ Every command starts with `/goon` (or `/goonberg`). Wherever a command takes an 
 | `/goon chart <item>` | Price chart for an item |
 | `/goon2` or `/goon craft` | Crafting profit for your professions |
 | `/goon pnl` | Your profit and loss card |
+| `/goon ledger` | The ledger you share with a partner |
 
 ### Scanning and data
 | Command | What it does |
@@ -166,6 +177,12 @@ Prices can be written `3g50s`, `3g 50s 20c`, `75s`, `20c` or just `3.5` (gold).
 |---|---|
 | `/goon post <item>` | Post an item's price, weekly change and wall to guild chat |
 | `/goon post <item> party` | Same, to `party`, `raid` or `say` |
+| `/goon partner <guildmate>` | Ask a guildmate to link ledgers: you both see each other's AH purchases and sales on the Ledger tab |
+| `/goon partner accept` / `decline` | Answer a guildmate who asked you |
+| `/goon partner` | Who you're linked with and how fresh their trades are |
+| `/goon partner sync` | Exchange your newest trades now (you both have to be online) |
+| `/goon partner split 60` | Your share, in percent, for the "Settling Up" line (50 by default; only on your side) |
+| `/goon partner unlink` | End the link (or take back a question nobody answered) |
 
 ### Disenchanting
 | Command | What it does |

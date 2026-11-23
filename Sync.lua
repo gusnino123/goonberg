@@ -93,7 +93,8 @@ local selfName
 -- never waits minutes behind someone's history.
 local function nextIndex()
   for i = 1, #queue do
-    if queue[i][4] ~= "bulk" then return i end
+    -- ("ledger": a partner's trades, Partner.lua: as long as a history, and as patient)
+    if queue[i][4] ~= "bulk" and queue[i][4] ~= "ledger" then return i end
   end
   return 1
 end
@@ -182,6 +183,39 @@ local function send(msg, channel, target, tag, first, prefix)
 end
 
 function Y:QueueLength() return #queue end
+
+-- For Partner.lua: its whispers go out through this same gentle queue, on its own prefix
+Y.Send = send
+-- Take back everything still waiting under a tag (a transfer that's being started over)
+function Y:DropTagged(tag)
+  local n = 0
+  for i = #queue, 1, -1 do
+    if queue[i][4] == tag then table.remove(queue, i); n = n + 1 end
+  end
+  return n
+end
+-- Someone just whispered us on another prefix: they're online, so whispers reach them again
+function Y:Heard(name)
+  name = baseName(name)
+  if name then gone[name] = nil end
+end
+-- A guildmate by the name you typed, as the guild roster spells it (some servers add a
+-- surname, and typed names may differ in case): the roster's name and whether they're
+-- online. nil when they aren't in the roster the game has given us.
+function Y:GuildMember(name)
+  name = baseName(name)
+  if not name or name == "" then return nil end
+  offlineInGuild(name) -- reads the roster again when our copy is old
+  if not roster then return nil end
+  local want = name:lower()
+  for full, online in pairs(roster) do
+    local have = full:lower()
+    if have == want or have:sub(1, #want + 1) == want .. " " or want:sub(1, #have + 1) == have .. " " then
+      return full, online
+    end
+  end
+  return nil
+end
 
 -- Packs "entry;entry;..." into messages under the size limit
 local function packed(head, entries, channel, target, tag, prefix)

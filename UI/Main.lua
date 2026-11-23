@@ -7,8 +7,9 @@ FI.UI = UI
 local W = FI.Widgets
 local C = FI.colors
 
-UI.WIDTH, UI.HEIGHT = 1060, 654
-UI.MIN_W, UI.MIN_H = 900, 614
+-- (wide enough for the row of tabs beside the market picker and the scan button)
+UI.WIDTH, UI.HEIGHT = 1140, 654
+UI.MIN_W, UI.MIN_H = 980, 614
 UI.TITLE = 22 -- the title bar
 UI.TOP = 60   -- title bar and tab row: the body starts below this (where the game's own panels start theirs)
 
@@ -252,9 +253,9 @@ function UI:Build()
   head:SetFrameLevel(body:GetFrameLevel() + 5) -- the tabs overlap the body's top edge
   draggable(head, f)
 
-  local order = { "Overview", "Deals", "Loot", "Chart", "Crafting", "P&L", "Auctions" }
-  local keys = { Overview = "overview", Deals = "deals", Loot = "loot", Chart = "chart", Crafting = "craft", ["P&L"] = "pnl", Auctions = "auctions" }
-  self.tabLabels = { overview = "Overview", deals = "Deals", loot = "Loot", chart = "Chart", craft = "Crafting", pnl = "P&L", auctions = "Auctions" }
+  local order = { "Overview", "Deals", "Loot", "Chart", "Crafting", "P&L", "Ledger", "Auctions" }
+  local keys = { Overview = "overview", Deals = "deals", Loot = "loot", Chart = "chart", Crafting = "craft", ["P&L"] = "pnl", Ledger = "ledger", Auctions = "auctions" }
+  self.tabLabels = { overview = "Overview", deals = "Deals", loot = "Loot", chart = "Chart", craft = "Crafting", pnl = "P&L", ledger = "Ledger", auctions = "Auctions" }
   local tabs = W.Choice(head, order, "tab", function(v) UI:Show(keys[v]) end, self.TOP - self.TITLE)
   tabs:SetPoint("BOTTOMLEFT", head, "BOTTOMLEFT", 0, 0)
   if not tabs.native then
@@ -312,6 +313,16 @@ function UI:Build()
   self.tabs.pnl = FI.PnLTab:Build(body)
   self.tabs.craft = FI.CraftTab:Build(body)
   self.tabs.auctions = FI.AuctionsTab:Build(body)
+  -- The newest tab is built on its own: if it fails, the error is reported and the
+  -- other tabs still work (an empty Ledger tab instead of a broken window).
+  local built, ledger = pcall(function() return FI.LedgerTab:Build(body) end)
+  if not built then
+    geterrorhandler()(ledger)
+    if FI.LedgerTab and FI.LedgerTab.frame then FI.LedgerTab.frame:Hide() end
+    ledger = CreateFrame("Frame", nil, body)
+    ledger:SetAllPoints()
+  end
+  self.tabs.ledger = ledger
 
   -- The game's open and close sounds. f.quiet skips them when the window opens and
   -- closes along with the Auction House, which plays its own.
@@ -640,6 +651,7 @@ local CHECKS = {
   { "chart" },
   { "craft", "Overview", function(v) FI.CraftTab.view = v end }, { "craft", "Recipes", function(v) FI.CraftTab.view = v end },
   { "pnl", "Summary", function(v) FI.PnLTab.view = v end }, { "pnl", "Positions", function(v) FI.PnLTab.view = v end },
+  { "ledger", "Trades", function(v) FI.LedgerTab.view = v end }, { "ledger", "By item", function(v) FI.LedgerTab.view = v end },
   { "auctions" },
 }
 
@@ -649,13 +661,13 @@ function UI:CheckLayout()
   self:Build()
   local f = self.frame
   local w, h, tab = f:GetWidth(), f:GetHeight(), self.current
-  local views = { loot = FI.LootTab.view, craft = FI.CraftTab.view, pnl = FI.PnLTab.view }
+  local views = { loot = FI.LootTab.view, craft = FI.CraftTab.view, pnl = FI.PnLTab.view, ledger = FI.LedgerTab.view }
   FI:Print("Checking the layout of every tab at the smallest window size...")
   self:Show(tab)
   f:SetSize(self.MIN_W, self.MIN_H)
   local found, n, i = {}, 0, 0
   local function finish()
-    FI.LootTab.view, FI.CraftTab.view, FI.PnLTab.view = views.loot, views.craft, views.pnl
+    FI.LootTab.view, FI.CraftTab.view, FI.PnLTab.view, FI.LedgerTab.view = views.loot, views.craft, views.pnl, views.ledger
     f:SetSize(w, h)
     self:Show(tab)
     self.checking = nil
