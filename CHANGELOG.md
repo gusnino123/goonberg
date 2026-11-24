@@ -1,5 +1,9 @@
 # Goonberg Terminal
 
+## 0.43.4 - Bags worth on the Combined Backpack
+
+- **Fixed: the bags worth panel didn't show with the Combined Backpack** (all your bags in one window). It now sits just above it. Alt + drag still moves it anywhere.
+
 ## 0.43.3 - Ledgers that agree, and what your bags are worth
 
 - **Fixed: partners' Ledger tabs could disagree on who owes whom.** If the game closed without saving (a crash, or closing it mid-session), your ledger went back to an older save, but your partner kept the trades you lost and never got the ones you made afterwards. Goonberg now notices this and sends your partner your whole ledger again, so both Ledger tabs show the same trades. You both need 0.43.3 for it to repair; press **Sync now** once while you're both online.
