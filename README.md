@@ -203,6 +203,8 @@ Prices can be written `3g50s`, `3g 50s 20c`, `75s`, `20c` or just `3.5` (gold).
 | `/goon sound on` / `off` | Sound when an alert fires |
 | `/goon tooltip on` / `off` | Goonberg lines in item tooltips |
 | `/goon minimap on` / `off` / `reset` | Show, hide or re-center the minimap button |
+| `/goon bank` / `bank on` / `off` / `reset` | Your bank at market prices; show, hide or re-place the bank worth panel on the bank window (Alt + drag moves it) |
+| `/goon bags` / `bags on` / `off` / `reset` | Your bags at market prices; show, hide or re-place the bags worth panel beside the backpack (Alt + drag moves it) |
 | `/goon scale 0.9` | Shrink or grow the whole window (0.5 to 1.5). You can also drag its bottom-right corner |
 | `/goon scale reset` | Put the window's size, scale and position back to default |
 | `/goon help` | List the commands in game |

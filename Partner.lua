@@ -13,6 +13,9 @@
 --   S1:<ledger>:<from>:<through>:<count>   a chunk of trades starts
 --   B<n,t,k,q,g,f,name;...>                trades (numbers in base 36; k: b bought, s sold)
 --   E1:<through>           the chunk is complete: only now does the receiver keep it
+--   C1:<ledger>:<have>:<t> sent with a hello: "your trade number <have> happened at <t>".
+--                          If it didn't, the sender's ledger went back to an older save
+--                          and starts over under a new name. Older clients ignore it
 --   W1:<a>-<b>,...         the pauses: trades from a up to b (0: still paused) don't count.
 --                          Sent with each hello and on pause / resume; older clients
 --                          ignore it
@@ -153,10 +156,24 @@ P.Encode, P.Decode = encode, decode
 -- ---------------------------------------------------------------------------
 -- Sending
 -- ---------------------------------------------------------------------------
+-- When the partner's trade numbered `have` happened, as we hold it, or nil if we can't
+-- tell. (Trades received before 0.43.3 carry no number; they arrive in order, so when
+-- we hold exactly `have` of them the last one is number `have`.)
+local function heldLast(link)
+  local list, have = link.entries or {}, link.have or 0
+  local e = list[#list]
+  if not e or have <= 0 then return nil end
+  if e.sn then return e.sn == have and e.t or nil end
+  return #list == have and e.t or nil
+end
+
 function P:Hello(wantReply)
   local link = self:Link()
   if not link or link.state ~= "linked" or not self:Ready() then return false end
   whisper(("H%s:%s:%s:%s"):format(PROTO, link.epoch or "0", b36(link.have or 0), wantReply and "1" or "0"), link.name, "pair", true)
+  -- queued in front of the hello, so it's read first
+  local t = heldLast(link)
+  if t then whisper(("C%s:%s:%s:%s"):format(PROTO, link.epoch or "0", b36(link.have), b36(t)), link.name, "pair", true) end
   return true
 end
 
@@ -300,20 +317,41 @@ end
 -- ---------------------------------------------------------------------------
 -- Receiving a partner's trades
 -- ---------------------------------------------------------------------------
+-- "The trade of yours I hold as number <have> happened at <t>". If our trade with that
+-- number happened at another time, our ledger went back to an older save (the game
+-- closed without saving) after those trades were sent, and newer trades have since
+-- taken their numbers. The partner would keep trades we no longer have and never get
+-- the ones that reused the numbers. A new name makes them drop what they hold, and
+-- the hello that follows sends everything again.
+local function onCheck(body)
+  local epoch, a, b = body:match("^(%w+):(%w+):(%w+)$")
+  local have, t = n36(a), n36(b)
+  local d = FI.Ledger:Data()
+  if not epoch or not have or not t or have <= 0 or epoch ~= d.pairEpoch or have > (d.pairSeq or 0) then return end
+  for _, e in ipairs(d.entries) do
+    if e.sn == have then
+      if math.floor(e.t or 0) == t then return end
+      break
+    end
+  end
+  newEpoch(d)
+end
+
 local function onHello(body)
   local epoch, have, reply = body:match("^(%w+):(%w+):([01])$")
   if not epoch then return end
-  local d = P:Numbered()
+  local d = FI.Ledger:Data()
   local from = n36(have) or 0
   if epoch ~= d.pairEpoch then
     from = 0
   elseif from > (d.pairSeq or 0) then
     -- they hold more of this ledger than exists: ours was restored from an older
     -- copy. A new name makes them drop what they hold and take it all again.
+    -- (Checked before new trades get numbers, or they'd hide the gap.)
     newEpoch(d)
-    P:Numbered()
     from = 0
   end
+  P:Numbered()
   Y:DropTagged("ledger") -- whatever was still going out is replaced by this answer
   P:SendFrom(from)
   P:SendPauses()
@@ -353,7 +391,7 @@ local function onEnd(link, body)
   local have, added = link.have or 0, 0
   for _, e in ipairs(s.got) do
     if e.sn > have and e.sn <= s.through then
-      link.entries[#link.entries + 1] = { t = e.t, k = e.k, i = e.i, q = e.q, g = e.g, f = e.f }
+      link.entries[#link.entries + 1] = { sn = e.sn, t = e.t, k = e.k, i = e.i, q = e.q, g = e.g, f = e.f }
       added = added + 1
     end
   end
@@ -457,13 +495,14 @@ FI:On("CHAT_MSG_ADDON", function(_, prefix, text, channel, from)
   elseif kind == "A" then onAccept(data, who)
   elseif kind == "D" then onDecline(data, who)
   elseif kind == "U" then onUnlink(data, who)
-  elseif kind == "H" or kind == "S" or kind == "E" or kind == "W" then
+  elseif kind == "H" or kind == "S" or kind == "E" or kind == "W" or kind == "C" then
     if partner and link.state == "linked" then
       if kind == "H" then onHello(body)
+      elseif kind == "C" then onCheck(body)
       elseif kind == "S" then onStart(link, body)
       elseif kind == "E" then onEnd(link, body)
       else onPauses(link, body) end
-    elseif not partner and kind ~= "E" and kind ~= "W" then
+    elseif not partner and kind ~= "E" and kind ~= "W" and kind ~= "C" then
       -- they still think we're linked (we unlinked while they were away): tell them,
       -- once a minute at most
       local now = GetTime()

@@ -1,5 +1,11 @@
 # Goonberg Terminal
 
+## 0.43.3 - Ledgers that agree, and what your bags are worth
+
+- **Fixed: partners' Ledger tabs could disagree on who owes whom.** If the game closed without saving (a crash, or closing it mid-session), your ledger went back to an older save, but your partner kept the trades you lost and never got the ones you made afterwards. Goonberg now notices this and sends your partner your whole ledger again, so both Ledger tabs show the same trades. You both need 0.43.3 for it to repair; press **Sync now** once while you're both online.
+- **Bags worth beside your backpack.** With the game's own bags, a small panel next to the backpack shows what your bags would fetch at AH prices (only things you could sell). `/goon bags` prints it; `/goon bags off` hides the panel.
+- **Move the bank and bags panels with Alt + drag.** They stay where you put them. `/goon bank reset` and `/goon bags reset` put them back.
+
 ## 0.43.2 - Pause means paused
 
 - **Pause takes effect at once.** Trades from the moment you pause are left out, instead of an hour later. If your partner is still on 0.43.0 or 0.43.1, their pauses keep the old hour until they update.

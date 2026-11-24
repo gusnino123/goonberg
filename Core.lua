@@ -613,6 +613,8 @@ local help = {
   "/goon autoscan|dock|sound|tooltip on|off",
   "/goon options  - what Goonberg adds to item tooltips, line by line (also the Options button in the window)",
   "/goon minimap on|off|reset  - the button under the minimap",
+  "/goon bank  - your bank at market  |  bank on|off|reset (the panel on the bank window; Alt + drag moves it)",
+  "/goon bags  - your bags at market  |  bags on|off|reset (the panel beside your backpack; Alt + drag moves it)",
   "/goon de <item>  - what it disenchants into and is worth  |  /goon de watch",
   "/goon sync  - guild sync status  |  /goon sync on|off|history|catchup|scan",
   "/goon partner <guildmate>  - link ledgers: you both see each other's AH purchases and sales (/goon ledger)  |  partner accept|decline|unlink|sync|split 50|only <item>|pause|resume|paid 500g|got 500g|payments",
@@ -741,12 +743,30 @@ SlashCmdList.GOONBERG = function(msg)
     local id = FI:FindItem(rest)
     if not id then return FI:Print("Couldn't find that item. Shift-click it into the command, or scan the AH first.") end
     if cmd == "watch" then FI.Alerts:Watch(id) else FI.Alerts:Unwatch(id) end
+  elseif cmd == "bags" then
+    -- the bags worth panel beside the game's backpack
+    local arg = rest:lower()
+    if arg == "on" or arg == "off" then
+      FI.settings.bagValue = arg == "on" or false
+    elseif arg == "reset" then
+      FI.settings.bagValuePos = nil
+    else
+      return FI:Print("Your bags: %s at market (%s).", FI.Money(FI.Ledger:BagValue()), FI:MarketName())
+    end
+    if FI.BagValue then FI.BagValue:Refresh() end
+    return FI:Print(arg == "reset" and "The bags worth panel is back beside your backpack."
+      or ("The bags worth panel beside your backpack is now %s."):format(arg))
   elseif cmd == "bank" then
     -- what's in your bank (as of your last visit) at market prices
     if rest:lower() == "off" or rest:lower() == "on" then
       FI.settings.bankValue = rest:lower() == "on" or false
       if FI.settings.bankValue == false and FI.BankValue then FI.BankValue:Hide() end
       return FI:Print("The bank worth panel on the bank window is now %s.", rest:lower())
+    end
+    if rest:lower() == "reset" then
+      FI.settings.bankValuePos = nil
+      if FI.BankValue and FI.BankValue.frame and FI.BankValue.frame:IsShown() then FI.BankValue:Place() end
+      return FI:Print("The bank worth panel is back under the bank window.")
     end
     local L = FI.Ledger
     local total, list, t = L:BankValue()

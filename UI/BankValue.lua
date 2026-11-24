@@ -2,7 +2,7 @@
 -- A small panel under WoW's bank window shows the bank's value at AH prices (the
 -- market you're viewing); hover it for item by item and your other characters'
 -- banks. With a bag addon that replaces the bank window, the panel sits at the top
--- of the screen instead (drag it anywhere; the spot is remembered).
+-- of the screen instead. Alt + drag moves it anywhere; the spot is remembered.
 ---@type string, GoonbergTerminal
 local _, FI = ...
 local BV = {}
@@ -16,6 +16,32 @@ local function ago(t)
   if a < 3600 then return math.max(1, math.floor(a / 60)) .. " min ago" end
   if a < 86400 then return math.floor(a / 3600) .. " h ago" end
   return math.floor(a / 86400) .. " days ago"
+end
+
+-- Alt + left-drag moves `f`; the spot is kept in FI.settings[key] (TOPLEFT of the
+-- screen). A plain drag does nothing, so the panel can't be knocked out of place.
+function BV.AltMovable(f, key)
+  f:SetMovable(true)
+  f:SetClampedToScreen(true)
+  f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", function(self)
+    if not IsAltKeyDown() then return end
+    self.dragging = true
+    GameTooltip_Hide()
+    self:StartMoving()
+  end)
+  f:SetScript("OnDragStop", function(self)
+    if not self.dragging then return end
+    self.dragging = false
+    self:StopMovingOrSizing()
+    if self.SetUserPlaced then pcall(self.SetUserPlaced, self, false) end
+    local left, top = self:GetLeft(), self:GetTop()
+    if not left or not top then return end
+    local s = self:GetEffectiveScale() / UIParent:GetEffectiveScale()
+    FI.settings[key] = { x = math.floor(left * s + 0.5), y = math.floor(top * s - UIParent:GetHeight() + 0.5), moved = true }
+    self:ClearAllPoints()
+    self:SetPoint("TOPLEFT", UIParent, "TOPLEFT", FI.settings[key].x, FI.settings[key].y)
+  end)
 end
 
 function BV:Build()
@@ -37,16 +63,8 @@ function BV:Build()
   f:EnableMouse(true)
   f:SetScript("OnEnter", function(self) BV:Tooltip(self) end)
   f:SetScript("OnLeave", GameTooltip_Hide)
-  -- movable only when it isn't sitting under the bank window
-  f:SetMovable(true)
-  f:RegisterForDrag("LeftButton")
-  f:SetScript("OnDragStart", function(self) if not self.onBank then self:StartMoving() end end)
-  f:SetScript("OnDragStop", function(self)
-    self:StopMovingOrSizing()
-    if self.onBank then return end
-    local _, _, _, x, y = self:GetPoint(1)
-    FI.settings.bankValuePos = { x = x, y = y }
-  end)
+  -- Alt + drag moves it; once moved it stays there instead of under the bank window
+  BV.AltMovable(f, "bankValuePos")
   f:Hide()
   self.frame = f
   return f
@@ -57,14 +75,18 @@ function BV:Place()
   local f = self.frame
   local bank = _G.BankFrame
   f:ClearAllPoints()
-  if bank and bank:IsShown() then
+  local p = FI.settings.bankValuePos
+  if p and p.moved then
+    -- you Alt-dragged it somewhere: it opens there from now on
+    f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", p.x, p.y)
+    f.onBank = false
+  elseif bank and bank:IsShown() then
     -- just under the window's art (its hit-rect insets mark the transparent edges)
     local l, _, _, b = 0, 0, 0, 0
     if bank.GetHitRectInsets then l, _, _, b = bank:GetHitRectInsets() end
     f:SetPoint("TOPLEFT", bank, "BOTTOMLEFT", (l or 0) + 4, (b or 0) + 2)
     f.onBank = true
   else
-    local p = FI.settings.bankValuePos
     if p then f:SetPoint("TOPLEFT", UIParent, "TOPLEFT", p.x, p.y)
     else f:SetPoint("TOP", UIParent, "TOP", 0, -120) end
     f.onBank = false
@@ -132,7 +154,7 @@ function BV:Tooltip(owner)
     for _, b in ipairs(others) do line("  " .. b.who, money(b.total)) end
     line("All banks", money(sum + (total or 0)), C.gold)
   end
-  GameTooltip:AddLine("|cff8b95a3Prices from the market picked in Goonberg (Horde/Alliance or Neutral AH). /goon bank off hides this.|r", 1, 1, 1, true)
+  GameTooltip:AddLine("|cff8b95a3Prices from the market picked in Goonberg (Horde/Alliance or Neutral AH). Alt + drag to move it (/goon bank reset puts it back). /goon bank off hides this.|r", 1, 1, 1, true)
   GameTooltip:Show()
 end
 
