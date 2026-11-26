@@ -304,6 +304,14 @@ function FI:ItemIcon(itemID)
   return icon or 134400 -- question mark
 end
 
+-- The last of your carried bags: the backpack is 0, then the four bags, then the
+-- reagent bag (5) on clients that have one.
+function FI.LastBag()
+  local n = _G.NUM_TOTAL_EQUIPPED_BAG_SLOTS
+  if type(n) == "number" then return n end
+  return (_G.NUM_BAG_SLOTS or 4) + (_G.NUM_REAGENTBAG_SLOTS or 0)
+end
+
 function FI:ItemLink(itemID)
   local _, link = FI.GetItemInfo(itemID)
   return link
@@ -622,6 +630,7 @@ local help = {
   "/goon buycap 1g50s | off  - quick-buy cap for the item open at the AH (/goon quickbuy for the macro)",
   "/goon quantity 20 | 1  (or /goon quant)  - quick buy skips listings smaller than that (1 takes any size)",
   "/goon sell <item> <price each> [x20] [short|medium|long]  - post it at the AH in one press (put it in a macro)",
+  "/goon sell save [<item> <price each> [x5]]  - keep a price and stack size: click it on the Quick sell panel at the AH, or /goon sell <item>  |  sell list|remove <item>|panel on|off|reset",
   "/goon buypopup move  - drag a box to where the AH Buy popup should open (reset puts it back)",
   "/goon import  - pull price history from Auctionator (also automatic at login; /goon import off)",
   "/goon scale 0.9  |  /goon scale reset  - window size (or drag its corner)",

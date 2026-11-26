@@ -112,6 +112,9 @@ Hover any item (bags, bank, mail, chat links, the AH) to see:
 - **Buy cap** and **Buy quantity** on an item you've set a quick-buy cap for: the most you pay each, and the smallest listing the quick-buy key takes (`/goon quantity 20`)
 - **Disenchant value** for green, blue and purple gear, in green when disenchanting beats selling. Hold **Shift** to see what it breaks into. It uses each material's last known price and says how old it is when that's over a day. It starts from the WoW Forever disenchanting table, which goes by the item's **required level** (an estimate: the game doesn't tell addons what an item breaks into), and **learns from every disenchant you do**: after 20 of one kind of gear (say level 31-35 green armor) the odds are half yours, after 100 mostly yours.
 
+### Quick sell
+A **Quick sell** panel to the left of the Auction House posts your regular items in one click, at the price and stack size you saved, so you don't split stacks or type prices again. To save one, put the item in the AH's Sell slot, set its price each, the quantity per post (your stack size) and the duration, and press **Save** on the panel (or type `/goon sell save Linen Cloth 25s x5`). Then **click its row** to post a stack of that size at that price: the game splits a bigger stack for you, and each click posts one auction (a commodity posts all you have unless you saved a quantity). **Shift + right-click** a row removes it; saving the same item again replaces it. Alt + drag moves the panel.
+
 ### Minimap button
 The goblin under your minimap: **click** to open the terminal, **right-click** for your P&L, **drag** to move it. Hover it for the Goonberg Index and when the last scan was.
 
@@ -188,6 +191,16 @@ Prices can be written `3g50s`, `3g 50s 20c`, `75s`, `20c` or just `3.5` (gold).
 | `/goon partner paid 500g` / `got 500g` | Note gold that passed between you outside a trade or mail (those are noted by themselves) |
 | `/goon partner payments` | The gold between you two; `payments undo` takes back the last one |
 | `/goon partner unlink` | End the link (or take back a question nobody answered) |
+
+### Selling
+| Command | What it does |
+|---|---|
+| `/goon sell Linen Cloth 25s` | Post it now at that price each (`x5` for how many, `short` / `medium` / `long` for the duration). Put it in a macro for one key |
+| `/goon sell save` | Save the item in the AH's Sell view, with the price, quantity and duration you set there, to the Quick sell panel |
+| `/goon sell save Linen Cloth 25s x5` | Save a preset by name: 25s each, in stacks of 5 |
+| `/goon sell Linen Cloth` | Post its saved preset (works in a macro too) |
+| `/goon sell list` / `remove <item>` | Your presets; take one off |
+| `/goon sell panel on` / `off` / `reset` | Show, hide or re-place the Quick sell panel |
 
 ### Disenchanting
 | Command | What it does |

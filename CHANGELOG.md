@@ -1,5 +1,13 @@
 # Goonberg Terminal
 
+## 0.44.0 - Quick sell
+
+- **Sell your usual items in one click.** A new Quick sell panel beside the Auction House keeps a price and stack size per item. Set an item up once in the AH's Sell view (price each, how many per post, duration) and press **Save** on the panel. From then on, a click on its row posts it: no splitting stacks, no typing the price. Each click posts one auction; the game splits a bigger stack for you.
+- **Or by command.** `/goon sell save Linen Cloth 25s x5` saves a preset without the Sell view, `/goon sell Linen Cloth` posts it (so it works in a macro too), `/goon sell list` shows them and `/goon sell remove Linen Cloth` takes one off. Shift + right-click a row also removes it.
+- **`/goon sell ... x5` picks the right stack.** With a quantity, it posts from the smallest bag stack that has enough, instead of whichever comes first.
+- Alt + drag moves the panel; `/goon sell panel off` hides it and `panel reset` puts it back.
+- **Fixed: the reagent bag was left out.** Selling now finds items in your reagent bag, and the bags worth panel counts it. The bank worth panel read the reagent bag as your first bank bag and missed your last bank bag; it now reads the right bags (open the bank once to refresh it).
+
 ## 0.43.4 - Bags worth on the Combined Backpack
 
 - **Fixed: the bags worth panel didn't show with the Combined Backpack** (all your bags in one window). It now sits just above it. Alt + drag still moves it anywhere.

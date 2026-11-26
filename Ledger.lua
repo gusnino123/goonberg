@@ -275,7 +275,7 @@ local USE_DELAY = 2 -- seconds: lets a craft's "You create" message arrive first
 function L:Carried()
   local c = { bag = {}, worn = {}, ids = {} }
   if C_Container and C_Container.GetContainerNumSlots then
-    for bag = 0, 4 do
+    for bag = 0, FI.LastBag() do
       for slot = 1, C_Container.GetContainerNumSlots(bag) do
         local info = C_Container.GetContainerItemInfo(bag, slot)
         local name = info and knownName(info.itemID, info.hyperlink)
@@ -864,7 +864,8 @@ end
 -- ---------------------------------------------------------------------------
 local BANK = (Enum and Enum.BagIndex and Enum.BagIndex.Bank) or _G.BANK_CONTAINER or -1
 local function bankBags()
-  local first = (_G.NUM_BAG_SLOTS or 4) + 1
+  -- bank bags come after all your carried bags (after the reagent bag, where there is one)
+  local first = (Enum and Enum.BagIndex and Enum.BagIndex.BankBag_1) or (FI.LastBag() + 1)
   local list = { BANK }
   for b = first, first + (_G.NUM_BANKBAGSLOTS or 6) - 1 do list[#list + 1] = b end
   return list
@@ -941,7 +942,7 @@ function L:BagValue()
   if not C_Container or not C_Container.GetContainerNumSlots then return 0 end
   local realm = FI:Realm()
   local total = 0
-  for bag = 0, 4 do
+  for bag = 0, FI.LastBag() do
     for slot = 1, C_Container.GetContainerNumSlots(bag) do
       local info = C_Container.GetContainerItemInfo(bag, slot)
       if info and info.itemID and not info.isBound then
